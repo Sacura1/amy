@@ -5,45 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>$AMY - Berachain Ecosystem Token</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap');
-
-        body {
-            font-family: 'Fredoka', sans-serif;
-        }
-
-        .bg-pattern {
-            background-image: url('image.png');
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-        }
-
-        .text-shadow-strong {
-            text-shadow: 4px 4px 0px rgba(0,0,0,0.8);
-        }
-
-        .btn-samy {
-            background: #FF1493;
-            border: 4px solid #FFD700;
-            box-shadow: 0 8px 0 #000, 0 12px 20px rgba(0,0,0,0.5);
-            transition: all 0.2s;
-        }
-
-        .btn-samy:hover {
-            transform: translateY(4px);
-            box-shadow: 0 4px 0 #000, 0 6px 10px rgba(0,0,0,0.5);
-        }
-
-        .info-box {
-            background: rgba(0,0,0,0.85);
-            border: 3px solid #FFD700;
-            border-radius: 20px;
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
-<body class="bg-pattern min-h-screen text-white relative">
-    <div class="absolute inset-0 bg-cyan-400 mix-blend-multiply opacity-80"></div>
+<body class="min-h-screen text-white relative">
+    <div class="bg-pattern"></div>
+    <div class="bg-overlay"></div>
     <div class="relative z-10">
         <!-- Header -->
         <header class="container mx-auto px-4 py-4 md:py-6">
