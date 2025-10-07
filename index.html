@@ -22,9 +22,14 @@
             height: 100%;
             background-image: url('image.png');
             background-size: cover;
-            background-position: center center;
+            background-position: center top;
             background-repeat: no-repeat;
             z-index: -2;
+        }
+        @media (max-width: 768px) {
+            .bg-pattern {
+                background-position: center center;
+            }
         }
         .bg-overlay {
             position: fixed;
@@ -50,7 +55,7 @@
                     <button class="btn-samy text-white px-4 md:px-8 py-2 md:py-3 rounded-full text-sm md:text-xl font-bold uppercase">
                         HOME
                     </button>
-                    <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" class="btn-samy text-white px-4 md:px-8 py-2 md:py-3 rounded-full text-sm md:text-xl font-bold uppercase inline-block">
+                    <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="btn-samy text-white px-4 md:px-8 py-2 md:py-3 rounded-full text-sm md:text-xl font-bold uppercase inline-block">
                         BUY
                     </a>
                 </div>
@@ -58,7 +63,7 @@
         </header>
 
         <!-- Hero Section -->
-        <section class="container mx-auto px-4 py-8 md:py-12 text-center">
+        <section class="container mx-auto px-4 py-8 md:py-24 text-center">
             <div class="mb-6 md:mb-8">
                 <div class="w-32 h-32 md:w-48 md:h-48 mx-auto mb-4 md:mb-6 rounded-full overflow-hidden border-4 md:border-8 border-yellow-400 shadow-2xl">
                     <img src="pro.jpg" alt="$AMY" class="w-full h-full object-cover">
@@ -83,8 +88,8 @@
 
         <!-- Features Section -->
         <section class="container mx-auto px-4 py-8 md:py-12">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-                <div class="info-box p-6 md:p-8 text-center hover:scale-105 transition transform mx-auto max-w-md w-full">
+            <div class="flex justify-center">
+                <div class="info-box p-6 md:p-8 text-center hover:scale-105 transition transform max-w-md w-full">
                     <div class="text-4xl md:text-5xl mb-3 md:mb-4">🐻</div>
                     <div class="text-xl md:text-2xl font-bold text-yellow-400 mb-2">Berachain Native</div>
                     <div class="text-sm md:text-base text-gray-300">Built for the Berachain ecosystem</div>
@@ -121,8 +126,8 @@
                 </div>
 
                 <div class="mt-6 md:mt-8 space-y-3 md:space-y-4">
-                    <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" class="btn-samy w-full text-white px-6 md:px-8 py-3 md:py-4 rounded-full text-base md:text-xl font-bold uppercase block text-center">
-                        BUY NOW ON OSITA FINANCE
+                    <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="btn-samy w-full text-white px-6 md:px-8 py-3 md:py-4 rounded-full text-base md:text-xl font-bold uppercase block text-center">
+                        BUY NOW ON OSITO FINANCE
                     </a>
                     <button onclick="copyCA()" class="bg-yellow-500 w-full text-black px-6 md:px-8 py-3 md:py-4 rounded-full text-base md:text-xl font-bold uppercase border-4 border-black hover:bg-yellow-400 transition">
                         COPY CA
@@ -139,7 +144,7 @@
 
                 <div class="flex justify-center gap-6 md:gap-8">
                     <a href="https://x.com/amy_on_bera" target="_blank" rel="noopener noreferrer" class="group">
-                        <div class="bg-white rounded-full p-4 md:p-6 hover:scale-110 transition transform shadow-lg">
+                        <div class="bg-white rounded-full p-4 md:p-6 hover:scale-110 transition transform shadow-lg flex items-center justify-center w-16 h-16 md:w-24 md:h-24">
                             <svg class="w-8 h-8 md:w-12 md:h-12 text-black" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                             </svg>
@@ -148,7 +153,7 @@
                     </a>
 
                     <a href="https://t.me/amy_on_bera" target="_blank" rel="noopener noreferrer" class="group">
-                        <div class="bg-white rounded-full p-4 md:p-6 hover:scale-110 transition transform shadow-lg">
+                        <div class="bg-white rounded-full p-4 md:p-6 hover:scale-110 transition transform shadow-lg flex items-center justify-center w-16 h-16 md:w-24 md:h-24">
                             <svg class="w-8 h-8 md:w-12 md:h-12 text-black" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
                             </svg>
