@@ -1,49 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>$AMY - Berachain Ecosystem Token</title>
-    <link rel="icon" type="image/svg+xml" href="<?php echo get_template_directory_uri(); ?>/favicon.svg">
-    <link rel="apple-touch-icon" href="<?php echo get_template_directory_uri(); ?>/pro.jpg">
-    <link rel="preload" as="image" href="<?php echo get_template_directory_uri(); ?>/image.png">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="<?php echo get_stylesheet_uri(); ?>">
-    <style>
-        /* Critical CSS to prevent flash */
-        body {
-            background-color: #0891b2;
-            margin: 0;
-            padding: 0;
-        }
-        .bg-pattern {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-image: url('<?php echo get_template_directory_uri(); ?>/image.png');
-            background-size: cover;
-            background-position: center top;
-            background-repeat: no-repeat;
-            z-index: -2;
-        }
-        @media (max-width: 768px) {
-            .bg-pattern {
-                background-position: center center;
-            }
-        }
-        .bg-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 255, 255, 0.8);
-            mix-blend-mode: multiply;
-            z-index: -1;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>$AMY – Berachain Ecosystem Token</title>
+
+  <meta name="description" content="$AMY is a community-driven token in the Berachain ecosystem. Learn more about the project, roadmap, and how to get involved." />
+
+  <link rel="canonical" href="<?php echo esc_url( home_url( '/' ) ); ?>" />
+  <meta property="og:title" content="$AMY – Berachain Ecosystem Token" />
+  <meta property="og:description" content="$AMY is a community-driven token in the Berachain ecosystem. Learn more about the project, roadmap, and how to get involved." />
+  <meta property="og:url" content="<?php echo esc_url( home_url( '/' ) ); ?>" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="<?php echo esc_url( get_template_directory_uri() . '/pro.jpg' ); ?>" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="$AMY – Berachain Ecosystem Token" />
+  <meta name="twitter:description" content="$AMY is a community-driven token in the Berachain ecosystem. Learn more about the project, roadmap, and how to get involved." />
+  <meta name="twitter:image" content="<?php echo esc_url( get_template_directory_uri() . '/pro.jpg' ); ?>" />
+
+  <link rel="icon" type="image/svg+xml" href="<?php echo esc_url( get_template_directory_uri() . '/favicon.svg' ); ?>">
+  <link rel="apple-touch-icon" href="<?php echo esc_url( get_template_directory_uri() . '/pro.jpg' ); ?>">
+  <link rel="preload" as="image" href="<?php echo esc_url( get_template_directory_uri() . '/image.png' ); ?>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="<?php echo esc_url( get_stylesheet_uri() ); ?>">
+
+  <style>
+    /* Critical CSS to prevent flash */
+    body { background-color:#0891b2; margin:0; padding:0; }
+    .bg-pattern{
+      position:fixed; top:0; left:0; width:100%; height:100%;
+      background-image:url('<?php echo esc_url( get_template_directory_uri() . '/image.png' ); ?>');
+      background-size:cover; background-position:center top; background-repeat:no-repeat; z-index:-2;
+    }
+    @media (max-width:768px){ .bg-pattern{ background-position:center center; } }
+    .bg-overlay{
+      position:fixed; top:0; left:0; width:100%; height:100%;
+      background-color:rgba(0,255,255,0.8); mix-blend-mode:multiply; z-index:-1;
+    }
+  </style>
+
+  <?php wp_head(); ?>
 </head>
 <body class="min-h-screen text-white relative">
     <div class="bg-pattern"></div>
