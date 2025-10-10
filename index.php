@@ -12,7 +12,7 @@
 
   <link rel="canonical" href="<?php echo esc_url( home_url( '/' ) ); ?>" />
   <meta property="og:title" content="$AMY – Berachain Ecosystem Token" />
-  <meta property="og:description" content="$AMY is a community-driven token in the Berachain ecosystem. Learn more about the project, roadmap, and how to get involved." />
+  <meta property="og:description" content="$AMY is a community-driven token" />
   <meta property="og:url" content="<?php echo esc_url( home_url( '/' ) ); ?>" />
   <meta property="og:type" content="website" />
   <meta property="og:image" content="<?php echo esc_url( get_template_directory_uri() . '/pro.jpg' ); ?>" />
