@@ -79,3 +79,25 @@ body {
     border-radius: 20px;
 }
 
+#wpcombar,
+.wpcom-masterbar,
+.masterbar,
+a[href*="wordpress.com/log-in"],
+a[href*="wordpress.com/read"],
+a[href*="manage-subscriptions"],
+a[href*="subscribe"],
+div[id*="subscribe"],
+iframe[src*="wordpress.com"],
+div[class*="wpcom"],
+#eu-cookie-law,
+div[data-component="signup-bar"] {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
+body {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
