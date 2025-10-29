@@ -260,6 +260,17 @@
         <main class="flex-grow container mx-auto px-4 py-12 md:py-24">
             <div class="max-w-2xl mx-auto">
 
+                <!-- In-App Browser Warning (Hidden by default) -->
+                <div id="in-app-warning" class="hidden bg-yellow-500 bg-opacity-20 border-2 border-yellow-500 rounded-xl p-4 mb-6">
+                    <div class="flex items-start gap-3">
+                        <span class="text-2xl">⚠️</span>
+                        <div class="flex-1">
+                            <h3 class="text-lg font-bold text-yellow-400 mb-1">In-App Browser Detected</h3>
+                            <p class="text-sm text-yellow-200">X Account connection may not work in this browser. Please use Safari, Chrome, or your device's default browser for the best experience.</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- X Account Connection Card -->
                 <div class="glass-card p-4 md:p-6">
                     <div class="flex items-center justify-between gap-3 flex-wrap md:flex-nowrap">

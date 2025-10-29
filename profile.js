@@ -58,6 +58,15 @@ window.addEventListener('load', async () => {
     if (walletIndicator) walletIndicator.className = 'connection-status status-disconnected';
     if (xIndicator) xIndicator.className = 'connection-status status-disconnected';
 
+    // Show warning if in-app browser
+    const browserType = isInAppBrowser();
+    if (browserType) {
+        const warningEl = document.getElementById('in-app-warning');
+        if (warningEl) {
+            warningEl.classList.remove('hidden');
+        }
+    }
+
     // Fetch minimum balance from backend
     await fetchMinimumBalance();
 
@@ -165,34 +174,64 @@ async function connectWallet() {
     }
 
     try {
+        console.log('🔌 Requesting wallet connection...');
+
         // Request account access
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        const accounts = await window.ethereum.request({
+            method: 'eth_requestAccounts'
+        });
+
+        if (!accounts || accounts.length === 0) {
+            throw new Error('No accounts returned from wallet');
+        }
+
+        console.log('✅ Wallet connected:', accounts[0]);
 
         // Check if we're on Berachain network
         const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        console.log('Current chain ID:', chainId);
 
         if (chainId !== BERACHAIN_CONFIG.chainId) {
+            console.log('🔄 Switching to Berachain network...');
+
             // Try to switch to Berachain
             try {
                 await window.ethereum.request({
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: BERACHAIN_CONFIG.chainId }],
                 });
+                console.log('✅ Switched to Berachain');
             } catch (switchError) {
+                console.error('Switch error:', switchError);
+
+                // User rejected the request
+                if (switchError.code === 4001) {
+                    alert('You need to switch to Berachain network to use this app.');
+                    return;
+                }
+
                 // If the chain hasn't been added to MetaMask, add it
                 if (switchError.code === 4902) {
+                    console.log('📝 Adding Berachain network...');
                     try {
                         await window.ethereum.request({
                             method: 'wallet_addEthereumChain',
                             params: [BERACHAIN_CONFIG],
                         });
+                        console.log('✅ Berachain network added');
                     } catch (addError) {
                         console.error('Error adding Berachain network:', addError);
-                        alert('Please add Berachain network to your wallet manually.');
+
+                        if (addError.code === 4001) {
+                            alert('You need to add Berachain network to continue.');
+                        } else {
+                            alert('Failed to add Berachain network. Please add it manually in your wallet settings.');
+                        }
                         return;
                     }
                 } else {
                     console.error('Error switching to Berachain:', switchError);
+                    alert('Failed to switch network. Please switch to Berachain manually in your wallet.');
                     return;
                 }
             }
@@ -204,14 +243,30 @@ async function connectWallet() {
         sessionStorage.setItem('walletConnected', 'true');
         sessionStorage.setItem('walletAddress', userWallet);
 
+        console.log('💾 Wallet saved to session');
+
         await updateWalletUI(true);
         await checkTokenBalance();
         await checkIfAdmin();
         checkVerificationEligibility();
 
+        console.log('✅ Wallet connection complete');
+
     } catch (error) {
-        console.error('Error connecting wallet:', error);
-        alert('Failed to connect wallet. Please try again.');
+        console.error('❌ Error connecting wallet:', error);
+
+        // More specific error messages
+        if (error.code === 4001) {
+            // User rejected the request
+            alert('Connection rejected. Please approve the connection request to continue.');
+        } else if (error.code === -32002) {
+            // Request already pending
+            alert('Connection request already pending. Please check your wallet.');
+        } else if (error.message && error.message.includes('Already processing')) {
+            alert('Please check your wallet - a connection request is already open.');
+        } else {
+            alert('Failed to connect wallet: ' + (error.message || 'Unknown error') + '\n\nPlease try again or refresh the page.');
+        }
     }
 }
 
@@ -328,6 +383,41 @@ function updateAdminSection() {
     }
 }
 
+// Detect if user is in MetaMask or other in-app browser
+function isInAppBrowser() {
+    const ua = navigator.userAgent || navigator.vendor || window.opera;
+
+    // Check for MetaMask mobile browser
+    if (ua.indexOf('MetaMaskMobile') > -1) {
+        return 'MetaMask';
+    }
+
+    // Check for Trust Wallet
+    if (ua.indexOf('Trust') > -1) {
+        return 'Trust Wallet';
+    }
+
+    // Check for other common in-app browsers
+    if (ua.indexOf('FBAN') > -1 || ua.indexOf('FBAV') > -1) {
+        return 'Facebook';
+    }
+
+    if (ua.indexOf('Instagram') > -1) {
+        return 'Instagram';
+    }
+
+    // Check for iOS/Android WebView
+    if (/(iPhone|iPod|iPad).*AppleWebKit(?!.*Safari)/i.test(ua)) {
+        return 'iOS WebView';
+    }
+
+    if (/; wv\)/.test(ua)) {
+        return 'Android WebView';
+    }
+
+    return false;
+}
+
 // Connect X Account - Real OAuth Flow
 async function connectX() {
     if (!userWallet) {
@@ -335,7 +425,40 @@ async function connectX() {
         return;
     }
 
-    // Redirect to backend OAuth endpoint with wallet parameter
+    // Check if in-app browser
+    const browserType = isInAppBrowser();
+    if (browserType) {
+        const oauthUrl = `${API_BASE_URL}/auth/x?wallet=${userWallet}`;
+
+        // Show instructions for in-app browser users
+        const message = `⚠️ In-App Browser Detected (${browserType})\n\n` +
+            `X OAuth doesn't work in ${browserType} browser.\n\n` +
+            `Please:\n` +
+            `1. Copy this URL and open it in your regular browser (Safari/Chrome):\n` +
+            `   ${window.location.origin}/profile.html\n\n` +
+            `2. Or tap the menu (⋮) and select "Open in Browser"\n\n` +
+            `Would you like to try opening in external browser?`;
+
+        if (confirm(message)) {
+            // Try to open in external browser
+            try {
+                // Create a temporary link and click it
+                const a = document.createElement('a');
+                a.href = oauthUrl;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } catch (error) {
+                console.error('Error opening external browser:', error);
+                alert('Please manually copy the URL and open in your browser:\n\n' + window.location.origin + '/profile.html');
+            }
+        }
+        return;
+    }
+
+    // Normal flow for regular browsers
     window.location.href = `${API_BASE_URL}/auth/x?wallet=${userWallet}`;
 }
 
