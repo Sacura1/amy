@@ -54,31 +54,49 @@ async function fetchMinimumBalance() {
 
 // Initialize Web3Modal
 function initWeb3Modal() {
-    const providerOptions = {
-        walletconnect: {
-            package: WalletConnectProvider.default,
-            options: {
-                rpc: {
-                    80084: 'https://rpc.berachain.com/',
-                },
-                chainId: 80084,
-                network: 'berachain'
-            }
+    try {
+        // Check if Web3Modal and WalletConnect are loaded
+        if (typeof Web3Modal === 'undefined') {
+            console.warn('⚠️ Web3Modal not loaded, will use MetaMask only');
+            return;
         }
-    };
 
-    web3Modal = new Web3Modal.default({
-        cacheProvider: true,
-        providerOptions,
-        disableInjectedProvider: false,
-        theme: {
-            background: "rgb(17, 24, 39)",
-            main: "rgb(255, 255, 255)",
-            secondary: "rgb(156, 163, 175)",
-            border: "rgba(255, 215, 0, 0.4)",
-            hover: "rgb(31, 41, 55)"
+        if (typeof WalletConnectProvider === 'undefined') {
+            console.warn('⚠️ WalletConnect not loaded, will use MetaMask only');
+            return;
         }
-    });
+
+        const providerOptions = {
+            walletconnect: {
+                package: WalletConnectProvider.default,
+                options: {
+                    rpc: {
+                        80084: 'https://rpc.berachain.com/',
+                    },
+                    chainId: 80084,
+                    network: 'berachain'
+                }
+            }
+        };
+
+        web3Modal = new Web3Modal.default({
+            cacheProvider: true,
+            providerOptions,
+            disableInjectedProvider: false,
+            theme: {
+                background: "rgb(17, 24, 39)",
+                main: "rgb(255, 255, 255)",
+                secondary: "rgb(156, 163, 175)",
+                border: "rgba(255, 215, 0, 0.4)",
+                hover: "rgb(31, 41, 55)"
+            }
+        });
+
+        console.log('✅ Web3Modal initialized');
+    } catch (error) {
+        console.error('❌ Error initializing Web3Modal:', error);
+        console.log('Will fallback to MetaMask only');
+    }
 }
 
 // Initialize on page load
@@ -176,8 +194,80 @@ async function checkExistingConnection() {
     }
 }
 
+// Direct MetaMask connection (fallback)
+async function connectMetaMaskDirect() {
+    if (typeof window.ethereum === 'undefined') {
+        alert('Please install MetaMask or another Web3 wallet to continue!');
+        window.open('https://metamask.io/download/', '_blank');
+        return;
+    }
+
+    try {
+        console.log('🔌 Connecting to MetaMask directly...');
+
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+        if (!accounts || accounts.length === 0) {
+            throw new Error('No accounts returned');
+        }
+
+        console.log('✅ MetaMask connected:', accounts[0]);
+
+        // Check network
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+
+        if (chainId !== BERACHAIN_CONFIG.chainId) {
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: BERACHAIN_CONFIG.chainId }],
+                });
+            } catch (switchError) {
+                if (switchError.code === 4902) {
+                    await window.ethereum.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [BERACHAIN_CONFIG],
+                    });
+                } else if (switchError.code === 4001) {
+                    alert('Please switch to Berachain network to continue.');
+                    return;
+                } else {
+                    throw switchError;
+                }
+            }
+        }
+
+        userWallet = accounts[0];
+        provider = window.ethereum;
+
+        sessionStorage.setItem('walletConnected', 'true');
+        sessionStorage.setItem('walletAddress', userWallet);
+
+        await updateWalletUI(true);
+        await checkTokenBalance();
+        await checkIfAdmin();
+        checkVerificationEligibility();
+
+        console.log('✅ Direct connection complete');
+
+    } catch (error) {
+        console.error('❌ Error connecting:', error);
+        if (error.code === 4001) {
+            alert('Connection rejected.');
+        } else {
+            alert('Failed to connect: ' + (error.message || 'Unknown error'));
+        }
+    }
+}
+
 // Connect Wallet Function (with Web3Modal + WalletConnect support)
 async function connectWallet() {
+    // Fallback to direct MetaMask if Web3Modal not available
+    if (!web3Modal) {
+        console.log('⚠️ Web3Modal not available, using direct MetaMask connection');
+        return await connectMetaMaskDirect();
+    }
+
     try {
         console.log('🔌 Opening wallet selection...');
 
