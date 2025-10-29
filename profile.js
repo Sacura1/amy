@@ -401,15 +401,15 @@ function updateEligibilityStatus() {
     const isEligible = amyBalance >= MINIMUM_AMY_BALANCE;
 
     if (isEligible) {
-        eligibilityIcon.textContent = '🎉';
-        eligibilityTitle.textContent = 'You\'re on the Leaderboard!';
+        eligibilityIcon.textContent = '✅';
+        eligibilityTitle.textContent = 'Eligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-green-400';
-        eligibilityMessage.textContent = `You have ${amyBalance.toFixed(2)} $AMY tokens and are eligible for the leaderboard.`;
+        eligibilityMessage.textContent = `You have at least ${MINIMUM_AMY_BALANCE} $AMY and you are on the AMY cookie leaderboard.`;
     } else {
-        eligibilityIcon.textContent = '💎';
-        eligibilityTitle.textContent = 'Almost There!';
-        eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-yellow-400';
-        eligibilityMessage.textContent = `You need at least ${MINIMUM_AMY_BALANCE} $AMY tokens to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY.`;
+        eligibilityIcon.textContent = '❌';
+        eligibilityTitle.textContent = 'Ineligible';
+        eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
+        eligibilityMessage.textContent = `You need at least ${MINIMUM_AMY_BALANCE} $AMY and be on the cookie leaderboard to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY.`;
     }
 }
 
