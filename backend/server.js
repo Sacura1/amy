@@ -118,7 +118,9 @@ console.log('📋 Admin wallets loaded:', ADMIN_WALLETS.length);
 
 // AMY Token Configuration
 const AMY_TOKEN_ADDRESS = '0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e';
-const MINIMUM_AMY_BALANCE = 0; // TEMPORARILY SET TO 0 FOR TESTING - Change back to 300 for production
+const MINIMUM_AMY_BALANCE = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+
+console.log('💎 Minimum AMY balance requirement:', MINIMUM_AMY_BALANCE);
 
 // Middleware
 app.use(cors({

@@ -20,7 +20,7 @@ const BERACHAIN_CONFIG = {
 
 // AMY Token Configuration
 const AMY_TOKEN_ADDRESS = '0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e';
-const MINIMUM_AMY_BALANCE = 0; // TEMPORARILY SET TO 0 FOR TESTING - Change back to 300 for production
+let MINIMUM_AMY_BALANCE = 300; // Default value, will be updated from backend
 
 // ERC20 ABI (only the functions we need)
 const ERC20_ABI = [
@@ -35,6 +35,21 @@ let userXAccount = null;
 let amyBalance = 0;
 let isUserAdmin = false;
 
+// Fetch minimum AMY balance from backend
+async function fetchMinimumBalance() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/leaderboard`);
+        const result = await response.json();
+        if (result.success && result.data.minimumAMY !== undefined) {
+            MINIMUM_AMY_BALANCE = result.data.minimumAMY;
+            console.log('💎 Minimum AMY balance:', MINIMUM_AMY_BALANCE);
+        }
+    } catch (error) {
+        console.error('Error fetching minimum balance:', error);
+        // Keep default value of 300
+    }
+}
+
 // Initialize on page load
 window.addEventListener('load', async () => {
     // Initialize status indicators to disconnected
@@ -42,6 +57,9 @@ window.addEventListener('load', async () => {
     const xIndicator = document.getElementById('x-status-indicator');
     if (walletIndicator) walletIndicator.className = 'connection-status status-disconnected';
     if (xIndicator) xIndicator.className = 'connection-status status-disconnected';
+
+    // Fetch minimum balance from backend
+    await fetchMinimumBalance();
 
     // Restore X account from session storage
     const savedXUsername = sessionStorage.getItem('xUsername');
