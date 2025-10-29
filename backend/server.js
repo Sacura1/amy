@@ -122,7 +122,7 @@ const MINIMUM_AMY_BALANCE = 0; // TEMPORARILY SET TO 0 FOR TESTING - Change back
 
 // Middleware
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin:'https://amybera.xyz',
     credentials: true
 }));
 app.use(express.json());
