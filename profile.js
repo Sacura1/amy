@@ -1,5 +1,5 @@
 // Backend API Configuration
-const API_BASE_URL = 'http://localhost:3001'; // Change to your backend URL in production
+const API_BASE_URL = 'https://amy-production-fd10.up.railway.app'; // Change to your backend URL in production
 
 // Berachain Network Configuration (MAINNET)
 const BERACHAIN_CONFIG = {

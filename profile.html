@@ -82,6 +82,18 @@
             border: 2px solid rgba(255, 215, 0, 0.3);
         }
 
+        .icon-badge-small {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 165, 0, 0.2));
+            border-radius: 12px;
+            font-size: 20px;
+            border: 2px solid rgba(255, 215, 0, 0.3);
+        }
+
         @media (max-width: 768px) {
             .glass-card {
                 border-radius: 16px;
@@ -91,6 +103,12 @@
                 width: 48px;
                 height: 48px;
                 font-size: 24px;
+            }
+
+            .icon-badge-small {
+                width: 36px;
+                height: 36px;
+                font-size: 18px;
             }
 
             .wallet-chip {
@@ -243,22 +261,22 @@
             <div class="max-w-2xl mx-auto">
 
                 <!-- X Account Connection Card -->
-                <div class="glass-card p-6 md:p-8">
-                    <div class="flex items-center justify-between gap-4 flex-wrap md:flex-nowrap">
-                        <div class="flex items-center gap-4 md:gap-5 flex-1 min-w-[200px]">
-                            <div class="icon-badge flex-shrink-0">
+                <div class="glass-card p-4 md:p-6">
+                    <div class="flex items-center justify-between gap-3 flex-wrap md:flex-nowrap">
+                        <div class="flex items-center gap-3 flex-1 min-w-[200px]">
+                            <div class="icon-badge-small flex-shrink-0">
                                 𝕏
                             </div>
                             <div class="flex-1">
                                 <div class="flex items-center gap-2 mb-1">
                                     <span class="connection-status" id="x-status-indicator"></span>
-                                    <h3 class="text-xl md:text-2xl font-bold text-yellow-400">X Account</h3>
+                                    <h3 class="text-lg md:text-xl font-bold text-yellow-400">X Account</h3>
                                 </div>
-                                <p class="text-xs md:text-sm text-gray-300" id="x-status">Not connected</p>
-                                <p class="text-sm md:text-base text-gray-200 mt-1 font-semibold" id="x-username"></p>
+                                <p class="text-xs text-gray-300" id="x-status">Not connected</p>
+                                <p class="text-sm text-gray-200 mt-1 font-semibold" id="x-username"></p>
                             </div>
                         </div>
-                        <button onclick="connectX()" id="x-btn" class="btn-samy text-white px-6 md:px-10 py-3 md:py-4 rounded-full text-sm md:text-lg font-bold uppercase w-full md:w-auto">
+                        <button onclick="connectX()" id="x-btn" class="btn-samy text-white px-4 md:px-6 py-2 md:py-3 rounded-full text-sm md:text-base font-bold uppercase w-full md:w-auto">
                             CONNECT
                         </button>
                     </div>
