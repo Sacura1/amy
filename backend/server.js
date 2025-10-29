@@ -128,14 +128,21 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json());
+
+// Trust proxy - important for Railway deployment
+app.set('trust proxy', 1);
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'amy-verification-secret-change-this',
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: true, // Changed to true to ensure session is created
+    proxy: true, // Trust the reverse proxy
     cookie: {
-        secure: process.env.NODE_ENV === 'production',
+        secure: process.env.NODE_ENV === 'production', // HTTPS only in production
         httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax', // Allow same-site navigation
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        domain: process.env.NODE_ENV === 'production' ? undefined : undefined // Let browser handle it
     }
 }));
 
@@ -203,6 +210,11 @@ app.get('/auth/x', (req, res) => {
     req.session.state = state;
     req.session.wallet = wallet;
 
+    console.log('🔐 Starting OAuth flow');
+    console.log('Session ID:', req.sessionID);
+    console.log('State generated:', state);
+    console.log('Wallet:', wallet);
+
     const authUrl = `https://x.com/i/oauth2/authorize?` +
         `response_type=code` +
         `&client_id=${process.env.TWITTER_CLIENT_ID}` +
@@ -219,9 +231,24 @@ app.get('/auth/x', (req, res) => {
 app.get('/auth/x/callback', async (req, res) => {
     const { code, state } = req.query;
 
+    // Debug logging
+    console.log('📥 OAuth callback received');
+    console.log('State from query:', state);
+    console.log('State from session:', req.session.state);
+    console.log('Session ID:', req.sessionID);
+
+    // Check if session exists
+    if (!req.session || !req.session.state) {
+        console.error('❌ Session lost - no state in session');
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        return res.redirect(`${frontendUrl}/profile.html?error=session_lost`);
+    }
+
     // Verify state (CSRF protection)
     if (state !== req.session.state) {
-        return res.status(403).send('State mismatch. Possible CSRF attack.');
+        console.error('❌ State mismatch:', { received: state, expected: req.session.state });
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        return res.redirect(`${frontendUrl}/profile.html?error=state_mismatch`);
     }
 
     try {
