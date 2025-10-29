@@ -82,7 +82,7 @@ function initWeb3Modal() {
         web3Modal = new Web3Modal.default({
             cacheProvider: true,
             providerOptions,
-            disableInjectedProvider: false,
+            disableInjectedProvider: true, // We handle MetaMask directly
             theme: {
                 background: "rgb(17, 24, 39)",
                 main: "rgb(255, 255, 255)",
@@ -179,8 +179,19 @@ async function checkOAuthCallback() {
 // Check if wallet is already connected
 async function checkExistingConnection() {
     try {
-        // Check if Web3Modal has cached provider
+        // First check if MetaMask/wallet is available
+        if (typeof window.ethereum !== 'undefined') {
+            const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+            if (accounts && accounts.length > 0) {
+                console.log('🔄 Reconnecting to wallet...');
+                await connectMetaMaskDirect();
+                return;
+            }
+        }
+
+        // Check if Web3Modal has cached provider (WalletConnect)
         if (web3Modal && web3Modal.cachedProvider) {
+            console.log('🔄 Reconnecting to WalletConnect...');
             await connectWallet();
         }
     } catch (error) {
@@ -262,16 +273,24 @@ async function connectMetaMaskDirect() {
 
 // Connect Wallet Function (with Web3Modal + WalletConnect support)
 async function connectWallet() {
-    // Fallback to direct MetaMask if Web3Modal not available
-    if (!web3Modal) {
-        console.log('⚠️ Web3Modal not available, using direct MetaMask connection');
+    // Check if MetaMask (or any wallet) is already available
+    if (typeof window.ethereum !== 'undefined') {
+        console.log('✅ Wallet detected, connecting directly...');
         return await connectMetaMaskDirect();
     }
 
-    try {
-        console.log('🔌 Opening wallet selection...');
+    // No wallet detected - show WalletConnect for mobile users
+    if (!web3Modal) {
+        console.log('❌ No wallet detected and Web3Modal not available');
+        alert('Please install MetaMask or use a wallet app to continue!');
+        window.open('https://metamask.io/download/', '_blank');
+        return;
+    }
 
-        // Open Web3Modal
+    try {
+        console.log('🔌 No wallet detected, showing WalletConnect...');
+
+        // Open Web3Modal (will show WalletConnect only)
         provider = await web3Modal.connect();
 
         console.log('✅ Provider connected');
