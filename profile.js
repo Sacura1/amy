@@ -34,6 +34,8 @@ let userWallet = null;
 let userXAccount = null;
 let amyBalance = 0;
 let isUserAdmin = false;
+let web3Modal = null;
+let provider = null;
 
 // Fetch minimum AMY balance from backend
 async function fetchMinimumBalance() {
@@ -50,6 +52,35 @@ async function fetchMinimumBalance() {
     }
 }
 
+// Initialize Web3Modal
+function initWeb3Modal() {
+    const providerOptions = {
+        walletconnect: {
+            package: WalletConnectProvider.default,
+            options: {
+                rpc: {
+                    80084: 'https://rpc.berachain.com/',
+                },
+                chainId: 80084,
+                network: 'berachain'
+            }
+        }
+    };
+
+    web3Modal = new Web3Modal.default({
+        cacheProvider: true,
+        providerOptions,
+        disableInjectedProvider: false,
+        theme: {
+            background: "rgb(17, 24, 39)",
+            main: "rgb(255, 255, 255)",
+            secondary: "rgb(156, 163, 175)",
+            border: "rgba(255, 215, 0, 0.4)",
+            hover: "rgb(31, 41, 55)"
+        }
+    });
+}
+
 // Initialize on page load
 window.addEventListener('load', async () => {
     // Initialize status indicators to disconnected
@@ -58,14 +89,8 @@ window.addEventListener('load', async () => {
     if (walletIndicator) walletIndicator.className = 'connection-status status-disconnected';
     if (xIndicator) xIndicator.className = 'connection-status status-disconnected';
 
-    // Show warning if in-app browser
-    const browserType = isInAppBrowser();
-    if (browserType) {
-        const warningEl = document.getElementById('in-app-warning');
-        if (warningEl) {
-            warningEl.classList.remove('hidden');
-        }
-    }
+    // Initialize Web3Modal
+    initWeb3Modal();
 
     // Fetch minimum balance from backend
     await fetchMinimumBalance();
@@ -135,68 +160,48 @@ async function checkOAuthCallback() {
 
 // Check if wallet is already connected
 async function checkExistingConnection() {
-    if (typeof window.ethereum !== 'undefined') {
-        try {
-            // Check MetaMask connection
-            const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-            if (accounts.length > 0) {
-                userWallet = accounts[0];
-                sessionStorage.setItem('walletConnected', 'true');
-                sessionStorage.setItem('walletAddress', userWallet);
-                await updateWalletUI(true);
-                await checkTokenBalance();
-                await checkIfAdmin();
-            } else if (sessionStorage.getItem('walletConnected') === 'true') {
-                // Wallet was connected before but lost connection, try to reconnect
-                const reconnectAccounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-                if (reconnectAccounts.length > 0) {
-                    userWallet = reconnectAccounts[0];
-                    await updateWalletUI(true);
-                    await checkTokenBalance();
-                    await checkIfAdmin();
-                }
-            }
-        } catch (error) {
-            console.error('Error checking existing connection:', error);
-            // Clear session storage if connection fails
-            sessionStorage.removeItem('walletConnected');
-            sessionStorage.removeItem('walletAddress');
+    try {
+        // Check if Web3Modal has cached provider
+        if (web3Modal && web3Modal.cachedProvider) {
+            await connectWallet();
         }
+    } catch (error) {
+        console.error('Error checking existing connection:', error);
+        // Clear cache if connection fails
+        if (web3Modal) {
+            web3Modal.clearCachedProvider();
+        }
+        sessionStorage.removeItem('walletConnected');
+        sessionStorage.removeItem('walletAddress');
     }
 }
 
-// Connect Wallet Function
+// Connect Wallet Function (with Web3Modal + WalletConnect support)
 async function connectWallet() {
-    if (typeof window.ethereum === 'undefined') {
-        alert('Please install MetaMask or another Web3 wallet to continue!');
-        window.open('https://metamask.io/download/', '_blank');
-        return;
-    }
-
     try {
-        console.log('🔌 Requesting wallet connection...');
+        console.log('🔌 Opening wallet selection...');
 
-        // Request account access
-        const accounts = await window.ethereum.request({
-            method: 'eth_requestAccounts'
-        });
+        // Open Web3Modal
+        provider = await web3Modal.connect();
 
-        if (!accounts || accounts.length === 0) {
-            throw new Error('No accounts returned from wallet');
-        }
+        console.log('✅ Provider connected');
 
-        console.log('✅ Wallet connected:', accounts[0]);
+        // Create ethers provider
+        const ethersProvider = new ethers.providers.Web3Provider(provider);
+        const signer = ethersProvider.getSigner();
+        const address = await signer.getAddress();
+        const network = await ethersProvider.getNetwork();
 
-        // Check if we're on Berachain network
-        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-        console.log('Current chain ID:', chainId);
+        console.log('Wallet address:', address);
+        console.log('Current network:', network.chainId);
 
-        if (chainId !== BERACHAIN_CONFIG.chainId) {
-            console.log('🔄 Switching to Berachain network...');
+        // Check if on Berachain
+        if (network.chainId !== 80084) {
+            console.log('🔄 Requesting network switch to Berachain...');
 
-            // Try to switch to Berachain
             try {
-                await window.ethereum.request({
+                // Try to switch network
+                await provider.request({
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: BERACHAIN_CONFIG.chainId }],
                 });
@@ -204,46 +209,50 @@ async function connectWallet() {
             } catch (switchError) {
                 console.error('Switch error:', switchError);
 
-                // User rejected the request
+                // User rejected
                 if (switchError.code === 4001) {
                     alert('You need to switch to Berachain network to use this app.');
+                    await disconnectWallet();
                     return;
                 }
 
-                // If the chain hasn't been added to MetaMask, add it
-                if (switchError.code === 4902) {
+                // Network not added
+                if (switchError.code === 4902 || switchError.message?.includes('Unrecognized chain')) {
                     console.log('📝 Adding Berachain network...');
                     try {
-                        await window.ethereum.request({
+                        await provider.request({
                             method: 'wallet_addEthereumChain',
                             params: [BERACHAIN_CONFIG],
                         });
                         console.log('✅ Berachain network added');
                     } catch (addError) {
-                        console.error('Error adding Berachain network:', addError);
-
+                        console.error('Error adding network:', addError);
                         if (addError.code === 4001) {
                             alert('You need to add Berachain network to continue.');
                         } else {
-                            alert('Failed to add Berachain network. Please add it manually in your wallet settings.');
+                            alert('Failed to add Berachain network. Please add it manually.');
                         }
+                        await disconnectWallet();
                         return;
                     }
                 } else {
-                    console.error('Error switching to Berachain:', switchError);
-                    alert('Failed to switch network. Please switch to Berachain manually in your wallet.');
+                    alert('Failed to switch network. Please switch to Berachain manually.');
+                    await disconnectWallet();
                     return;
                 }
             }
         }
 
-        userWallet = accounts[0];
+        userWallet = address;
 
-        // Save wallet connection state
+        // Save connection state
         sessionStorage.setItem('walletConnected', 'true');
         sessionStorage.setItem('walletAddress', userWallet);
 
         console.log('💾 Wallet saved to session');
+
+        // Subscribe to provider events
+        subscribeToProviderEvents(provider);
 
         await updateWalletUI(true);
         await checkTokenBalance();
@@ -255,19 +264,49 @@ async function connectWallet() {
     } catch (error) {
         console.error('❌ Error connecting wallet:', error);
 
-        // More specific error messages
+        // Handle errors
+        if (error === 'Modal closed by user') {
+            console.log('User closed modal');
+            return;
+        }
+
         if (error.code === 4001) {
-            // User rejected the request
-            alert('Connection rejected. Please approve the connection request to continue.');
+            alert('Connection rejected. Please approve the connection request.');
         } else if (error.code === -32002) {
-            // Request already pending
             alert('Connection request already pending. Please check your wallet.');
-        } else if (error.message && error.message.includes('Already processing')) {
-            alert('Please check your wallet - a connection request is already open.');
         } else {
-            alert('Failed to connect wallet: ' + (error.message || 'Unknown error') + '\n\nPlease try again or refresh the page.');
+            alert('Failed to connect wallet: ' + (error.message || 'Unknown error') + '\n\nPlease try again.');
         }
     }
+}
+
+// Subscribe to provider events
+function subscribeToProviderEvents(provider) {
+    if (!provider.on) return;
+
+    provider.on('accountsChanged', async (accounts) => {
+        console.log('Accounts changed:', accounts);
+        if (accounts.length === 0) {
+            await disconnectWallet();
+        } else {
+            userWallet = accounts[0];
+            sessionStorage.setItem('walletAddress', userWallet);
+            await updateWalletUI(true);
+            await checkTokenBalance();
+            await checkIfAdmin();
+            await loadVerificationStatus();
+        }
+    });
+
+    provider.on('chainChanged', (chainId) => {
+        console.log('Chain changed:', chainId);
+        window.location.reload();
+    });
+
+    provider.on('disconnect', () => {
+        console.log('Provider disconnected');
+        disconnectWallet();
+    });
 }
 
 // Update wallet UI
@@ -290,10 +329,21 @@ async function updateWalletUI(connected) {
 }
 
 // Disconnect wallet
-function disconnectWallet() {
+async function disconnectWallet() {
+    // Disconnect provider
+    if (provider && provider.disconnect) {
+        await provider.disconnect();
+    }
+
+    // Clear Web3Modal cache
+    if (web3Modal) {
+        web3Modal.clearCachedProvider();
+    }
+
     userWallet = null;
     amyBalance = 0;
     isUserAdmin = false;
+    provider = null;
 
     // Clear session storage
     sessionStorage.removeItem('walletConnected');
@@ -309,11 +359,11 @@ function disconnectWallet() {
 
 // Check AMY token balance
 async function checkTokenBalance() {
-    if (!userWallet) return;
+    if (!userWallet || !provider) return;
 
     try {
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const tokenContract = new ethers.Contract(AMY_TOKEN_ADDRESS, ERC20_ABI, provider);
+        const ethersProvider = new ethers.providers.Web3Provider(provider);
+        const tokenContract = new ethers.Contract(AMY_TOKEN_ADDRESS, ERC20_ABI, ethersProvider);
 
         const balance = await tokenContract.balanceOf(userWallet);
         const decimals = await tokenContract.decimals();
@@ -383,41 +433,6 @@ function updateAdminSection() {
     }
 }
 
-// Detect if user is in MetaMask or other in-app browser
-function isInAppBrowser() {
-    const ua = navigator.userAgent || navigator.vendor || window.opera;
-
-    // Check for MetaMask mobile browser
-    if (ua.indexOf('MetaMaskMobile') > -1) {
-        return 'MetaMask';
-    }
-
-    // Check for Trust Wallet
-    if (ua.indexOf('Trust') > -1) {
-        return 'Trust Wallet';
-    }
-
-    // Check for other common in-app browsers
-    if (ua.indexOf('FBAN') > -1 || ua.indexOf('FBAV') > -1) {
-        return 'Facebook';
-    }
-
-    if (ua.indexOf('Instagram') > -1) {
-        return 'Instagram';
-    }
-
-    // Check for iOS/Android WebView
-    if (/(iPhone|iPod|iPad).*AppleWebKit(?!.*Safari)/i.test(ua)) {
-        return 'iOS WebView';
-    }
-
-    if (/; wv\)/.test(ua)) {
-        return 'Android WebView';
-    }
-
-    return false;
-}
-
 // Connect X Account - Real OAuth Flow
 async function connectX() {
     if (!userWallet) {
@@ -425,40 +440,10 @@ async function connectX() {
         return;
     }
 
-    // Check if in-app browser
-    const browserType = isInAppBrowser();
-    if (browserType) {
-        const oauthUrl = `${API_BASE_URL}/auth/x?wallet=${userWallet}`;
+    console.log('🔐 Starting X OAuth flow...');
+    console.log('Wallet:', userWallet);
+    console.log('Redirecting to:', `${API_BASE_URL}/auth/x?wallet=${userWallet}`);
 
-        // Show instructions for in-app browser users
-        const message = `⚠️ In-App Browser Detected (${browserType})\n\n` +
-            `X OAuth doesn't work in ${browserType} browser.\n\n` +
-            `Please:\n` +
-            `1. Copy this URL and open it in your regular browser (Safari/Chrome):\n` +
-            `   ${window.location.origin}/profile.html\n\n` +
-            `2. Or tap the menu (⋮) and select "Open in Browser"\n\n` +
-            `Would you like to try opening in external browser?`;
-
-        if (confirm(message)) {
-            // Try to open in external browser
-            try {
-                // Create a temporary link and click it
-                const a = document.createElement('a');
-                a.href = oauthUrl;
-                a.target = '_blank';
-                a.rel = 'noopener noreferrer';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            } catch (error) {
-                console.error('Error opening external browser:', error);
-                alert('Please manually copy the URL and open in your browser:\n\n' + window.location.origin + '/profile.html');
-            }
-        }
-        return;
-    }
-
-    // Normal flow for regular browsers
     window.location.href = `${API_BASE_URL}/auth/x?wallet=${userWallet}`;
 }
 
@@ -638,24 +623,7 @@ async function downloadSpreadsheet() {
     }
 }
 
-// Listen for account changes
-if (typeof window.ethereum !== 'undefined') {
-    window.ethereum.on('accountsChanged', async (accounts) => {
-        if (accounts.length === 0) {
-            disconnectWallet();
-        } else {
-            userWallet = accounts[0];
-            await updateWalletUI(true);
-            await checkTokenBalance();
-            await checkIfAdmin();
-            await loadVerificationStatus();
-        }
-    });
-
-    window.ethereum.on('chainChanged', () => {
-        window.location.reload();
-    });
-}
+// Event listeners are now handled in subscribeToProviderEvents()
 
 // ============================================
 // LEADERBOARD
