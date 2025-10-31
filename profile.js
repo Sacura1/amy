@@ -921,19 +921,23 @@ async function loadAdminLeaderboard() {
         entries.sort((a, b) => a.position - b.position);
 
         const entriesHTML = entries.map(entry => `
-            <div class="bg-gray-800 p-3 rounded-lg mb-2 flex items-center justify-between">
-                <div class="flex-1">
-                    <span class="text-white font-bold">#${entry.position}</span>
-                    <span class="text-yellow-400 ml-3">@${entry.xUsername}</span>
-                    <span class="text-green-400 ml-3">${entry.mindshare}% MS</span>
-                </div>
-                <div class="flex gap-2">
-                    <button onclick="editLeaderboardEntry(${entry.position})" class="bg-blue-500 text-white px-3 py-1 rounded text-xs font-bold hover:bg-blue-600">
-                        ✏️ EDIT
-                    </button>
-                    <button onclick="deleteLeaderboardEntry(${entry.position})" class="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold hover:bg-red-600">
-                        🗑️ DELETE
-                    </button>
+            <div class="bg-gradient-to-r from-gray-800 to-gray-900 p-3 rounded-lg mb-3 border border-yellow-400/20 hover:border-yellow-400/40 transition-all">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <!-- Info Section -->
+                    <div class="flex-1 flex flex-wrap items-center gap-2">
+                        <span class="inline-flex items-center justify-center bg-yellow-500/20 text-yellow-300 font-black text-sm px-2.5 py-1 rounded-lg border border-yellow-400/30">#${entry.position}</span>
+                        <span class="text-white font-semibold text-sm">@${entry.xUsername}</span>
+                        <span class="inline-flex items-center bg-green-500/20 text-green-400 font-bold text-xs px-2 py-1 rounded-full border border-green-400/30">${entry.mindshare}% MS</span>
+                    </div>
+                    <!-- Action Buttons -->
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <button onclick="editLeaderboardEntry(${entry.position})" class="flex-1 md:flex-none bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:from-blue-600 hover:to-blue-700 transition-all shadow-md hover:shadow-lg transform hover:scale-105">
+                            ✏️ EDIT
+                        </button>
+                        <button onclick="deleteLeaderboardEntry(${entry.position})" class="flex-1 md:flex-none bg-gradient-to-r from-red-500 to-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:from-red-600 hover:to-red-700 transition-all shadow-md hover:shadow-lg transform hover:scale-105">
+                            🗑️ DELETE
+                        </button>
+                    </div>
                 </div>
             </div>
         `).join('');
