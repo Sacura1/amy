@@ -710,29 +710,29 @@
 
                 <!-- Admin Download Section (Hidden by default) - REDESIGNED -->
                 <div id="admin-section" class="glass-card mt-6 hidden overflow-hidden">
-                    <div class="bg-gradient-to-r from-purple-900/30 to-pink-900/30 p-4 md:p-6 border-b border-yellow-400/30">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="icon-badge">
+                    <div class="bg-gradient-to-r from-purple-900/30 to-pink-900/30 p-3 md:p-6 border-b border-yellow-400/30">
+                        <div class="flex items-center gap-2 md:gap-3">
+                            <div class="icon-badge-small md:w-14 md:h-14">
                                 📊
                             </div>
                             <div>
-                                <h3 class="text-2xl md:text-3xl font-black text-yellow-400">Admin Panel</h3>
-                                <p class="text-xs text-gray-300 mt-1">🔐 Privileged Access</p>
+                                <h3 class="text-lg md:text-3xl font-black text-yellow-400">Admin Panel</h3>
+                                <p class="text-xs text-gray-300 mt-0.5 md:mt-1">🔐 Privileged Access</p>
                             </div>
                         </div>
                     </div>
-                    <div class="p-6 md:p-8">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                            <div class="bg-black/30 rounded-xl p-4 border border-yellow-400/20">
+                    <div class="p-3 md:p-8">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-4 md:mb-6">
+                            <div class="bg-black/30 rounded-lg md:rounded-xl p-3 md:p-4 border border-yellow-400/20">
                                 <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Total Verified</div>
-                                <div class="text-2xl font-bold text-green-400">---</div>
+                                <div class="text-xl md:text-2xl font-bold text-green-400">---</div>
                             </div>
-                            <div class="bg-black/30 rounded-xl p-4 border border-yellow-400/20">
+                            <div class="bg-black/30 rounded-lg md:rounded-xl p-3 md:p-4 border border-yellow-400/20">
                                 <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Eligible Users</div>
-                                <div class="text-2xl font-bold text-yellow-400">---</div>
+                                <div class="text-xl md:text-2xl font-bold text-yellow-400">---</div>
                             </div>
                         </div>
-                        <button onclick="downloadSpreadsheet()" class="btn-samy btn-samy-enhanced text-white px-6 md:px-12 py-3 md:py-4 rounded-full text-sm md:text-lg font-bold uppercase w-full transition-all">
+                        <button onclick="downloadSpreadsheet()" class="btn-samy btn-samy-enhanced text-white px-6 md:px-12 py-2.5 md:py-4 rounded-full text-xs md:text-lg font-bold uppercase w-full transition-all">
                             📥 DOWNLOAD SPREADSHEET
                         </button>
                     </div>
@@ -740,52 +740,53 @@
 
                 <!-- Admin Leaderboard Management (Hidden by default) - REDESIGNED -->
                 <div id="admin-leaderboard-section" class="glass-card mt-6 hidden overflow-hidden">
-                    <div class="bg-gradient-to-r from-yellow-900/30 to-orange-900/30 p-4 md:p-6 border-b border-yellow-400/30">
-                        <div class="flex items-center gap-3">
-                            <div class="icon-badge">
+                    <!-- Compact Header for Mobile -->
+                    <div class="bg-gradient-to-r from-yellow-900/30 to-orange-900/30 p-3 md:p-6 border-b border-yellow-400/30">
+                        <div class="flex items-center gap-2 md:gap-3">
+                            <div class="icon-badge-small md:w-14 md:h-14">
                                 🏆
                             </div>
                             <div>
-                                <h3 class="text-2xl md:text-3xl font-black text-yellow-400">Manage Leaderboard</h3>
-                                <p class="text-xs text-gray-300 mt-1">✏️ Add, edit, or remove entries</p>
+                                <h3 class="text-lg md:text-3xl font-black text-yellow-400">Manage Leaderboard</h3>
+                                <p class="text-xs text-gray-300 mt-0.5 md:mt-1">✏️ Add, edit, or remove entries</p>
                             </div>
                         </div>
                     </div>
 
-                    <div class="p-6 md:p-8">
-                        <!-- Add New Entry Form -->
-                        <div class="bg-gradient-to-br from-green-900/20 to-emerald-900/20 p-5 rounded-2xl mb-6 border-2 border-green-500/30 backdrop-blur-sm">
-                            <div class="flex items-center gap-2 mb-4">
-                                <span class="text-2xl">➕</span>
-                                <h4 class="text-lg md:text-xl font-black text-green-400">Add New Entry</h4>
+                    <div class="p-3 md:p-8">
+                        <!-- Add New Entry Form - Compact Mobile -->
+                        <div class="bg-gradient-to-br from-green-900/20 to-emerald-900/20 p-3 md:p-5 rounded-xl md:rounded-2xl mb-4 md:mb-6 border-2 border-green-500/30 backdrop-blur-sm">
+                            <div class="flex items-center gap-2 mb-3">
+                                <span class="text-xl md:text-2xl">➕</span>
+                                <h4 class="text-sm md:text-xl font-black text-green-400">Add New Entry</h4>
                             </div>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3">
                                 <div class="relative">
                                     <label class="text-xs text-gray-400 mb-1 block uppercase tracking-wider">Position</label>
-                                    <input type="number" id="new-position" placeholder="1" class="w-full px-4 py-3 rounded-xl bg-black/50 border-2 border-gray-600 text-white focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
+                                    <input type="number" id="new-position" placeholder="1" class="w-full px-3 py-2 md:px-4 md:py-3 rounded-lg md:rounded-xl bg-black/50 border-2 border-gray-600 text-white text-sm focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
                                 </div>
                                 <div class="relative">
                                     <label class="text-xs text-gray-400 mb-1 block uppercase tracking-wider">Username</label>
-                                    <input type="text" id="new-username" placeholder="username" class="w-full px-4 py-3 rounded-xl bg-black/50 border-2 border-gray-600 text-white focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
+                                    <input type="text" id="new-username" placeholder="username" class="w-full px-3 py-2 md:px-4 md:py-3 rounded-lg md:rounded-xl bg-black/50 border-2 border-gray-600 text-white text-sm focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
                                 </div>
                                 <div class="relative">
                                     <label class="text-xs text-gray-400 mb-1 block uppercase tracking-wider">Mindshare %</label>
-                                    <input type="number" id="new-mindshare" placeholder="0.00" step="0.01" class="w-full px-4 py-3 rounded-xl bg-black/50 border-2 border-gray-600 text-white focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
+                                    <input type="number" id="new-mindshare" placeholder="0.00" step="0.01" class="w-full px-3 py-2 md:px-4 md:py-3 rounded-lg md:rounded-xl bg-black/50 border-2 border-gray-600 text-white text-sm focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
                                 </div>
                             </div>
-                            <button onclick="addLeaderboardEntry()" class="mt-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white px-8 py-3 rounded-full text-sm md:text-base font-bold uppercase hover:from-green-600 hover:to-emerald-600 transition-all w-full shadow-lg hover:shadow-xl transform hover:scale-105">
+                            <button onclick="addLeaderboardEntry()" class="mt-3 md:mt-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white px-6 py-2.5 md:px-8 md:py-3 rounded-full text-xs md:text-base font-bold uppercase hover:from-green-600 hover:to-emerald-600 transition-all w-full shadow-lg hover:shadow-xl">
                                 ➕ ADD ENTRY
                             </button>
                         </div>
 
-                        <!-- Current Entries -->
-                        <div class="bg-black/30 p-5 rounded-2xl border-2 border-yellow-400/30 backdrop-blur-sm">
-                            <div class="flex items-center gap-2 mb-4">
-                                <span class="text-2xl">📝</span>
-                                <h4 class="text-lg md:text-xl font-black text-yellow-300">Current Entries</h4>
+                        <!-- Current Entries - Optimized for Mobile -->
+                        <div class="bg-black/30 p-3 md:p-5 rounded-xl md:rounded-2xl border-2 border-yellow-400/30 backdrop-blur-sm">
+                            <div class="flex items-center gap-2 mb-3">
+                                <span class="text-lg md:text-2xl">📝</span>
+                                <h4 class="text-sm md:text-xl font-black text-yellow-300">Current Entries</h4>
                             </div>
-                            <div id="admin-leaderboard-list" class="max-h-96 overflow-y-auto custom-scrollbar">
-                                <p class="text-gray-400 text-sm text-center py-8">Loading...</p>
+                            <div id="admin-leaderboard-list" class="max-h-64 md:max-h-96 overflow-y-auto custom-scrollbar">
+                                <p class="text-gray-400 text-xs md:text-sm text-center py-4 md:py-8">Loading...</p>
                             </div>
                         </div>
                     </div>
