@@ -424,6 +424,11 @@ async function updateWalletUI(connected) {
     const btnEl = document.getElementById('wallet-btn');
     const indicatorEl = document.getElementById('wallet-status-indicator');
 
+    // Check if elements exist (they may not exist on all pages)
+    if (!displayEl || !btnEl || !indicatorEl) {
+        return;
+    }
+
     if (connected && userWallet) {
         const shortAddress = `${userWallet.substring(0, 4)}...${userWallet.substring(38)}`;
         displayEl.textContent = shortAddress;
@@ -433,7 +438,10 @@ async function updateWalletUI(connected) {
         displayEl.textContent = 'Connect Wallet';
         btnEl.onclick = connectWallet;
         indicatorEl.className = 'connection-status status-disconnected';
-        document.getElementById('balance-info').classList.add('hidden');
+        const balanceInfo = document.getElementById('balance-info');
+        if (balanceInfo) {
+            balanceInfo.classList.add('hidden');
+        }
     }
 }
 
@@ -463,7 +471,10 @@ async function disconnectWallet() {
     checkVerificationEligibility();
 
     // Hide eligibility section
-    document.getElementById('eligibility-section').classList.add('hidden');
+    const eligibilitySection = document.getElementById('eligibility-section');
+    if (eligibilitySection) {
+        eligibilitySection.classList.add('hidden');
+    }
 }
 
 // Check AMY token balance
@@ -480,11 +491,17 @@ async function checkTokenBalance() {
         amyBalance = parseFloat(ethers.utils.formatUnits(balance, decimals));
 
         // Update UI
-        document.getElementById('amy-balance').textContent = amyBalance.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        });
-        document.getElementById('balance-info').classList.remove('hidden');
+        const amyBalanceEl = document.getElementById('amy-balance');
+        if (amyBalanceEl) {
+            amyBalanceEl.textContent = amyBalance.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        }
+        const balanceInfo = document.getElementById('balance-info');
+        if (balanceInfo) {
+            balanceInfo.classList.remove('hidden');
+        }
 
         checkVerificationEligibility();
 
@@ -532,6 +549,11 @@ function updateAdminSection() {
     const adminSection = document.getElementById('admin-section');
     const adminLeaderboardSection = document.getElementById('admin-leaderboard-section');
 
+    // Check if elements exist (they may not exist on all pages)
+    if (!adminSection || !adminLeaderboardSection) {
+        return;
+    }
+
     if (isUserAdmin) {
         adminSection.classList.remove('hidden');
         adminLeaderboardSection.classList.remove('hidden');
@@ -562,6 +584,11 @@ function updateXAccountUI(connected) {
     const usernameEl = document.getElementById('x-username');
     const btnEl = document.getElementById('x-btn');
     const indicatorEl = document.getElementById('x-status-indicator');
+
+    // Check if elements exist (they may not exist on all pages)
+    if (!statusEl || !usernameEl || !btnEl || !indicatorEl) {
+        return;
+    }
 
     if (connected && userXAccount) {
         statusEl.textContent = 'Connected';
@@ -595,7 +622,10 @@ async function checkVerificationEligibility() {
         updateEligibilityStatus();
     } else {
         // Hide eligibility section if not fully connected
-        document.getElementById('eligibility-section').classList.add('hidden');
+        const eligibilitySection = document.getElementById('eligibility-section');
+        if (eligibilitySection) {
+            eligibilitySection.classList.add('hidden');
+        }
     }
 }
 
@@ -605,6 +635,11 @@ function updateEligibilityStatus() {
     const eligibilityIcon = document.getElementById('eligibility-icon');
     const eligibilityTitle = document.getElementById('eligibility-title');
     const eligibilityMessage = document.getElementById('eligibility-message');
+
+    // Check if elements exist (they may not exist on all pages)
+    if (!eligibilitySection || !eligibilityIcon || !eligibilityTitle || !eligibilityMessage) {
+        return;
+    }
 
     if (!userWallet || !userXAccount) {
         eligibilitySection.classList.add('hidden');

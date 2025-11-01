@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>$AMY - Profile & Leaderboard</title>
+    <title>$AMY - Leaderboard</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="apple-touch-icon" href="pro.jpg">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -628,7 +628,7 @@
     <div class="meme-bg" id="memeBg"></div>
 
     <div class="relative z-10 min-h-screen flex flex-col">
-        <!-- Header -->
+        <!-- Header with Hamburger Menu -->
         <header class="container mx-auto px-4 py-4 md:py-6">
             <nav class="flex justify-between items-center">
                 <!-- Mobile: Hamburger + Logo -->
@@ -666,12 +666,6 @@
                 </a>
             </nav>
 
-            <!-- Wallet Chip -->
-            <button onclick="connectWallet()" id="wallet-btn" class="wallet-chip mt-4">
-                <span class="connection-status" id="wallet-status-indicator"></span>
-                <span class="text-xs md:text-sm font-semibold" id="wallet-display">Connect Wallet</span>
-            </button>
-
             <!-- Dropdown Menu -->
             <div id="dropdown-menu" class="hidden fixed top-0 left-0 w-full h-full z-40 flex items-center justify-center md:justify-end transition-all duration-300" style="backdrop-filter: blur(10px); background-color: rgba(0, 0, 0, 0.85);">
                 <div class="md:mr-12 space-y-6">
@@ -695,160 +689,71 @@
                     </a>
                 </div>
             </div>
-
-            <!-- Wallet Balance (shows when connected) - REDESIGNED -->
-            <div id="balance-info" class="mt-6 hidden">
-                <div class="glass-card p-4 md:p-6">
-                    <div class="flex items-center justify-between gap-4">
-                        <div class="flex items-center gap-3">
-                            <div class="icon-badge-small">
-                                💰
-                            </div>
-                            <div>
-                                <div class="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">Your Holdings</div>
-                                <div class="text-lg md:text-xl text-yellow-300 font-bold">$AMY Balance</div>
-                            </div>
-                        </div>
-                        <div class="text-right">
-                            <div id="amy-balance" class="text-3xl md:text-4xl font-black hero-text" style="font-size: 2.5rem; line-height: 1;">
-                                0.00
-                            </div>
-                            <div class="text-xs text-gray-400 mt-1">tokens</div>
-                        </div>
-                    </div>
-                    <div class="mt-4 pt-4 border-t border-yellow-400/20">
-                        <div class="flex items-center justify-between text-xs md:text-sm">
-                            <span class="text-gray-400">Minimum Required:</span>
-                            <span class="text-yellow-300 font-bold">300 $AMY</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </header>
 
         <!-- Main Content -->
         <main class="flex-grow container mx-auto px-4 py-12 md:py-24">
-            <div class="max-w-2xl mx-auto">
+            <!-- Leaderboard Section - REDESIGNED -->
+            <div class="container mx-auto px-4 mt-12 md:mt-16">
+                <div class="max-w-4xl mx-auto">
+                    <!-- Leaderboard Header -->
+                    <div class="text-center mb-8 md:mb-12">
+                        <div class="inline-flex items-center justify-center gap-3 mb-4">
+                            <span class="text-4xl md:text-6xl">🏆</span>
+                            <h2 class="text-4xl md:text-6xl font-black hero-text">
+                                Leaderboard
+                            </h2>
+                            <span class="text-4xl md:text-6xl">🏆</span>
+                        </div>
+                        <!-- <p class="text-sm md:text-base text-gray-300 max-w-2xl mx-auto">
+                            Top $AMY holders ranked by mindshare.
+                        </p> -->
+                    </div>
 
-                <!-- X Account Connection Card -->
-                <div class="glass-card p-4 md:p-6">
-                    <div class="flex items-center justify-between gap-3 flex-wrap md:flex-nowrap">
-                        <div class="flex items-center gap-3 flex-1 min-w-[200px]">
-                            <div class="icon-badge-small flex-shrink-0">
-                                𝕏
-                            </div>
-                            <div class="flex-1">
-                                <div class="flex items-center gap-2 mb-1">
-                                    <span class="connection-status" id="x-status-indicator"></span>
-                                    <h3 class="text-lg md:text-xl font-bold text-yellow-400">X Account</h3>
+                    <!-- Leaderboard Card -->
+                    <div class="glass-card overflow-hidden">
+                        <!-- Leaderboard Header Bar -->
+                        <div class="bg-gradient-to-r from-yellow-900/40 to-orange-900/40 p-4 md:p-5 border-b-2 border-yellow-400/30">
+                            <div class="flex items-center justify-between flex-wrap gap-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="icon-badge-small">
+                                        📊
+                                    </div>
+                                    <h3 class="text-lg md:text-xl font-black text-yellow-300">Top Performers</h3>
                                 </div>
-                                <p class="text-xs text-gray-300" id="x-status">Not connected</p>
-                                <p class="text-sm text-gray-200 mt-1 font-semibold" id="x-username"></p>
-                            </div>
-                        </div>
-                        <button onclick="connectX()" id="x-btn" class="btn-samy btn-samy-enhanced text-white px-4 md:px-6 py-2 md:py-3 rounded-full text-sm md:text-base font-bold uppercase w-full md:w-auto">
-                            CONNECT
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Eligibility Status (Shows when both wallet and X are connected) -->
-                <div id="eligibility-section" class="glass-card p-6 md:p-8 mt-6 hidden">
-                    <div class="text-center">
-                        <div class="icon-badge mx-auto mb-4" id="eligibility-icon">
-                            ✅
-                        </div>
-                        <h3 class="text-xl md:text-2xl font-bold mb-2" id="eligibility-title">Checking Status...</h3>
-                        <p class="text-xs md:text-sm text-gray-300" id="eligibility-message"></p>
-                    </div>
-                </div>
-
-                <!-- Admin Download Section (Hidden by default) - REDESIGNED -->
-                <div id="admin-section" class="glass-card mt-6 hidden overflow-hidden">
-                    <div class="bg-gradient-to-r from-purple-900/30 to-pink-900/30 p-3 md:p-6 border-b border-yellow-400/30">
-                        <div class="flex items-center gap-2 md:gap-3">
-                            <div class="icon-badge-small md:w-14 md:h-14">
-                                📊
-                            </div>
-                            <div>
-                                <h3 class="text-lg md:text-3xl font-black text-yellow-400">Admin Panel</h3>
-                                <p class="text-xs text-gray-300 mt-0.5 md:mt-1">🔐 Privileged Access</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="p-3 md:p-8">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-4 md:mb-6">
-                            <div class="bg-black/30 rounded-lg md:rounded-xl p-3 md:p-4 border border-yellow-400/20">
-                                <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Total Verified</div>
-                                <div class="text-xl md:text-2xl font-bold text-green-400">---</div>
-                            </div>
-                            <div class="bg-black/30 rounded-lg md:rounded-xl p-3 md:p-4 border border-yellow-400/20">
-                                <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Eligible Users</div>
-                                <div class="text-xl md:text-2xl font-bold text-yellow-400">---</div>
-                            </div>
-                        </div>
-                        <button onclick="downloadSpreadsheet()" class="btn-samy btn-samy-enhanced text-white px-6 md:px-12 py-2.5 md:py-4 rounded-full text-xs md:text-lg font-bold uppercase w-full transition-all">
-                            📥 DOWNLOAD SPREADSHEET
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Admin Leaderboard Management (Hidden by default) - REDESIGNED -->
-                <div id="admin-leaderboard-section" class="glass-card mt-6 hidden overflow-hidden">
-                    <!-- Compact Header for Mobile -->
-                    <div class="bg-gradient-to-r from-yellow-900/30 to-orange-900/30 p-3 md:p-6 border-b border-yellow-400/30">
-                        <div class="flex items-center gap-2 md:gap-3">
-                            <div class="icon-badge-small md:w-14 md:h-14">
-                                🏆
-                            </div>
-                            <div>
-                                <h3 class="text-lg md:text-3xl font-black text-yellow-400">Manage Leaderboard</h3>
-                                <p class="text-xs text-gray-300 mt-0.5 md:mt-1">✏️ Add, edit, or remove entries</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="p-3 md:p-8">
-                        <!-- Add New Entry Form - Compact Mobile -->
-                        <div class="bg-gradient-to-br from-green-900/20 to-emerald-900/20 p-3 md:p-5 rounded-xl md:rounded-2xl mb-4 md:mb-6 border-2 border-green-500/30 backdrop-blur-sm">
-                            <div class="flex items-center gap-2 mb-3">
-                                <span class="text-xl md:text-2xl">➕</span>
-                                <h4 class="text-sm md:text-xl font-black text-green-400">Add New Entry</h4>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3">
-                                <div class="relative">
-                                    <label class="text-xs text-gray-400 mb-1 block uppercase tracking-wider">Position</label>
-                                    <input type="number" id="new-position" placeholder="1" class="w-full px-3 py-2 md:px-4 md:py-3 rounded-lg md:rounded-xl bg-black/50 border-2 border-gray-600 text-white text-sm focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
-                                </div>
-                                <div class="relative">
-                                    <label class="text-xs text-gray-400 mb-1 block uppercase tracking-wider">Username</label>
-                                    <input type="text" id="new-username" placeholder="username" class="w-full px-3 py-2 md:px-4 md:py-3 rounded-lg md:rounded-xl bg-black/50 border-2 border-gray-600 text-white text-sm focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
-                                </div>
-                                <div class="relative">
-                                    <label class="text-xs text-gray-400 mb-1 block uppercase tracking-wider">Mindshare %</label>
-                                    <input type="number" id="new-mindshare" placeholder="0.00" step="0.01" class="w-full px-3 py-2 md:px-4 md:py-3 rounded-lg md:rounded-xl bg-black/50 border-2 border-gray-600 text-white text-sm focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500" />
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-gray-400">🔄 Updated:</span>
+                                    <span class="text-xs md:text-sm text-yellow-400 font-semibold" id="last-updated">Loading...</span>
                                 </div>
                             </div>
-                            <button onclick="addLeaderboardEntry()" class="mt-3 md:mt-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white px-6 py-2.5 md:px-8 md:py-3 rounded-full text-xs md:text-base font-bold uppercase hover:from-green-600 hover:to-emerald-600 transition-all w-full shadow-lg hover:shadow-xl">
-                                ➕ ADD ENTRY
-                            </button>
                         </div>
 
-                        <!-- Current Entries - Optimized for Mobile -->
-                        <div class="bg-black/30 p-3 md:p-5 rounded-xl md:rounded-2xl border-2 border-yellow-400/30 backdrop-blur-sm">
-                            <div class="flex items-center gap-2 mb-3">
-                                <span class="text-lg md:text-2xl">📝</span>
-                                <h4 class="text-sm md:text-xl font-black text-yellow-300">Current Entries</h4>
+                        <!-- Leaderboard Table Header -->
+                        <div class="hidden md:grid grid-cols-12 gap-4 px-6 py-4 bg-black/30 border-b border-yellow-400/20 text-xs uppercase tracking-wider text-gray-400 font-bold">
+                            <div class="col-span-2">Rank</div>
+                            <div class="col-span-5">User</div>
+                            <div class="col-span-3 text-right">Mindshare</div>
+                            <div class="col-span-2 text-center">Status</div>
+                        </div>
+
+                        <!-- Leaderboard Content -->
+                        <div class="p-4 md:p-6" id="leaderboard-container">
+                            <!-- Leaderboard rows will be inserted here -->
+                            <div class="text-center py-12">
+                                <div class="loading-spinner mb-4"></div>
+                                <p class="text-gray-400 font-semibold">Loading leaderboard...</p>
                             </div>
-                            <div id="admin-leaderboard-list" class="max-h-64 md:max-h-96 overflow-y-auto custom-scrollbar">
-                                <p class="text-gray-400 text-xs md:text-sm text-center py-4 md:py-8">Loading...</p>
-                            </div>
+                        </div>
+
+                        <!-- Empty State -->
+                        <div id="empty-state" class="hidden text-center py-12 px-4">
+                            <div class="text-6xl mb-4">😢</div>
+                            <p class="text-xl md:text-2xl font-bold text-gray-300 mb-2">No eligible users yet</p>
+                            <p class="text-sm text-gray-400 mt-2">Connect your wallet and X account to be the first on the leaderboard! 🚀</p>
                         </div>
                     </div>
                 </div>
-
             </div>
-
         </main>
 
         <!-- Footer -->
@@ -955,10 +860,7 @@
             }
         `;
         document.head.appendChild(sparkleStyle);
-    </script>
 
-    <!-- Menu Toggle Script -->
-    <script>
         // Menu toggle functionality
         const menuToggleMobile = document.getElementById('menu-toggle');
         const menuToggleDesktop = document.getElementById('menu-toggle-desktop');
@@ -1009,19 +911,23 @@
                 toggleMenu();
             }
         });
+
+        // Add fadeIn animation style
+        const fadeInStyle = document.createElement('style');
+        fadeInStyle.innerHTML = `
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                }
+                to {
+                    opacity: 1;
+                }
+            }
+            .animate-fadeIn {
+                animation: fadeIn 0.3s ease-in-out;
+            }
+        `;
+        document.head.appendChild(fadeInStyle);
     </script>
-    <style>
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-            to {
-                opacity: 1;
-            }
-        }
-        .animate-fadeIn {
-            animation: fadeIn 0.3s ease-in-out;
-        }
-    </style>
 </body>
 </html>

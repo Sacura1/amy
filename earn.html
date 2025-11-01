@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>$AMY - Berachain Ecosystem Token</title>
+    <title>$AMY - Earn on Bera</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="apple-touch-icon" href="pro.jpg">
     <link rel="preload" as="image" href="image.png">
@@ -92,12 +92,25 @@
                 0 2px 5px rgba(0, 0, 0, 0.2),
                 inset 0 1px 3px rgba(0, 0, 0, 0.2);
         }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0px);
+            }
+            50% {
+                transform: translateY(-20px);
+            }
+        }
+
+        .float-animation {
+            animation: float 3s ease-in-out infinite;
+        }
     </style>
 </head>
 <body class="min-h-screen text-white relative">
     <div class="bg-pattern"></div>
     <div class="bg-overlay"></div>
-    <div class="relative z-10">
+    <div class="relative z-10 min-h-screen flex flex-col">
         <!-- Header -->
         <header class="container mx-auto px-4 py-4 md:py-6">
             <nav class="flex justify-between items-center">
@@ -161,107 +174,24 @@
             </div>
         </header>
 
-        <!-- Hero Section -->
-        <section class="container mx-auto px-4 py-8 md:py-24 text-center">
-            <div class="mb-6 md:mb-8">
-                <div class="w-32 h-32 md:w-48 md:h-48 mx-auto mb-4 md:mb-6 rounded-full overflow-hidden border-4 md:border-8 border-yellow-400 shadow-2xl">
-                    <img src="pro.jpg" alt="$AMY" class="w-full h-full object-cover">
-                </div>
-            </div>
-            <h1 class="text-5xl sm:text-6xl md:text-7xl lg:text-9xl font-black mb-6 md:mb-8 text-shadow-strong" style="color: #FF1493;">
-                $AMY
-            </h1>
-
-            <div class="max-w-4xl mx-auto info-box p-6 md:p-12 mb-8 md:mb-12">
-                <p class="text-base sm:text-lg md:text-xl lg:text-2xl text-yellow-300 leading-relaxed font-medium">
-                    $AMY is a next-generation token designed to empower users within Berachain ecosystem.
-                    It fuels engagement, rewards participation, and enables access to unique features across
-                    DeFi and social platforms.
-                </p>
-                <p class="text-base sm:text-lg md:text-xl lg:text-2xl text-yellow-300 leading-relaxed font-medium mt-4 md:mt-6">
-                    Built with transparency and utility in mind, $AMY aims to bridge communities and create
-                    real, on-chain value while fostering an open, incentivized ecosystem.
-                </p>
-            </div>
-        </section>
-
-        <!-- Features Section -->
-        <section class="container mx-auto px-4 py-8 md:py-12">
-            <div class="flex justify-center">
-                <div class="info-box p-6 md:p-8 text-center hover:scale-105 transition transform max-w-md w-full">
-                    <div class="text-4xl md:text-5xl mb-3 md:mb-4">🐻⛓️</div>
-                    <div class="text-xl md:text-2xl font-bold text-yellow-400 mb-2">Berachain Native</div>
-                    <div class="text-sm md:text-base text-gray-300">Built for the Berachain ecosystem</div>
-                </div>
-            </div>
-        </section>
-
-        <!-- How to Buy Section -->
-        <section class="container mx-auto px-4 py-8 md:py-12">
-            <div class="max-w-3xl mx-auto info-box p-6 md:p-10">
-                <h2 class="text-3xl sm:text-4xl md:text-5xl font-black mb-6 md:mb-8 text-center text-yellow-400">HOW TO GET $AMY</h2>
-                <div class="space-y-4 md:space-y-6">
-                    <div class="flex items-start gap-3 md:gap-4">
-                        <div class="text-2xl md:text-3xl font-bold text-yellow-400">1.</div>
-                        <div>
-                            <div class="text-lg md:text-xl font-bold mb-1">Connect Your Wallet</div>
-                            <div class="text-sm md:text-base text-gray-300">Use a Berachain-compatible wallet</div>
-                        </div>
-                    </div>
-                    <div class="flex items-start gap-3 md:gap-4">
-                        <div class="text-2xl md:text-3xl font-bold text-yellow-400">2.</div>
-                        <div>
-                            <div class="text-lg md:text-xl font-bold mb-1">Add $AMY Token</div>
-                            <div class="text-sm md:text-base text-gray-300">Import the token contract address</div>
-                        </div>
-                    </div>
-                    <div class="flex items-start gap-3 md:gap-4">
-                        <div class="text-2xl md:text-3xl font-bold text-yellow-400">3.</div>
-                        <div>
-                            <div class="text-lg md:text-xl font-bold mb-1">Swap & Hold</div>
-                            <div class="text-sm md:text-base text-gray-300">Exchange your tokens for $AMY</div>
-                        </div>
+        <!-- Coming Soon Section -->
+        <main class="flex-grow flex items-center justify-center px-4">
+            <div class="max-w-2xl mx-auto text-center">
+                <div class="info-box p-8 md:p-16">
+                    <div class="text-6xl md:text-8xl mb-6 float-animation">🚀</div>
+                    <h1 class="text-4xl md:text-6xl font-black mb-6 text-yellow-400">EARN ON BERA</h1>
+                    <p class="text-2xl md:text-3xl font-bold mb-4" style="color: #FF1493;">COMING SOON</p>
+                    <!-- <p class="text-base md:text-xl text-gray-300 leading-relaxed">
+                        Exciting earning opportunities are on the way! Stay tuned for updates on how you can earn rewards on Berachain with $AMY.
+                    </p> -->
+                    <div class="mt-8">
+                        <a href="index.html" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-lg font-bold uppercase inline-block">
+                            BACK TO HOME
+                        </a>
                     </div>
                 </div>
-
-                <div class="mt-6 md:mt-8 space-y-3 md:space-y-4">
-                    <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="btn-samy w-full text-white px-6 md:px-8 py-3 md:py-4 rounded-full text-base md:text-xl font-bold uppercase block text-center">
-                        BUY NOW ON OSITO FINANCE
-                    </a>
-                    <button onclick="copyCA()" class="bg-yellow-500 w-full text-black px-6 md:px-8 py-3 md:py-4 rounded-full text-base md:text-xl font-bold uppercase border-4 border-black hover:bg-yellow-400 transition">
-                        COPY CA
-                    </button>
-                </div>
             </div>
-        </section>
-
-        <!-- Contact Section -->
-        <section class="container mx-auto px-4 py-8 md:py-12">
-            <div class="max-w-2xl mx-auto info-box p-8 md:p-12 text-center">
-                <h2 class="text-3xl sm:text-4xl md:text-5xl font-black mb-6 md:mb-8 text-yellow-400">JOIN THE COMMUNITY</h2>
-                <p class="text-base md:text-xl text-gray-300 mb-8">Connect with us on social media and stay updated!</p>
-
-                <div class="flex justify-center gap-6 md:gap-8">
-                    <a href="https://x.com/amy_on_bera" target="_blank" rel="noopener noreferrer" class="group">
-                        <div class="bg-white rounded-full p-4 md:p-6 hover:scale-110 transition transform shadow-lg flex items-center justify-center w-16 h-16 md:w-24 md:h-24">
-                            <svg class="w-8 h-8 md:w-12 md:h-12 text-black" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                            </svg>
-                        </div>
-                        <p class="text-white font-bold mt-3">X (Twitter)</p>
-                    </a>
-
-                    <a href="https://t.me/amy_on_bera" target="_blank" rel="noopener noreferrer" class="group">
-                        <div class="bg-white rounded-full p-4 md:p-6 hover:scale-110 transition transform shadow-lg flex items-center justify-center w-16 h-16 md:w-24 md:h-24">
-                            <svg class="w-8 h-8 md:w-12 md:h-12 text-black" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-                            </svg>
-                        </div>
-                        <p class="text-white font-bold mt-3">Telegram</p>
-                    </a>
-                </div>
-            </div>
-        </section>
+        </main>
 
         <!-- Footer -->
         <footer class="container mx-auto px-4 py-8 md:py-12 text-center">
@@ -269,7 +199,6 @@
         </footer>
     </div>
 
-    <script src="index.js"></script>
     <script>
         // Menu toggle functionality
         const menuToggleMobile = document.getElementById('menu-toggle');
