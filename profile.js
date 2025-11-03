@@ -36,6 +36,9 @@ let amyBalance = 0;
 let isUserAdmin = false;
 let web3Modal = null;
 let provider = null;
+let walletSignature = null;
+let signatureMessage = null;
+let signatureTimestamp = null;
 
 // Fetch minimum AMY balance from backend
 async function fetchMinimumBalance() {
@@ -50,6 +53,77 @@ async function fetchMinimumBalance() {
         console.error('Error fetching minimum balance:', error);
         // Keep default value of 300
     }
+}
+
+// Generate signature to prove wallet ownership
+async function requestWalletSignature() {
+    if (!provider || !userWallet) {
+        console.error('No provider or wallet connected');
+        return false;
+    }
+
+    try {
+        console.log('📝 Requesting signature for wallet verification...');
+
+        // Generate nonce and timestamp
+        const nonce = Math.floor(Math.random() * 1000000000);
+        const timestamp = Date.now();
+
+        // Create message to sign
+        const message = `Welcome to $AMY Token!\n\nSign this message to verify you own this wallet address.\n\nThis request will not trigger a blockchain transaction or cost any gas fees.\n\nWallet: ${userWallet}\nNonce: ${nonce}\nTimestamp: ${timestamp}`;
+
+        // Get signer
+        const ethersProvider = new ethers.providers.Web3Provider(provider);
+        const signer = ethersProvider.getSigner();
+
+        // Request signature
+        const signature = await signer.signMessage(message);
+
+        console.log('✅ Signature obtained');
+
+        // Store signature data
+        walletSignature = signature;
+        signatureMessage = message;
+        signatureTimestamp = timestamp;
+
+        // Save to session storage
+        sessionStorage.setItem('walletSignature', signature);
+        sessionStorage.setItem('signatureMessage', message);
+        sessionStorage.setItem('signatureTimestamp', timestamp.toString());
+
+        return true;
+
+    } catch (error) {
+        console.error('❌ Signature request failed:', error);
+
+        if (error.code === 4001) {
+            alert('⚠️ Signature rejected. You must sign the message to verify wallet ownership and use this application.');
+        } else {
+            alert('Failed to sign message: ' + (error.message || 'Unknown error'));
+        }
+
+        // Disconnect if signature is rejected
+        await disconnectWallet();
+        return false;
+    }
+}
+
+// Verify signature is still valid (not expired)
+function isSignatureValid() {
+    if (!walletSignature || !signatureTimestamp) {
+        return false;
+    }
+
+    // Check if signature is less than 24 hours old
+    const MAX_SIGNATURE_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const age = Date.now() - signatureTimestamp;
+
+    if (age > MAX_SIGNATURE_AGE) {
+        console.log('⏰ Signature expired, need new signature');
+        return false;
+    }
+
+    return true;
 }
 
 // Initialize Web3Modal
@@ -179,6 +253,29 @@ async function checkOAuthCallback() {
 // Check if wallet is already connected
 async function checkExistingConnection() {
     try {
+        // Restore signature from session storage if exists
+        const savedSignature = sessionStorage.getItem('walletSignature');
+        const savedMessage = sessionStorage.getItem('signatureMessage');
+        const savedTimestamp = sessionStorage.getItem('signatureTimestamp');
+
+        if (savedSignature && savedMessage && savedTimestamp) {
+            walletSignature = savedSignature;
+            signatureMessage = savedMessage;
+            signatureTimestamp = parseInt(savedTimestamp);
+            console.log('✅ Restored signature from session');
+
+            // Check if signature is still valid
+            if (!isSignatureValid()) {
+                console.log('⏰ Stored signature expired, will request new one');
+                sessionStorage.removeItem('walletSignature');
+                sessionStorage.removeItem('signatureMessage');
+                sessionStorage.removeItem('signatureTimestamp');
+                walletSignature = null;
+                signatureMessage = null;
+                signatureTimestamp = null;
+            }
+        }
+
         // First check if MetaMask/wallet is available
         if (typeof window.ethereum !== 'undefined') {
             const accounts = await window.ethereum.request({ method: 'eth_accounts' });
@@ -202,6 +299,9 @@ async function checkExistingConnection() {
         }
         sessionStorage.removeItem('walletConnected');
         sessionStorage.removeItem('walletAddress');
+        sessionStorage.removeItem('walletSignature');
+        sessionStorage.removeItem('signatureMessage');
+        sessionStorage.removeItem('signatureTimestamp');
     }
 }
 
@@ -253,6 +353,15 @@ async function connectMetaMaskDirect() {
 
         sessionStorage.setItem('walletConnected', 'true');
         sessionStorage.setItem('walletAddress', userWallet);
+
+        // Request signature if we don't have a valid one
+        if (!isSignatureValid()) {
+            const signatureObtained = await requestWalletSignature();
+            if (!signatureObtained) {
+                // User rejected signature, already disconnected in requestWalletSignature
+                return;
+            }
+        }
 
         await updateWalletUI(true);
         await checkTokenBalance();
@@ -360,6 +469,15 @@ async function connectWallet() {
 
         console.log('💾 Wallet saved to session');
 
+        // Request signature if we don't have a valid one
+        if (!isSignatureValid()) {
+            const signatureObtained = await requestWalletSignature();
+            if (!signatureObtained) {
+                // User rejected signature, already disconnected in requestWalletSignature
+                return;
+            }
+        }
+
         // Subscribe to provider events
         subscribeToProviderEvents(provider);
 
@@ -461,10 +579,16 @@ async function disconnectWallet() {
     amyBalance = 0;
     isUserAdmin = false;
     provider = null;
+    walletSignature = null;
+    signatureMessage = null;
+    signatureTimestamp = null;
 
     // Clear session storage
     sessionStorage.removeItem('walletConnected');
     sessionStorage.removeItem('walletAddress');
+    sessionStorage.removeItem('walletSignature');
+    sessionStorage.removeItem('signatureMessage');
+    sessionStorage.removeItem('signatureTimestamp');
 
     updateWalletUI(false);
     updateAdminSection();
@@ -690,8 +814,18 @@ async function verifyHoldings() {
 
     // Only save if user has minimum balance
     if (amyBalance >= MINIMUM_AMY_BALANCE) {
+        // Check if we have a valid signature
+        if (!isSignatureValid()) {
+            console.log('⚠️ No valid signature, requesting new one...');
+            const signatureObtained = await requestWalletSignature();
+            if (!signatureObtained) {
+                console.error('Cannot verify without signature');
+                return;
+            }
+        }
+
         try {
-            // Send verification to backend silently
+            // Send verification to backend with signature proof
             const response = await fetch(`${API_BASE_URL}/api/verify`, {
                 method: 'POST',
                 headers: {
@@ -700,7 +834,10 @@ async function verifyHoldings() {
                 body: JSON.stringify({
                     wallet: userWallet,
                     xUsername: userXAccount,
-                    amyBalance: amyBalance
+                    amyBalance: amyBalance,
+                    signature: walletSignature,
+                    message: signatureMessage,
+                    timestamp: signatureTimestamp
                 })
             });
 

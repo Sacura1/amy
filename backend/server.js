@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const ethers = require('ethers');
 require('dotenv').config();
 
 const app = express();
@@ -13,6 +14,7 @@ const PORT = process.env.PORT || 3001;
 // Database setup (using JSON file for simplicity - easy to backup and migrate)
 const DB_PATH = path.join(__dirname, 'verified-users.json');
 const LEADERBOARD_PATH = path.join(__dirname, 'leaderboard.json');
+const NONCES_PATH = path.join(__dirname, 'nonces.json');
 
 // Initialize database file if it doesn't exist
 if (!fs.existsSync(DB_PATH)) {
@@ -26,6 +28,11 @@ if (!fs.existsSync(LEADERBOARD_PATH)) {
         lastUpdated: new Date().toISOString(),
         minimumAMY: 0
     }, null, 2));
+}
+
+// Initialize nonces file if it doesn't exist
+if (!fs.existsSync(NONCES_PATH)) {
+    fs.writeFileSync(NONCES_PATH, JSON.stringify({ nonces: [] }, null, 2));
 }
 
 // Database helper functions
@@ -105,6 +112,45 @@ const leaderboard = {
         data.lastUpdated = new Date().toISOString();
         leaderboard.write(data);
         return data;
+    }
+};
+
+// Nonce helper functions (for replay attack prevention)
+const nonces = {
+    read: () => {
+        const data = fs.readFileSync(NONCES_PATH, 'utf8');
+        return JSON.parse(data);
+    },
+    write: (data) => {
+        fs.writeFileSync(NONCES_PATH, JSON.stringify(data, null, 2));
+    },
+    exists: (nonce) => {
+        const data = nonces.read();
+        return data.nonces.some(n => n.nonce === nonce);
+    },
+    add: (nonce, wallet, timestamp) => {
+        const data = nonces.read();
+        data.nonces.push({
+            nonce: nonce,
+            wallet: wallet.toLowerCase(),
+            timestamp: timestamp,
+            usedAt: Date.now()
+        });
+        nonces.write(data);
+    },
+    cleanup: () => {
+        // Remove nonces older than 24 hours
+        const data = nonces.read();
+        const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+        const now = Date.now();
+
+        data.nonces = data.nonces.filter(n => {
+            const age = now - n.usedAt;
+            return age < MAX_AGE;
+        });
+
+        nonces.write(data);
+        console.log('🧹 Cleaned up old nonces, remaining:', data.nonces.length);
     }
 };
 
@@ -308,17 +354,87 @@ app.get('/auth/x/callback', async (req, res) => {
 
 // Verify user holdings and save to database
 app.post('/api/verify', async (req, res) => {
-    const { wallet, xUsername, amyBalance } = req.body;
+    const { wallet, xUsername, amyBalance, signature, message, timestamp } = req.body;
 
-    // Validation
-    if (!wallet || !xUsername) {
+    // 1. Validate required fields
+    if (!wallet || !xUsername || !signature || !message || !timestamp) {
         return res.status(400).json({
+            success: false,
             error: 'Missing required fields',
-            required: ['wallet', 'xUsername', 'amyBalance']
+            required: ['wallet', 'xUsername', 'amyBalance', 'signature', 'message', 'timestamp']
         });
     }
 
-    // Check minimum balance
+    // 2. Validate wallet address format
+    if (!ethers.utils.isAddress(wallet)) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid wallet address format'
+        });
+    }
+
+    // 3. Check timestamp (reject signatures older than 24 hours)
+    const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const age = Date.now() - parseInt(timestamp);
+
+    if (age > MAX_AGE) {
+        return res.status(400).json({
+            success: false,
+            error: 'Signature expired. Please reconnect your wallet.'
+        });
+    }
+
+    if (age < 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid timestamp (timestamp is in the future)'
+        });
+    }
+
+    // 4. Verify the signature
+    let recoveredAddress;
+    try {
+        recoveredAddress = ethers.utils.verifyMessage(message, signature);
+    } catch (error) {
+        console.error('❌ Signature verification error:', error);
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid signature format'
+        });
+    }
+
+    // 5. Check if recovered address matches claimed wallet
+    if (recoveredAddress.toLowerCase() !== wallet.toLowerCase()) {
+        console.error('❌ Signature mismatch:', {
+            claimed: wallet,
+            recovered: recoveredAddress
+        });
+        return res.status(401).json({
+            success: false,
+            error: 'Signature verification failed. Wallet address does not match.'
+        });
+    }
+
+    // 6. Check for replay attacks (nonce verification)
+    const nonceMatch = message.match(/Nonce: (\d+)/);
+    if (nonceMatch) {
+        const nonce = nonceMatch[1];
+
+        // Check if nonce was already used
+        if (nonces.exists(nonce)) {
+            console.error('❌ Replay attack detected - nonce already used:', nonce);
+            return res.status(400).json({
+                success: false,
+                error: 'This signature has already been used. Please reconnect your wallet.'
+            });
+        }
+
+        // Store nonce to prevent future replay attacks
+        nonces.add(nonce, wallet, timestamp);
+        console.log('✅ Nonce stored:', nonce);
+    }
+
+    // 7. Check minimum balance
     if (amyBalance < MINIMUM_AMY_BALANCE) {
         return res.status(400).json({
             success: false,
@@ -328,6 +444,9 @@ app.post('/api/verify', async (req, res) => {
         });
     }
 
+    // ✅ Signature verified! User owns this wallet
+    console.log('✅ Signature verified for wallet:', wallet);
+
     try {
         // Save to database
         const userData = {
@@ -335,7 +454,9 @@ app.post('/api/verify', async (req, res) => {
             xUsername: xUsername,
             amyBalance: parseFloat(amyBalance),
             verifiedAt: new Date().toISOString(),
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            signatureVerified: true,
+            signatureTimestamp: parseInt(timestamp)
         };
 
         db.addUser(userData);
@@ -344,8 +465,14 @@ app.post('/api/verify', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'User verified successfully',
-            data: userData
+            message: 'Wallet verified successfully',
+            data: {
+                wallet: userData.wallet,
+                xUsername: userData.xUsername,
+                amyBalance: userData.amyBalance,
+                verified: true,
+                signatureVerified: true
+            }
         });
 
     } catch (error) {
@@ -650,6 +777,8 @@ app.listen(PORT, () => {
     console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
     console.log(`🔐 Admin wallets: ${ADMIN_WALLETS.length}`);
     console.log(`💾 Database: ${DB_PATH}`);
+    console.log(`🔒 Signature verification: ENABLED`);
+    console.log(`🛡️ Replay attack prevention: ENABLED`);
     console.log('');
     console.log('📍 Endpoints:');
     console.log(`   OAuth: http://localhost:${PORT}/auth/x?wallet=0x...`);
@@ -661,6 +790,14 @@ app.listen(PORT, () => {
     console.log('');
     console.log('✅ Ready to accept connections!');
     console.log('');
+
+    // Run nonce cleanup every hour
+    setInterval(() => {
+        nonces.cleanup();
+    }, 60 * 60 * 1000); // Run every hour
+
+    // Run initial cleanup on startup
+    nonces.cleanup();
 });
 
 // Graceful shutdown
