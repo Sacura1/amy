@@ -47,10 +47,8 @@ async function fetchMinimumBalance() {
         const result = await response.json();
         if (result.success && result.data.minimumAMY !== undefined) {
             MINIMUM_AMY_BALANCE = result.data.minimumAMY;
-            console.log('💎 Minimum AMY balance:', MINIMUM_AMY_BALANCE);
         }
     } catch (error) {
-        console.error('Error fetching minimum balance:', error);
         // Keep default value of 300
     }
 }
@@ -58,12 +56,10 @@ async function fetchMinimumBalance() {
 // Generate signature to prove wallet ownership
 async function requestWalletSignature() {
     if (!provider || !userWallet) {
-        console.error('No provider or wallet connected');
         return false;
     }
 
     try {
-        console.log('📝 Requesting signature for wallet verification...');
 
         // Generate nonce and timestamp
         const nonce = Math.floor(Math.random() * 1000000000);
@@ -79,8 +75,6 @@ async function requestWalletSignature() {
         // Request signature
         const signature = await signer.signMessage(message);
 
-        console.log('✅ Signature obtained');
-
         // Store signature data
         walletSignature = signature;
         signatureMessage = message;
@@ -94,8 +88,6 @@ async function requestWalletSignature() {
         return true;
 
     } catch (error) {
-        console.error('❌ Signature request failed:', error);
-
         if (error.code === 4001) {
             alert('⚠️ Signature rejected. You must sign the message to verify wallet ownership and use this application.');
         } else {
@@ -119,7 +111,6 @@ function isSignatureValid() {
     const age = Date.now() - signatureTimestamp;
 
     if (age > MAX_SIGNATURE_AGE) {
-        console.log('⏰ Signature expired, need new signature');
         return false;
     }
 
@@ -131,12 +122,10 @@ function initWeb3Modal() {
     try {
         // Check if Web3Modal and WalletConnect are loaded
         if (typeof Web3Modal === 'undefined') {
-            console.warn('⚠️ Web3Modal not loaded, will use MetaMask only');
             return;
         }
 
         if (typeof WalletConnectProvider === 'undefined') {
-            console.warn('⚠️ WalletConnect not loaded, will use MetaMask only');
             return;
         }
 
@@ -166,10 +155,7 @@ function initWeb3Modal() {
             }
         });
 
-        console.log('✅ Web3Modal initialized');
     } catch (error) {
-        console.error('❌ Error initializing Web3Modal:', error);
-        console.log('Will fallback to MetaMask only');
     }
 }
 
@@ -238,7 +224,6 @@ async function checkOAuthCallback() {
                     await checkIfAdmin();
                 }
             } catch (error) {
-                console.error('Error reconnecting wallet:', error);
             }
         }
 
@@ -262,11 +247,9 @@ async function checkExistingConnection() {
             walletSignature = savedSignature;
             signatureMessage = savedMessage;
             signatureTimestamp = parseInt(savedTimestamp);
-            console.log('✅ Restored signature from session');
 
             // Check if signature is still valid
             if (!isSignatureValid()) {
-                console.log('⏰ Stored signature expired, will request new one');
                 sessionStorage.removeItem('walletSignature');
                 sessionStorage.removeItem('signatureMessage');
                 sessionStorage.removeItem('signatureTimestamp');
@@ -280,7 +263,6 @@ async function checkExistingConnection() {
         if (typeof window.ethereum !== 'undefined') {
             const accounts = await window.ethereum.request({ method: 'eth_accounts' });
             if (accounts && accounts.length > 0) {
-                console.log('🔄 Reconnecting to wallet...');
                 await connectMetaMaskDirect();
                 return;
             }
@@ -288,11 +270,9 @@ async function checkExistingConnection() {
 
         // Check if Web3Modal has cached provider (WalletConnect)
         if (web3Modal && web3Modal.cachedProvider) {
-            console.log('🔄 Reconnecting to WalletConnect...');
             await connectWallet();
         }
     } catch (error) {
-        console.error('Error checking existing connection:', error);
         // Clear cache if connection fails
         if (web3Modal) {
             web3Modal.clearCachedProvider();
@@ -314,7 +294,6 @@ async function connectMetaMaskDirect() {
     }
 
     try {
-        console.log('🔌 Connecting to MetaMask directly...');
 
         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
 
@@ -322,7 +301,6 @@ async function connectMetaMaskDirect() {
             throw new Error('No accounts returned');
         }
 
-        console.log('✅ MetaMask connected:', accounts[0]);
 
         // Check network
         const chainId = await window.ethereum.request({ method: 'eth_chainId' });
@@ -368,10 +346,8 @@ async function connectMetaMaskDirect() {
         await checkIfAdmin();
         checkVerificationEligibility();
 
-        console.log('✅ Direct connection complete');
 
     } catch (error) {
-        console.error('❌ Error connecting:', error);
         if (error.code === 4001) {
             alert('Connection rejected.');
         } else {
@@ -384,25 +360,21 @@ async function connectMetaMaskDirect() {
 async function connectWallet() {
     // Check if MetaMask (or any wallet) is already available
     if (typeof window.ethereum !== 'undefined') {
-        console.log('✅ Wallet detected, connecting directly...');
         return await connectMetaMaskDirect();
     }
 
     // No wallet detected - show WalletConnect for mobile users
     if (!web3Modal) {
-        console.log('❌ No wallet detected and Web3Modal not available');
         alert('Please install MetaMask or use a wallet app to continue!');
         window.open('https://metamask.io/download/', '_blank');
         return;
     }
 
     try {
-        console.log('🔌 No wallet detected, showing WalletConnect...');
 
         // Open Web3Modal (will show WalletConnect only)
         provider = await web3Modal.connect();
 
-        console.log('✅ Provider connected');
 
         // Create ethers provider
         const ethersProvider = new ethers.providers.Web3Provider(provider);
@@ -410,12 +382,9 @@ async function connectWallet() {
         const address = await signer.getAddress();
         const network = await ethersProvider.getNetwork();
 
-        console.log('Wallet address:', address);
-        console.log('Current network:', network.chainId);
 
         // Check if on Berachain
         if (network.chainId !== 80084) {
-            console.log('🔄 Requesting network switch to Berachain...');
 
             try {
                 // Try to switch network
@@ -423,9 +392,7 @@ async function connectWallet() {
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: BERACHAIN_CONFIG.chainId }],
                 });
-                console.log('✅ Switched to Berachain');
             } catch (switchError) {
-                console.error('Switch error:', switchError);
 
                 // User rejected
                 if (switchError.code === 4001) {
@@ -436,15 +403,12 @@ async function connectWallet() {
 
                 // Network not added
                 if (switchError.code === 4902 || switchError.message?.includes('Unrecognized chain')) {
-                    console.log('📝 Adding Berachain network...');
                     try {
                         await provider.request({
                             method: 'wallet_addEthereumChain',
                             params: [BERACHAIN_CONFIG],
                         });
-                        console.log('✅ Berachain network added');
                     } catch (addError) {
-                        console.error('Error adding network:', addError);
                         if (addError.code === 4001) {
                             alert('You need to add Berachain network to continue.');
                         } else {
@@ -467,7 +431,6 @@ async function connectWallet() {
         sessionStorage.setItem('walletConnected', 'true');
         sessionStorage.setItem('walletAddress', userWallet);
 
-        console.log('💾 Wallet saved to session');
 
         // Request signature if we don't have a valid one
         if (!isSignatureValid()) {
@@ -486,14 +449,11 @@ async function connectWallet() {
         await checkIfAdmin();
         checkVerificationEligibility();
 
-        console.log('✅ Wallet connection complete');
 
     } catch (error) {
-        console.error('❌ Error connecting wallet:', error);
 
         // Handle errors
         if (error === 'Modal closed by user') {
-            console.log('User closed modal');
             return;
         }
 
@@ -512,7 +472,6 @@ function subscribeToProviderEvents(provider) {
     if (!provider.on) return;
 
     provider.on('accountsChanged', async (accounts) => {
-        console.log('Accounts changed:', accounts);
         if (accounts.length === 0) {
             await disconnectWallet();
         } else {
@@ -526,12 +485,10 @@ function subscribeToProviderEvents(provider) {
     });
 
     provider.on('chainChanged', (chainId) => {
-        console.log('Chain changed:', chainId);
         window.location.reload();
     });
 
     provider.on('disconnect', () => {
-        console.log('Provider disconnected');
         disconnectWallet();
     });
 }
@@ -635,7 +592,6 @@ async function checkTokenBalance() {
         }
 
     } catch (error) {
-        console.error('Error checking token balance:', error);
         alert('Failed to check token balance. Please ensure you are on Berachain network.');
     }
 }
@@ -654,7 +610,6 @@ async function checkIfAdmin() {
 
         if (response.ok) {
             isUserAdmin = true;
-            console.log('✅ Admin wallet detected');
         } else {
             isUserAdmin = false;
         }
@@ -662,7 +617,6 @@ async function checkIfAdmin() {
         updateAdminSection();
 
     } catch (error) {
-        console.error('Error checking admin status:', error);
         isUserAdmin = false;
         updateAdminSection();
     }
@@ -695,9 +649,6 @@ async function connectX() {
         return;
     }
 
-    console.log('🔐 Starting X OAuth flow...');
-    console.log('Wallet:', userWallet);
-    console.log('Redirecting to:', `${API_BASE_URL}/auth/x?wallet=${userWallet}`);
 
     window.location.href = `${API_BASE_URL}/auth/x?wallet=${userWallet}`;
 }
@@ -798,7 +749,6 @@ async function isAlreadyVerified() {
         const data = await response.json();
         return data.verified || false;
     } catch (error) {
-        console.error('Error checking verification status:', error);
         return false;
     }
 }
@@ -816,10 +766,8 @@ async function verifyHoldings() {
     if (amyBalance >= MINIMUM_AMY_BALANCE) {
         // Check if we have a valid signature
         if (!isSignatureValid()) {
-            console.log('⚠️ No valid signature, requesting new one...');
             const signatureObtained = await requestWalletSignature();
             if (!signatureObtained) {
-                console.error('Cannot verify without signature');
                 return;
             }
         }
@@ -844,16 +792,12 @@ async function verifyHoldings() {
             const data = await response.json();
 
             if (response.ok && data.success) {
-                console.log('✅ User verified and saved to spreadsheet');
             } else {
-                console.error('Verification failed:', data.error);
             }
 
         } catch (error) {
-            console.error('Error verifying holdings:', error);
         }
     } else {
-        console.log(`User balance (${amyBalance.toFixed(2)} AMY) below minimum (${MINIMUM_AMY_BALANCE} AMY)`);
     }
 }
 
@@ -871,11 +815,9 @@ async function loadVerificationStatus() {
                 userXAccount = data.data.xUsername;
                 updateXAccountUI(true);
             }
-            console.log('User already verified');
         }
 
     } catch (error) {
-        console.error('Error loading verification status:', error);
     }
 }
 
@@ -899,7 +841,6 @@ async function downloadSpreadsheet() {
         alert('✅ Downloading spreadsheet...');
 
     } catch (error) {
-        console.error('Error downloading spreadsheet:', error);
         alert('❌ Failed to download spreadsheet. Please try again.');
     }
 }
@@ -934,39 +875,29 @@ async function loadLeaderboard() {
                     if (userData.success && userData.verified && userData.data) {
                         // User has verified on the website
                         return {
-                            originalPosition: entry.position,
                             xUsername: userData.data.xUsername,
                             walletAddress: userData.data.walletAddress,
                             amyBalance: userData.data.amyBalance,
                             eligible: userData.data.eligible,
-                            verified: true,
-                            mindshare: entry.mindshare || 0
+                            verified: true
                         };
                     } else {
                         // User hasn't verified yet
                         return {
-                            originalPosition: entry.position,
                             xUsername: entry.xUsername,
                             verified: false,
-                            eligible: false,
-                            mindshare: entry.mindshare || 0
+                            eligible: false
                         };
                     }
                 } catch (error) {
-                    console.error(`Error fetching data for ${entry.xUsername}:`, error);
                     return {
-                        originalPosition: entry.position,
                         xUsername: entry.xUsername,
                         verified: false,
-                        eligible: false,
-                        mindshare: entry.mindshare || 0
+                        eligible: false
                     };
                 }
             })
         );
-
-        // Sort by mindshare (descending) - highest mindshare first
-        enrichedLeaderboard.sort((a, b) => b.mindshare - a.mindshare);
 
         // Display the enriched leaderboard
         displayLeaderboard({
@@ -976,7 +907,6 @@ async function loadLeaderboard() {
         });
 
     } catch (error) {
-        console.error('Error loading leaderboard:', error);
         showLeaderboardError();
     }
 }
@@ -1010,33 +940,14 @@ function displayLeaderboard(data) {
 
     emptyState.classList.add('hidden');
 
-    // Generate leaderboard HTML with dynamic positions
+    // Generate leaderboard HTML - display only X usernames
     const leaderboardHTML = eligibleUsers.map((user, index) => {
-        // Dynamic position based on filtered and sorted list
-        const position = index + 1;
-
-        const positionClass = position === 1 ? 'position-1' :
-                             position === 2 ? 'position-2' :
-                             position === 3 ? 'position-3' : '';
-
-        const statusClass = user.eligible ? 'status-eligible' : 'status-ineligible';
-        const statusText = user.eligible ? '✅ Eligible' : '❌ Ineligible';
-
-        // Medal for top 3
-        const medal = position === 1 ? '🥇' :
-                     position === 2 ? '🥈' :
-                     position === 3 ? '🥉' : '';
-
         return `
             <div class="leaderboard-row">
                 <div class="flex items-center gap-3 md:gap-4">
-                    <div class="position-badge ${positionClass}">
-                        ${medal || position}
-                    </div>
                     <div class="flex-1">
                         <div class="flex items-center gap-2">
                             <span class="text-lg md:text-xl font-bold text-white">@${user.xUsername}</span>
-                            ${user.mindshare > 0 ? `<span class="text-xs text-green-400 font-semibold">${user.mindshare}% MS</span>` : ''}
                         </div>
                     </div>
                 </div>
@@ -1089,27 +1000,10 @@ async function loadAdminLeaderboard() {
             return;
         }
 
-        // Sort by position
-        entries.sort((a, b) => a.position - b.position);
-
         const entriesHTML = entries.map(entry => `
             <div class="bg-gradient-to-r from-gray-800 to-gray-900 p-3 rounded-lg mb-3 border border-yellow-400/20 hover:border-yellow-400/40 transition-all">
-                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <!-- Info Section -->
-                    <div class="flex-1 flex flex-wrap items-center gap-2">
-                        <span class="inline-flex items-center justify-center bg-yellow-500/20 text-yellow-300 font-black text-sm px-2.5 py-1 rounded-lg border border-yellow-400/30">#${entry.position}</span>
-                        <span class="text-white font-semibold text-sm">@${entry.xUsername}</span>
-                        <span class="inline-flex items-center bg-green-500/20 text-green-400 font-bold text-xs px-2 py-1 rounded-full border border-green-400/30">${entry.mindshare}% MS</span>
-                    </div>
-                    <!-- Action Buttons -->
-                    <div class="flex gap-2 w-full md:w-auto">
-                        <button onclick="editLeaderboardEntry(${entry.position})" class="flex-1 md:flex-none bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:from-blue-600 hover:to-blue-700 transition-all shadow-md hover:shadow-lg transform hover:scale-105">
-                            ✏️ EDIT
-                        </button>
-                        <button onclick="deleteLeaderboardEntry(${entry.position})" class="flex-1 md:flex-none bg-gradient-to-r from-red-500 to-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:from-red-600 hover:to-red-700 transition-all shadow-md hover:shadow-lg transform hover:scale-105">
-                            🗑️ DELETE
-                        </button>
-                    </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-white font-semibold text-sm">@${entry.xUsername}</span>
                 </div>
             </div>
         `).join('');
@@ -1117,132 +1011,64 @@ async function loadAdminLeaderboard() {
         container.innerHTML = entriesHTML;
 
     } catch (error) {
-        console.error('Error loading admin leaderboard:', error);
         document.getElementById('admin-leaderboard-list').innerHTML = '<p class="text-red-400 text-sm">Failed to load entries</p>';
     }
 }
 
-// Add new leaderboard entry
-async function addLeaderboardEntry() {
+// Bulk update leaderboard from pasted data
+async function bulkUpdateLeaderboard() {
     if (!isUserAdmin) {
         alert('❌ Unauthorized: You are not an admin wallet.');
         return;
     }
 
-    const position = document.getElementById('new-position').value;
-    const username = document.getElementById('new-username').value;
-    const mindshare = document.getElementById('new-mindshare').value;
+    const pasteArea = document.getElementById('leaderboard-paste-area');
+    const pastedData = pasteArea.value.trim();
 
-    if (!position || !username) {
-        alert('❌ Position and X Username are required!');
+    if (!pastedData) {
+        alert('❌ Please paste leaderboard data first!');
         return;
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/leaderboard/entry?wallet=${userWallet}`, {
+        const lines = pastedData.split('\n').filter(line => line.trim());
+        const entries = [];
+
+        for (const line of lines) {
+            // Match format: "Position Name - @username" or just "@username"
+            const match = line.match(/@([a-zA-Z0-9_]+)/);
+            if (match) {
+                const xUsername = match[1].trim();
+                entries.push({ xUsername });
+            }
+        }
+
+        if (entries.length === 0) {
+            alert('❌ No valid X usernames found. Please check the format.');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/api/leaderboard/bulk?wallet=${userWallet}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                position: parseInt(position),
-                xUsername: username,
-                mindshare: parseFloat(mindshare) || 0
-            })
+            body: JSON.stringify({ entries })
         });
 
         const result = await response.json();
 
         if (response.ok && result.success) {
-            alert('✅ Entry added successfully!');
-            document.getElementById('new-position').value = '';
-            document.getElementById('new-username').value = '';
-            document.getElementById('new-mindshare').value = '';
+            alert(`✅ Successfully updated ${entries.length} X usernames!`);
+            pasteArea.value = '';
             loadAdminLeaderboard();
-            loadLeaderboard(); // Refresh public leaderboard
+            loadLeaderboard();
         } else {
-            alert('❌ Failed to add entry: ' + (result.error || 'Unknown error'));
+            alert('❌ Failed to update: ' + (result.error || 'Unknown error'));
         }
 
     } catch (error) {
-        console.error('Error adding entry:', error);
-        alert('❌ Failed to add entry. Please try again.');
+        alert('❌ Failed to update. Please try again.');
     }
 }
 
-// Edit leaderboard entry
-async function editLeaderboardEntry(position) {
-    if (!isUserAdmin) {
-        alert('❌ Unauthorized: You are not an admin wallet.');
-        return;
-    }
-
-    const username = prompt('Enter new X Username (without @):');
-    const mindshare = prompt('Enter new Mindshare %:');
-
-    if (username === null) return; // User cancelled
-
-    try {
-        const body = { position: position };
-        if (username) body.xUsername = username;
-        if (mindshare !== null && mindshare !== '') body.mindshare = parseFloat(mindshare);
-
-        const response = await fetch(`${API_BASE_URL}/api/leaderboard/${position}?wallet=${userWallet}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body)
-        });
-
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-            alert('✅ Entry updated successfully!');
-            loadAdminLeaderboard();
-            loadLeaderboard(); // Refresh public leaderboard
-        } else {
-            alert('❌ Failed to update entry: ' + (result.error || 'Unknown error'));
-        }
-
-    } catch (error) {
-        console.error('Error updating entry:', error);
-        alert('❌ Failed to update entry. Please try again.');
-    }
-}
-
-// Delete leaderboard entry
-async function deleteLeaderboardEntry(position) {
-    if (!isUserAdmin) {
-        alert('❌ Unauthorized: You are not an admin wallet.');
-        return;
-    }
-
-    if (!confirm(`Are you sure you want to delete position #${position}?`)) {
-        return;
-    }
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/leaderboard/${position}?wallet=${userWallet}`, {
-            method: 'DELETE'
-        });
-
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-            alert('✅ Entry deleted successfully!');
-            loadAdminLeaderboard();
-            loadLeaderboard(); // Refresh public leaderboard
-        } else {
-            alert('❌ Failed to delete entry: ' + (result.error || 'Unknown error'));
-        }
-
-    } catch (error) {
-        console.error('Error deleting entry:', error);
-        alert('❌ Failed to delete entry. Please try again.');
-    }
-}
-
-console.log('🚀 $AMY Profile & Verification loaded!');
-console.log('📡 Backend API:', API_BASE_URL);
-console.log('🏆 Leaderboard auto-refresh enabled');

@@ -30,6 +30,7 @@ desktop.ini
 # Build outputs
 dist/
 build/
+tailwind-output.css
 
 # Package manager
 package-lock.json

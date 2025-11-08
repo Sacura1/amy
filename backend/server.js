@@ -717,6 +717,35 @@ app.delete('/api/leaderboard/:position', isAdmin, (req, res) => {
     }
 });
 
+// Bulk update leaderboard (admin only)
+app.post('/api/leaderboard/bulk', isAdmin, (req, res) => {
+    try {
+        const { entries } = req.body;
+
+        if (!Array.isArray(entries)) {
+            return res.status(400).json({ error: 'Entries must be an array' });
+        }
+
+        // Clear existing leaderboard and add all new entries
+        const data = leaderboard.update({
+            leaderboard: entries,
+            minimumAMY: MINIMUM_AMY_BALANCE
+        });
+
+        console.log('✅ Bulk leaderboard update by admin:', entries.length, 'entries');
+
+        res.json({
+            success: true,
+            message: `Successfully updated ${entries.length} entries`,
+            data: data
+        });
+
+    } catch (error) {
+        console.error('❌ Error bulk updating leaderboard:', error);
+        res.status(500).json({ error: 'Failed to bulk update leaderboard' });
+    }
+});
+
 // Get stats (admin only)
 app.get('/api/stats', isAdmin, (req, res) => {
     try {
