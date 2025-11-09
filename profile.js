@@ -731,12 +731,12 @@ function updateEligibilityStatus() {
         eligibilityIcon.textContent = '✅';
         eligibilityTitle.textContent = 'Eligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-green-400';
-        eligibilityMessage.textContent = `You have at least ${MINIMUM_AMY_BALANCE} $AMY and you are on the AMY cookie leaderboard.`;
+        eligibilityMessage.textContent = `You have at least ${MINIMUM_AMY_BALANCE} $AMY and you are on the AMY leaderboard.`;
     } else {
         eligibilityIcon.textContent = '❌';
         eligibilityTitle.textContent = 'Ineligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
-        eligibilityMessage.textContent = `You need at least ${MINIMUM_AMY_BALANCE} $AMY and be on the cookie leaderboard to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY.`;
+        eligibilityMessage.textContent = `You need at least ${MINIMUM_AMY_BALANCE} $AMY to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY.`;
     }
 }
 
