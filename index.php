@@ -1,48 +1,98 @@
 <!DOCTYPE html>
 <html lang="en">
-<!DOCTYPE html>
-<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>$AMY - Berachain Ecosystem Token</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="pro.jpg">
+    <link rel="preload" as="image" href="image.png">
+    <link rel="stylesheet" href="tailwind-output.css">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Critical CSS to prevent flash */
+        body {
+            background-color: #0891b2;
+            margin: 0;
+            padding: 0;
+        }
+        .bg-pattern {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('image.png');
+            background-size: cover;
+            background-position: center top;
+            background-repeat: no-repeat;
+            z-index: -2;
+        }
+        @media (max-width: 768px) {
+            .bg-pattern {
+                background-position: center center;
+            }
+        }
+        .bg-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 255, 255, 0.8);
+            mix-blend-mode: multiply;
+            z-index: -1;
+        }
 
-  <title>$AMY – Berachain Ecosystem Token</title>
+        /* Enhanced Button Styles */
+        .btn-samy-enhanced {
+            background: linear-gradient(135deg, #FF1493, #FF69B4);
+            border: 3px solid #FFD700;
+            box-shadow:
+                0 6px 0 #8B008B,
+                0 8px 15px rgba(0, 0, 0, 0.4),
+                inset 0 1px 2px rgba(255, 255, 255, 0.3);
+            transition: all 0.15s ease;
+            position: relative;
+            overflow: hidden;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
 
-  <meta name="description" content="$AMY is a community-driven token in the Berachain ecosystem. Learn more about the project, roadmap, and how to get involved." />
+        .btn-samy-enhanced::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
 
-  <link rel="canonical" href="<?php echo esc_url( home_url( '/' ) ); ?>" />
-  <meta property="og:title" content="$AMY – Berachain Ecosystem Token" />
-  <meta property="og:description" content="$AMY is a community-driven token" />
-  <meta property="og:url" content="<?php echo esc_url( home_url( '/' ) ); ?>" />
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="<?php echo esc_url( get_template_directory_uri() . '/pro.jpg' ); ?>" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="$AMY – Berachain Ecosystem Token" />
-  <meta name="twitter:description" content="$AMY is a community-driven token in the Berachain ecosystem. Learn more about the project, roadmap, and how to get involved." />
-  <meta name="twitter:image" content="<?php echo esc_url( get_template_directory_uri() . '/pro.jpg' ); ?>" />
+        .btn-samy-enhanced:hover::before {
+            width: 300px;
+            height: 300px;
+        }
 
-  <link rel="icon" type="image/svg+xml" href="<?php echo esc_url( get_template_directory_uri() . '/favicon.svg' ); ?>">
-  <link rel="apple-touch-icon" href="<?php echo esc_url( get_template_directory_uri() . '/pro.jpg' ); ?>">
-  <link rel="preload" as="image" href="<?php echo esc_url( get_template_directory_uri() . '/image.png' ); ?>">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="<?php echo esc_url( get_stylesheet_uri() ); ?>">
+        .btn-samy-enhanced:hover {
+            transform: translateY(3px);
+            box-shadow:
+                0 3px 0 #8B008B,
+                0 5px 10px rgba(0, 0, 0, 0.3),
+                inset 0 1px 3px rgba(255, 255, 255, 0.4);
+        }
 
-  <style>
-    /* Critical CSS to prevent flash */
-    body { background-color:#0891b2; margin:0; padding:0; }
-    .bg-pattern{
-      position:fixed; top:0; left:0; width:100%; height:100%;
-      background-image:url('<?php echo esc_url( get_template_directory_uri() . '/image.png' ); ?>');
-      background-size:cover; background-position:center top; background-repeat:no-repeat; z-index:-2;
-    }
-    @media (max-width:768px){ .bg-pattern{ background-position:center center; } }
-    .bg-overlay{
-      position:fixed; top:0; left:0; width:100%; height:100%;
-      background-color:rgba(0,255,255,0.8); mix-blend-mode:multiply; z-index:-1;
-    }
-  </style>
-
-  <?php wp_head(); ?>
+        .btn-samy-enhanced:active {
+            transform: translateY(6px);
+            box-shadow:
+                0 0 0 #8B008B,
+                0 2px 5px rgba(0, 0, 0, 0.2),
+                inset 0 1px 3px rgba(0, 0, 0, 0.2);
+        }
+    </style>
 </head>
 <body class="min-h-screen text-white relative">
     <div class="bg-pattern"></div>
@@ -51,23 +101,71 @@
         <!-- Header -->
         <header class="container mx-auto px-4 py-4 md:py-6">
             <nav class="flex justify-between items-center">
-                <div class="text-3xl md:text-4xl font-bold text-shadow-strong">$AMY</div>
-                <div class="space-x-2 md:space-x-4 flex">
-                    <button class="btn-samy text-white px-4 md:px-8 py-2 md:py-3 rounded-full text-sm md:text-xl font-bold uppercase">
-                        HOME
+                <!-- Mobile: Hamburger + Logo -->
+                <div class="flex items-center gap-3 md:hidden">
+                    <!-- Hamburger Menu Button (Mobile Only) -->
+                    <button id="menu-toggle" class="text-white focus:outline-none z-50">
+                        <div id="hamburger-lines" class="space-y-2">
+                            <span class="block w-8 h-1 bg-yellow-400 transition-all duration-300"></span>
+                            <span class="block w-8 h-1 bg-yellow-400 transition-all duration-300"></span>
+                            <span class="block w-8 h-1 bg-yellow-400 transition-all duration-300"></span>
+                        </div>
                     </button>
-                    <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="btn-samy text-white px-4 md:px-8 py-2 md:py-3 rounded-full text-sm md:text-xl font-bold uppercase inline-block">
+                    <a href="index.php" class="text-3xl font-bold text-shadow-strong">$AMY</a>
+                </div>
+
+                <!-- Desktop: Logo -->
+                <a href="index.php" class="hidden md:block text-4xl font-bold text-shadow-strong">$AMY</a>
+
+                <!-- Desktop: Nav Buttons + Menu -->
+                <div class="hidden md:flex items-center gap-4">
+                    <a href="index.php" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
+                        HOME
+                    </a>
+                    <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
                         BUY
                     </a>
+                    <button id="menu-toggle-desktop" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
+                        MENU
+                    </button>
                 </div>
+
+                <!-- Mobile: Home Button -->
+                <a href="index.php" class="md:hidden btn-samy btn-samy-enhanced text-white px-4 py-2 rounded-full text-sm font-bold uppercase">
+                    HOME
+                </a>
             </nav>
+
+            <!-- Dropdown Menu -->
+            <div id="dropdown-menu" class="hidden fixed top-0 left-0 w-full h-full z-40 flex items-center justify-center md:justify-end transition-all duration-300" style="backdrop-filter: blur(10px); background-color: rgba(0, 0, 0, 0.85);">
+                <div class="md:mr-12 space-y-6">
+                    <a href="profile.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                        PROFILE
+                    </a>
+                    <a href="leaderboard.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                        LEADERBOARD
+                    </a>
+                    <a href="earn.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                        EARN ON BERA
+                    </a>
+                    <a href="points.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                        AMY POINTS
+                    </a>
+                    <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                        BUY
+                    </a>
+                    <a href="contact.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                        CONTACT
+                    </a>
+                </div>
+            </div>
         </header>
 
         <!-- Hero Section -->
         <section class="container mx-auto px-4 py-8 md:py-24 text-center">
             <div class="mb-6 md:mb-8">
                 <div class="w-32 h-32 md:w-48 md:h-48 mx-auto mb-4 md:mb-6 rounded-full overflow-hidden border-4 md:border-8 border-yellow-400 shadow-2xl">
-                    <img src="<?php echo get_template_directory_uri(); ?>/pro.jpg" alt="$AMY" class="w-full h-full object-cover">
+                    <img src="pro.jpg" alt="$AMY" class="w-full h-full object-cover">
                 </div>
             </div>
             <h1 class="text-5xl sm:text-6xl md:text-7xl lg:text-9xl font-black mb-6 md:mb-8 text-shadow-strong" style="color: #FF1493;">
@@ -91,7 +189,7 @@
         <section class="container mx-auto px-4 py-8 md:py-12">
             <div class="flex justify-center">
                 <div class="info-box p-6 md:p-8 text-center hover:scale-105 transition transform max-w-md w-full">
-                    <div class="text-4xl md:text-5xl mb-3 md:mb-4">🐻</div>
+                    <div class="text-4xl md:text-5xl mb-3 md:mb-4">🐻⛓️</div>
                     <div class="text-xl md:text-2xl font-bold text-yellow-400 mb-2">Berachain Native</div>
                     <div class="text-sm md:text-base text-gray-300">Built for the Berachain ecosystem</div>
                 </div>
@@ -161,6 +259,15 @@
                         </div>
                         <p class="text-white font-bold mt-3">Telegram</p>
                     </a>
+
+                    <a href="https://discord.gg/6GXTFE9h" target="_blank" rel="noopener noreferrer" class="group">
+                        <div class="bg-white rounded-full p-4 md:p-6 hover:scale-110 transition transform shadow-lg flex items-center justify-center w-16 h-16 md:w-24 md:h-24">
+                            <svg class="w-8 h-8 md:w-12 md:h-12 text-black" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.956-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.955-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.946 2.418-2.157 2.418z"/>
+                            </svg>
+                        </div>
+                        <p class="text-white font-bold mt-3">Discord</p>
+                    </a>
                 </div>
             </div>
         </section>
@@ -171,6 +278,71 @@
         </footer>
     </div>
 
-    <script src="<?php echo get_template_directory_uri(); ?>/index.js"></script>
+    <script src="index.js"></script>
+    <script>
+        // Menu toggle functionality
+        const menuToggleMobile = document.getElementById('menu-toggle');
+        const menuToggleDesktop = document.getElementById('menu-toggle-desktop');
+        const dropdownMenu = document.getElementById('dropdown-menu');
+        const hamburgerLines = document.getElementById('hamburger-lines');
+
+        function toggleMenu() {
+            const isHidden = dropdownMenu.classList.contains('hidden');
+
+            if (isHidden) {
+                // Open menu
+                dropdownMenu.classList.remove('hidden');
+                dropdownMenu.classList.add('animate-fadeIn');
+
+                // Animate hamburger to X
+                if (hamburgerLines) {
+                    const spans = hamburgerLines.querySelectorAll('span');
+                    spans[0].style.transform = 'rotate(45deg) translateY(12px)';
+                    spans[1].style.opacity = '0';
+                    spans[2].style.transform = 'rotate(-45deg) translateY(-12px)';
+                }
+            } else {
+                // Close menu
+                dropdownMenu.classList.add('hidden');
+                dropdownMenu.classList.remove('animate-fadeIn');
+
+                // Animate hamburger back to lines
+                if (hamburgerLines) {
+                    const spans = hamburgerLines.querySelectorAll('span');
+                    spans[0].style.transform = 'none';
+                    spans[1].style.opacity = '1';
+                    spans[2].style.transform = 'none';
+                }
+            }
+        }
+
+        if (menuToggleMobile) {
+            menuToggleMobile.addEventListener('click', toggleMenu);
+        }
+
+        if (menuToggleDesktop) {
+            menuToggleDesktop.addEventListener('click', toggleMenu);
+        }
+
+        // Close menu when clicking outside
+        dropdownMenu.addEventListener('click', (e) => {
+            if (e.target === dropdownMenu) {
+                toggleMenu();
+            }
+        });
+    </script>
+    <style>
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+    </style>
 </body>
 </html>

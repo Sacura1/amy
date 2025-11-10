@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>$AMY - Contact Us</title>
+    <title>$AMY - Earn on Bera</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="apple-touch-icon" href="pro.jpg">
     <link rel="preload" as="image" href="image.png">
@@ -92,6 +92,19 @@
                 0 2px 5px rgba(0, 0, 0, 0.2),
                 inset 0 1px 3px rgba(0, 0, 0, 0.2);
         }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0px);
+            }
+            50% {
+                transform: translateY(-20px);
+            }
+        }
+
+        .float-animation {
+            animation: float 3s ease-in-out infinite;
+        }
     </style>
 </head>
 <body class="min-h-screen text-white relative">
@@ -111,15 +124,15 @@
                             <span class="block w-8 h-1 bg-yellow-400 transition-all duration-300"></span>
                         </div>
                     </button>
-                    <a href="index.html" class="text-3xl font-bold text-shadow-strong">$AMY</a>
+                    <a href="index.php" class="text-3xl font-bold text-shadow-strong">$AMY</a>
                 </div>
 
                 <!-- Desktop: Logo -->
-                <a href="index.html" class="hidden md:block text-4xl font-bold text-shadow-strong">$AMY</a>
+                <a href="index.php" class="hidden md:block text-4xl font-bold text-shadow-strong">$AMY</a>
 
                 <!-- Desktop: Nav Buttons + Menu -->
                 <div class="hidden md:flex items-center gap-4">
-                    <a href="index.html" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
+                    <a href="index.php" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
                         HOME
                     </a>
                     <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
@@ -131,7 +144,7 @@
                 </div>
 
                 <!-- Mobile: Home Button -->
-                <a href="index.html" class="md:hidden btn-samy btn-samy-enhanced text-white px-4 py-2 rounded-full text-sm font-bold uppercase">
+                <a href="index.php" class="md:hidden btn-samy btn-samy-enhanced text-white px-4 py-2 rounded-full text-sm font-bold uppercase">
                     HOME
                 </a>
             </nav>
@@ -139,68 +152,40 @@
             <!-- Dropdown Menu -->
             <div id="dropdown-menu" class="hidden fixed top-0 left-0 w-full h-full z-40 flex items-center justify-center md:justify-end transition-all duration-300" style="backdrop-filter: blur(10px); background-color: rgba(0, 0, 0, 0.85);">
                 <div class="md:mr-12 space-y-6">
-                    <a href="profile.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="profile.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         PROFILE
                     </a>
-                    <a href="leaderboard.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="leaderboard.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         LEADERBOARD
                     </a>
-                    <a href="earn.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="earn.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         EARN ON BERA
                     </a>
-                    <a href="points.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="points.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         AMY POINTS
                     </a>
                     <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         BUY
                     </a>
-                    <a href="contact.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="contact.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         CONTACT
                     </a>
                 </div>
             </div>
         </header>
 
-        <!-- Contact Section -->
+        <!-- Coming Soon Section -->
         <main class="flex-grow flex items-center justify-center px-4">
             <div class="max-w-2xl mx-auto text-center">
                 <div class="info-box p-8 md:p-16">
-                    <h1 class="text-4xl md:text-6xl font-black mb-6 text-yellow-400">CONTACT US</h1>
-                    <p class="text-xl md:text-2xl text-gray-300 mb-8 leading-relaxed">
-                        Connect with us on social media and stay updated!
-                    </p>
-
-                    <div class="flex justify-center gap-8 md:gap-12 mb-8">
-                        <a href="https://x.com/amy_on_bera" target="_blank" rel="noopener noreferrer" class="group">
-                            <div class="bg-white rounded-full p-6 md:p-8 hover:scale-110 transition transform shadow-lg flex items-center justify-center w-24 h-24 md:w-32 md:h-32">
-                                <svg class="w-12 h-12 md:w-16 md:h-16 text-black" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                                </svg>
-                            </div>
-                            <p class="text-white font-bold mt-4 text-lg">X (Twitter)</p>
-                        </a>
-
-                        <a href="https://t.me/amy_on_bera" target="_blank" rel="noopener noreferrer" class="group">
-                            <div class="bg-white rounded-full p-6 md:p-8 hover:scale-110 transition transform shadow-lg flex items-center justify-center w-24 h-24 md:w-32 md:h-32">
-                                <svg class="w-12 h-12 md:w-16 md:h-16 text-black" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-                                </svg>
-                            </div>
-                            <p class="text-white font-bold mt-4 text-lg">Telegram</p>
-                        </a>
-
-                        <a href="https://discord.gg/6GXTFE9h" target="_blank" rel="noopener noreferrer" class="group">
-                            <div class="bg-white rounded-full p-6 md:p-8 hover:scale-110 transition transform shadow-lg flex items-center justify-center w-24 h-24 md:w-32 md:h-32">
-                                <svg class="w-12 h-12 md:w-16 md:h-16 text-black" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.956-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.955-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.946 2.418-2.157 2.418z"/>
-                                </svg>
-                            </div>
-                            <p class="text-white font-bold mt-4 text-lg">Discord</p>
-                        </a>
-                    </div>
-
+                    <div class="text-6xl md:text-8xl mb-6 float-animation">🚀</div>
+                    <h1 class="text-4xl md:text-6xl font-black mb-6 text-yellow-400">EARN ON BERA</h1>
+                    <p class="text-2xl md:text-3xl font-bold mb-4" style="color: #FF1493;">COMING SOON</p>
+                    <!-- <p class="text-base md:text-xl text-gray-300 leading-relaxed">
+                        Exciting earning opportunities are on the way! Stay tuned for updates on how you can earn rewards on Berachain with $AMY.
+                    </p> -->
                     <div class="mt-8">
-                        <a href="index.html" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-lg font-bold uppercase inline-block">
+                        <a href="index.php" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-lg font-bold uppercase inline-block">
                             BACK TO HOME
                         </a>
                     </div>

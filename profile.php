@@ -641,15 +641,15 @@
                             <span class="block w-8 h-1 bg-yellow-400 transition-all duration-300"></span>
                         </div>
                     </button>
-                    <a href="index.html" class="text-3xl font-bold text-shadow-strong">$AMY</a>
+                    <a href="index.php" class="text-3xl font-bold text-shadow-strong">$AMY</a>
                 </div>
 
                 <!-- Desktop: Logo -->
-                <a href="index.html" class="hidden md:block text-4xl font-bold text-shadow-strong">$AMY</a>
+                <a href="index.php" class="hidden md:block text-4xl font-bold text-shadow-strong">$AMY</a>
 
                 <!-- Desktop: Nav Buttons + Menu -->
                 <div class="hidden md:flex items-center gap-4">
-                    <a href="index.html" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
+                    <a href="index.php" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
                         HOME
                     </a>
                     <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-xl font-bold uppercase">
@@ -661,7 +661,7 @@
                 </div>
 
                 <!-- Mobile: Home Button -->
-                <a href="index.html" class="md:hidden btn-samy btn-samy-enhanced text-white px-4 py-2 rounded-full text-sm font-bold uppercase">
+                <a href="index.php" class="md:hidden btn-samy btn-samy-enhanced text-white px-4 py-2 rounded-full text-sm font-bold uppercase">
                     HOME
                 </a>
             </nav>
@@ -675,22 +675,22 @@
             <!-- Dropdown Menu -->
             <div id="dropdown-menu" class="hidden fixed top-0 left-0 w-full h-full z-40 items-center justify-center md:justify-end transition-all duration-300" style="backdrop-filter: blur(10px); background-color: rgba(0, 0, 0, 0.85);">
                 <div class="md:mr-12 space-y-6">
-                    <a href="profile.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="profile.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         PROFILE
                     </a>
-                    <a href="leaderboard.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="leaderboard.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         LEADERBOARD
                     </a>
-                    <a href="earn.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="earn.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         EARN ON BERA
                     </a>
-                    <a href="points.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="points.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         AMY POINTS
                     </a>
                     <a href="https://www.osito.finance/?token=0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e" target="_blank" rel="noopener noreferrer" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         BUY
                     </a>
-                    <a href="contact.html" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
+                    <a href="contact.php" class="block btn-samy btn-samy-enhanced text-white px-12 py-4 rounded-full text-xl font-bold uppercase">
                         CONTACT
                     </a>
                 </div>
