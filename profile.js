@@ -879,21 +879,24 @@ async function loadLeaderboard() {
                             walletAddress: userData.data.walletAddress,
                             amyBalance: userData.data.amyBalance,
                             eligible: userData.data.eligible,
-                            verified: true
+                            verified: true,
+                            originalRank: entry.position || null
                         };
                     } else {
                         // User hasn't verified yet
                         return {
                             xUsername: entry.xUsername,
                             verified: false,
-                            eligible: false
+                            eligible: false,
+                            originalRank: entry.position || null
                         };
                     }
                 } catch (error) {
                     return {
                         xUsername: entry.xUsername,
                         verified: false,
-                        eligible: false
+                        eligible: false,
+                        originalRank: entry.position || null
                     };
                 }
             })
@@ -940,13 +943,37 @@ function displayLeaderboard(data) {
 
     emptyState.classList.add('hidden');
 
-    // Generate leaderboard HTML - display only X usernames
+    // Sort eligible users by their original rank position (lowest rank number = best = first)
+    eligibleUsers.sort((a, b) => {
+        const rankA = a.originalRank || 999999;
+        const rankB = b.originalRank || 999999;
+        return rankA - rankB;
+    });
+
+    // Generate leaderboard HTML - display sequential positions based on sorted order
     const leaderboardHTML = eligibleUsers.map((user, index) => {
+        const displayPosition = index + 1; // Sequential position: 1, 2, 3, 4, 5... (no gaps)
+
+        // Determine badge class based on display position
+        let positionBadgeClass = 'position-badge';
+        if (displayPosition === 1) {
+            positionBadgeClass += ' position-1';
+        } else if (displayPosition === 2) {
+            positionBadgeClass += ' position-2';
+        } else if (displayPosition === 3) {
+            positionBadgeClass += ' position-3';
+        }
+
         return `
             <div class="leaderboard-row">
                 <div class="flex items-center gap-3 md:gap-4">
+                    <!-- Position Badge (sequential, no gaps) -->
+                    <div class="${positionBadgeClass}">
+                        ${displayPosition}
+                    </div>
+
                     <div class="flex-1">
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                             <span class="text-lg md:text-xl font-bold text-white">@${user.xUsername}</span>
                         </div>
                     </div>
@@ -1003,6 +1030,7 @@ async function loadAdminLeaderboard() {
         const entriesHTML = entries.map(entry => `
             <div class="bg-gradient-to-r from-gray-800 to-gray-900 p-3 rounded-lg mb-3 border border-yellow-400/20 hover:border-yellow-400/40 transition-all">
                 <div class="flex items-center gap-2">
+                    ${entry.position ? `<span class="text-yellow-400 font-bold text-sm">#${entry.position}</span>` : ''}
                     <span class="text-white font-semibold text-sm">@${entry.xUsername}</span>
                 </div>
             </div>
@@ -1034,12 +1062,15 @@ async function bulkUpdateLeaderboard() {
         const lines = pastedData.split('\n').filter(line => line.trim());
         const entries = [];
 
-        for (const line of lines) {
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
             // Match format: "Position Name - @username" or just "@username"
             const match = line.match(/@([a-zA-Z0-9_]+)/);
             if (match) {
                 const xUsername = match[1].trim();
-                entries.push({ xUsername });
+                // Assign sequential position (1, 2, 3, ...) regardless of original numbering
+                const position = i + 1;
+                entries.push({ xUsername, position });
             }
         }
 
