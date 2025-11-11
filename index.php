@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>$AMY - Berachain Ecosystem Token</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="apple-touch-icon" href="pro.jpg">
-    <link rel="preload" as="image" href="image.png">
-    <link rel="stylesheet" href="tailwind-output.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="/wp-content/themes/amy/favicon.svg">
+    <link rel="apple-touch-icon" href="/wp-content/themes/amy/pro.jpg">
+    <link rel="preload" as="image" href="/wp-content/themes/amy/image.png">
+    <link rel="stylesheet" href="/wp-content/themes/amy/tailwind-output.css">
+    <link rel="stylesheet" href="/wp-content/themes/amy/style.css">
     <style>
         /* Critical CSS to prevent flash */
         body {
@@ -22,7 +22,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-image: url('image.png');
+            background-image: url('/wp-content/themes/amy/image.png');
             background-size: cover;
             background-position: center top;
             background-repeat: no-repeat;
@@ -165,7 +165,7 @@
         <section class="container mx-auto px-4 py-8 md:py-24 text-center">
             <div class="mb-6 md:mb-8">
                 <div class="w-32 h-32 md:w-48 md:h-48 mx-auto mb-4 md:mb-6 rounded-full overflow-hidden border-4 md:border-8 border-yellow-400 shadow-2xl">
-                    <img src="pro.jpg" alt="$AMY" class="w-full h-full object-cover">
+                    <img src="/wp-content/themes/amy/pro.jpg" alt="$AMY" class="w-full h-full object-cover">
                 </div>
             </div>
             <h1 class="text-5xl sm:text-6xl md:text-7xl lg:text-9xl font-black mb-6 md:mb-8 text-shadow-strong" style="color: #FF1493;">
@@ -278,7 +278,7 @@
         </footer>
     </div>
 
-    <script src="index.js"></script>
+    <script src="/wp-content/themes/amy/index.js"></script>
     <script>
         // Menu toggle functionality
         const menuToggleMobile = document.getElementById('menu-toggle');

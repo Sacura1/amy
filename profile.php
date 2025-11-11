@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>$AMY - Profile & Leaderboard</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="apple-touch-icon" href="pro.jpg">
-    <link rel="stylesheet" href="tailwind-output.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="/wp-content/themes/amy/favicon.svg">
+    <link rel="apple-touch-icon" href="/wp-content/themes/amy/pro.jpg">
+    <link rel="stylesheet" href="/wp-content/themes/amy/tailwind-output.css">
+    <link rel="stylesheet" href="/wp-content/themes/amy/style.css">
     <style>
         /* Enhanced Background with Image */
         body {
@@ -25,7 +25,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-image: url('image.png');
+            background-image: url('/wp-content/themes/amy/image.png');
             background-size: cover;
             background-position: center top;
             background-repeat: no-repeat;
@@ -851,7 +851,7 @@
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/web3modal@1.9.12/dist/index.js"></script>
-    <script src="profile.js"></script>
+    <script src="/wp-content/themes/amy/profile.js"></script>
 
     <!-- Enhanced Meme Animations -->
     <script>
