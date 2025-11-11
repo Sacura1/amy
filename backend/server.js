@@ -282,22 +282,29 @@ app.get('/auth/x/callback', async (req, res) => {
     console.log('State from query:', state);
     console.log('State from session:', req.session.state);
     console.log('Session ID:', req.sessionID);
+    console.log('Code verifier in session:', req.session.codeVerifier ? 'EXISTS' : 'MISSING');
+    console.log('Wallet in session:', req.session.wallet || 'MISSING');
 
     // Check if session exists
     if (!req.session || !req.session.state) {
         console.error('❌ Session lost - no state in session');
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        return res.redirect(`${frontendUrl}/profile.html?error=session_lost`);
+        return res.redirect(`${frontendUrl}/profile?error=session_lost`);
     }
 
     // Verify state (CSRF protection)
     if (state !== req.session.state) {
         console.error('❌ State mismatch:', { received: state, expected: req.session.state });
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        return res.redirect(`${frontendUrl}/profile.html?error=state_mismatch`);
+        return res.redirect(`${frontendUrl}/profile?error=state_mismatch`);
     }
 
     try {
+        // Create Basic Auth header manually
+        const credentials = Buffer.from(
+            `${process.env.TWITTER_CLIENT_ID}:${process.env.TWITTER_CLIENT_SECRET}`
+        ).toString('base64');
+
         // Exchange code for access token
         const tokenResponse = await axios.post(
             'https://api.twitter.com/2/oauth2/token',
@@ -311,10 +318,7 @@ app.get('/auth/x/callback', async (req, res) => {
             {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                auth: {
-                    username: process.env.TWITTER_CLIENT_ID,
-                    password: process.env.TWITTER_CLIENT_SECRET
+                    'Authorization': `Basic ${credentials}`
                 }
             }
         );
@@ -339,12 +343,18 @@ app.get('/auth/x/callback', async (req, res) => {
 
         // Redirect back to profile page with success
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        res.redirect(`${frontendUrl}/profile.html?x_connected=true&username=${twitterUser.username}&wallet=${req.session.wallet}`);
+        res.redirect(`${frontendUrl}/profile?x_connected=true&username=${twitterUser.username}&wallet=${req.session.wallet}`);
 
     } catch (error) {
         console.error('❌ OAuth error:', error.response?.data || error.message);
+        console.error('Full error details:', {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data,
+            message: error.message
+        });
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        res.redirect(`${frontendUrl}/profile.html?error=oauth_failed`);
+        res.redirect(`${frontendUrl}/profile?error=oauth_failed`);
     }
 });
 
