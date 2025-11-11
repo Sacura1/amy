@@ -588,7 +588,7 @@ async function checkTokenBalance() {
 
         // Update eligibility status if both wallet and X are connected
         if (userWallet && userXAccount) {
-            updateEligibilityStatus();
+            await updateEligibilityStatus();
         }
 
     } catch (error) {
@@ -694,7 +694,7 @@ async function checkVerificationEligibility() {
         }
 
         // Show eligibility status to the user
-        updateEligibilityStatus();
+        await updateEligibilityStatus();
     } else {
         // Hide eligibility section if not fully connected
         const eligibilitySection = document.getElementById('eligibility-section');
@@ -705,7 +705,7 @@ async function checkVerificationEligibility() {
 }
 
 // Update eligibility status display
-function updateEligibilityStatus() {
+async function updateEligibilityStatus() {
     const eligibilitySection = document.getElementById('eligibility-section');
     const eligibilityIcon = document.getElementById('eligibility-icon');
     const eligibilityTitle = document.getElementById('eligibility-title');
@@ -725,18 +725,45 @@ function updateEligibilityStatus() {
     eligibilitySection.classList.remove('hidden');
 
     // Check if user meets minimum balance requirement
-    const isEligible = amyBalance >= MINIMUM_AMY_BALANCE;
+    const hasEnoughBalance = amyBalance >= MINIMUM_AMY_BALANCE;
+
+    // Check if user is on the leaderboard
+    let isOnLeaderboard = false;
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/leaderboard`);
+        const result = await response.json();
+        if (result.success && result.data.leaderboard) {
+            isOnLeaderboard = result.data.leaderboard.some(
+                entry => entry.xUsername.toLowerCase() === userXAccount.toLowerCase()
+            );
+        }
+    } catch (error) {
+        console.error('Failed to check leaderboard status:', error);
+    }
+
+    // User is eligible ONLY if they have balance AND are on the leaderboard
+    const isEligible = hasEnoughBalance && isOnLeaderboard;
 
     if (isEligible) {
         eligibilityIcon.textContent = '✅';
         eligibilityTitle.textContent = 'Eligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-green-400';
         eligibilityMessage.textContent = `You have at least ${MINIMUM_AMY_BALANCE} $AMY and you are on the AMY leaderboard.`;
+    } else if (!hasEnoughBalance && isOnLeaderboard) {
+        eligibilityIcon.textContent = '❌';
+        eligibilityTitle.textContent = 'Ineligible';
+        eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
+        eligibilityMessage.textContent = `You are on the leaderboard, but you need at least ${MINIMUM_AMY_BALANCE} $AMY to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY.`;
+    } else if (hasEnoughBalance && !isOnLeaderboard) {
+        eligibilityIcon.textContent = '❌';
+        eligibilityTitle.textContent = 'Ineligible';
+        eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
+        eligibilityMessage.textContent = `You have ${amyBalance.toFixed(2)} $AMY, but you are not on the AMY leaderboard. Only leaderboard members are eligible.`;
     } else {
         eligibilityIcon.textContent = '❌';
         eligibilityTitle.textContent = 'Ineligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
-        eligibilityMessage.textContent = `You need at least ${MINIMUM_AMY_BALANCE} $AMY to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY.`;
+        eligibilityMessage.textContent = `You need at least ${MINIMUM_AMY_BALANCE} $AMY AND must be on the leaderboard to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY and are not on the leaderboard.`;
     }
 }
 
