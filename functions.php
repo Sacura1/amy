@@ -47,3 +47,60 @@ function amy_dequeue_wp_styles() {
     wp_dequeue_style('global-styles');
 }
 add_action('wp_enqueue_scripts', 'amy_dequeue_wp_styles', 100);
+
+// Automatic page routing - no manual page creation needed!
+function amy_custom_routing() {
+    $request_path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');
+
+    // Map of URLs to template files
+    $routes = array(
+        '' => 'index.php',
+        'profile' => 'profile.php',
+        'leaderboard' => 'leaderboard.php',
+        'earn' => 'earn.php',
+        'points' => 'points.php',
+        'contact' => 'contact.php'
+    );
+
+    // Check if the requested path matches a route
+    if (array_key_exists($request_path, $routes)) {
+        $template = locate_template($routes[$request_path]);
+        if ($template) {
+            // Disable WordPress default query
+            global $wp_query;
+            $wp_query->is_404 = false;
+            $wp_query->is_page = true;
+            $wp_query->is_singular = true;
+            $wp_query->is_home = false;
+
+            // Load the template
+            include($template);
+            exit;
+        }
+    }
+}
+add_action('template_redirect', 'amy_custom_routing', 1);
+
+// Fix permalink structure for custom routes
+function amy_add_rewrite_rules() {
+    add_rewrite_rule('^profile/?$', 'index.php?amy_page=profile', 'top');
+    add_rewrite_rule('^leaderboard/?$', 'index.php?amy_page=leaderboard', 'top');
+    add_rewrite_rule('^earn/?$', 'index.php?amy_page=earn', 'top');
+    add_rewrite_rule('^points/?$', 'index.php?amy_page=points', 'top');
+    add_rewrite_rule('^contact/?$', 'index.php?amy_page=contact', 'top');
+}
+add_action('init', 'amy_add_rewrite_rules');
+
+// Register custom query var
+function amy_query_vars($vars) {
+    $vars[] = 'amy_page';
+    return $vars;
+}
+add_filter('query_vars', 'amy_query_vars');
+
+// Flush rewrite rules on theme activation (one time only)
+function amy_rewrite_flush() {
+    amy_add_rewrite_rules();
+    flush_rewrite_rules();
+}
+register_activation_hook(__FILE__, 'amy_rewrite_flush');
