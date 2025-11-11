@@ -170,7 +170,7 @@ console.log('💎 Minimum AMY balance requirement:', MINIMUM_AMY_BALANCE);
 
 // Middleware
 app.use(cors({
-    origin:'https://amybera.xyz',
+    origin:'https://amyonbera.com',
     credentials: true
 }));
 app.use(express.json());
