@@ -34,3 +34,7 @@ build/
 # Package manager
 package-lock.json
 yarn.lock
+
+# Backend data (keep user data private, but commit leaderboard)
+backend/verified-users.json
+backend/nonces.json
