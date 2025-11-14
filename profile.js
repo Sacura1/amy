@@ -878,6 +878,23 @@ async function downloadSpreadsheet() {
 // LEADERBOARD
 // ============================================
 
+// Helper function to fetch live AMY balance from blockchain for any wallet
+async function fetchLiveAmyBalance(walletAddress) {
+    try {
+        // Create a read-only provider (no wallet needed)
+        const readOnlyProvider = new ethers.providers.JsonRpcProvider(BERACHAIN_CONFIG.rpcUrls[0]);
+        const tokenContract = new ethers.Contract(AMY_TOKEN_ADDRESS, ERC20_ABI, readOnlyProvider);
+
+        const balance = await tokenContract.balanceOf(walletAddress);
+        const decimals = await tokenContract.decimals();
+
+        return parseFloat(ethers.utils.formatUnits(balance, decimals));
+    } catch (error) {
+        console.error('Failed to fetch live balance for', walletAddress, error);
+        return 0; // Return 0 if balance fetch fails (will make user ineligible)
+    }
+}
+
 // Load and display leaderboard
 async function loadLeaderboard() {
     try {
@@ -900,12 +917,15 @@ async function loadLeaderboard() {
                     const userData = await userResponse.json();
 
                     if (userData.success && userData.verified && userData.data) {
-                        // User has verified on the website
+                        // User has verified on the website - now fetch their LIVE balance
+                        const liveBalance = await fetchLiveAmyBalance(userData.data.walletAddress);
+                        const isEligible = liveBalance >= MINIMUM_AMY_BALANCE;
+
                         return {
                             xUsername: userData.data.xUsername,
                             walletAddress: userData.data.walletAddress,
-                            amyBalance: userData.data.amyBalance,
-                            eligible: userData.data.eligible,
+                            amyBalance: liveBalance, // Use LIVE balance from blockchain
+                            eligible: isEligible, // Check against CURRENT balance
                             verified: true,
                             originalRank: entry.position || null
                         };
