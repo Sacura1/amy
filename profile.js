@@ -856,19 +856,34 @@ async function downloadSpreadsheet() {
     }
 
     try {
-        // Trigger download from backend
+        // Fetch data from backend
         const url = `${API_BASE_URL}/api/download?wallet=${userWallet}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to download');
+        }
+
+        // Get the JSON data
+        const jsonData = await response.json();
+
+        // Create blob and download
+        const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+        const downloadUrl = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = url;
+        link.href = downloadUrl;
         link.download = `AMY_Verified_Holders_${Date.now()}.json`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
 
-        alert('✅ Downloading JSON file...');
+        alert(`✅ Downloaded ${jsonData.length} verified users!`);
 
     } catch (error) {
-        alert('❌ Failed to download spreadsheet. Please try again.');
+        console.error('Download error:', error);
+        alert('❌ Failed to download: ' + error.message);
     }
 }
 

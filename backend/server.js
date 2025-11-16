@@ -543,7 +543,10 @@ app.get('/api/download', isAdmin, (req, res) => {
     try {
         const users = db.getUsers();
 
+        console.log('📊 Download request - Total users in DB:', users.length);
+
         if (users.length === 0) {
+            console.log('⚠️ No verified users found');
             return res.status(404).json({ error: 'No verified users found' });
         }
 
@@ -557,10 +560,10 @@ app.get('/api/download', isAdmin, (req, res) => {
             signatureVerified: user.signatureVerified || false
         }));
 
-        // Send as downloadable JSON file
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Content-Disposition', `attachment; filename=AMY_Verified_Holders_${Date.now()}.json`);
-        res.send(JSON.stringify(exportData, null, 2));
+        console.log('✅ Exporting', exportData.length, 'users as JSON');
+
+        // Send as JSON response
+        res.json(exportData);
 
         console.log('📥 JSON downloaded by admin:', req.query.wallet);
 
