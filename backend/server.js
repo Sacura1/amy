@@ -8,151 +8,150 @@ const path = require('path');
 const ethers = require('ethers');
 require('dotenv').config();
 
+// Import database module (PostgreSQL or JSON fallback)
+const database = require('./database');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Database setup (using JSON file for simplicity - easy to backup and migrate)
-const DB_PATH = path.join(__dirname, 'verified-users.json');
-const LEADERBOARD_PATH = path.join(__dirname, 'leaderboard.json');
-const NONCES_PATH = path.join(__dirname, 'nonces.json');
+// Initialize PostgreSQL database (or fallback to JSON)
+const usePostgres = database.initDatabase();
 
-// Initialize database file if it doesn't exist
-if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({ users: [] }, null, 2));
-}
+// Database helper functions (with JSON fallback for local development)
+let db, leaderboard, nonces;
 
-// Initialize leaderboard file if it doesn't exist
-if (!fs.existsSync(LEADERBOARD_PATH)) {
-    fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify({
-        leaderboard: [],
-        lastUpdated: new Date().toISOString(),
-        minimumAMY: 0
-    }, null, 2));
-}
+if (usePostgres) {
+    // Use PostgreSQL database
+    db = database.db;
+    leaderboard = database.leaderboard;
+    nonces = database.nonces;
+} else {
+    // Fallback to JSON files for local development
+    const DATA_DIR = __dirname;
+    const DB_PATH = path.join(DATA_DIR, 'verified-users.json');
+    const LEADERBOARD_PATH = path.join(DATA_DIR, 'leaderboard.json');
+    const NONCES_PATH = path.join(DATA_DIR, 'nonces.json');
 
-// Initialize nonces file if it doesn't exist
-if (!fs.existsSync(NONCES_PATH)) {
-    fs.writeFileSync(NONCES_PATH, JSON.stringify({ nonces: [] }, null, 2));
-}
+    console.log('📁 Data directory:', DATA_DIR);
 
-// Database helper functions
-const db = {
-    read: () => {
-        const data = fs.readFileSync(DB_PATH, 'utf8');
-        return JSON.parse(data);
-    },
-    write: (data) => {
-        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-    },
-    getUsers: () => {
-        return db.read().users;
-    },
-    addUser: (user) => {
-        const data = db.read();
-        const existingIndex = data.users.findIndex(u =>
-            u.wallet.toLowerCase() === user.wallet.toLowerCase()
-        );
-
-        if (existingIndex >= 0) {
-            data.users[existingIndex] = user;
-        } else {
-            data.users.push(user);
-        }
-
-        db.write(data);
-        return user;
-    },
-    getUserByWallet: (wallet) => {
-        const users = db.getUsers();
-        return users.find(u => u.wallet.toLowerCase() === wallet.toLowerCase());
+    // Initialize JSON files if they don't exist
+    if (!fs.existsSync(DB_PATH)) {
+        fs.writeFileSync(DB_PATH, JSON.stringify({ users: [] }, null, 2));
     }
-};
-
-// Leaderboard helper functions
-const leaderboard = {
-    read: () => {
-        const data = fs.readFileSync(LEADERBOARD_PATH, 'utf8');
-        return JSON.parse(data);
-    },
-    write: (data) => {
-        fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
-    },
-    getAll: () => {
-        return leaderboard.read();
-    },
-    update: (data) => {
-        const leaderboardData = {
-            leaderboard: data.leaderboard || [],
+    if (!fs.existsSync(LEADERBOARD_PATH)) {
+        fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify({
+            leaderboard: [],
             lastUpdated: new Date().toISOString(),
-            minimumAMY: data.minimumAMY || 0
-        };
-        leaderboard.write(leaderboardData);
-        return leaderboardData;
-    },
-    addEntry: (entry) => {
-        const data = leaderboard.read();
-        data.leaderboard.push(entry);
-        data.lastUpdated = new Date().toISOString();
-        leaderboard.write(data);
-        return data;
-    },
-    updateEntry: (position, entry) => {
-        const data = leaderboard.read();
-        const index = data.leaderboard.findIndex(e => e.position === position);
-        if (index >= 0) {
-            data.leaderboard[index] = { ...data.leaderboard[index], ...entry };
-            data.lastUpdated = new Date().toISOString();
-            leaderboard.write(data);
+            minimumAMY: 0
+        }, null, 2));
+    }
+    if (!fs.existsSync(NONCES_PATH)) {
+        fs.writeFileSync(NONCES_PATH, JSON.stringify({ nonces: [] }, null, 2));
+    }
+
+    // JSON database helper functions
+    db = {
+        getUsers: () => {
+            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+            return data.users;
+        },
+        addUser: (user) => {
+            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+            const existingIndex = data.users.findIndex(u =>
+                u.wallet.toLowerCase() === user.wallet.toLowerCase()
+            );
+            if (existingIndex >= 0) {
+                data.users[existingIndex] = user;
+            } else {
+                data.users.push(user);
+            }
+            fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+            return user;
+        },
+        getUserByWallet: (wallet) => {
+            const users = db.getUsers();
+            return users.find(u => u.wallet.toLowerCase() === wallet.toLowerCase());
+        },
+        getUserByUsername: (username) => {
+            const users = db.getUsers();
+            return users.find(u => u.xUsername.toLowerCase() === username.toLowerCase());
+        },
+        deleteUser: (wallet) => {
+            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+            const initialLength = data.users.length;
+            data.users = data.users.filter(u => u.wallet.toLowerCase() !== wallet.toLowerCase());
+            if (data.users.length < initialLength) {
+                fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+                return true;
+            }
+            return false;
         }
-        return data;
-    },
-    deleteEntry: (position) => {
-        const data = leaderboard.read();
-        data.leaderboard = data.leaderboard.filter(e => e.position !== position);
-        data.lastUpdated = new Date().toISOString();
-        leaderboard.write(data);
-        return data;
-    }
-};
+    };
 
-// Nonce helper functions (for replay attack prevention)
-const nonces = {
-    read: () => {
-        const data = fs.readFileSync(NONCES_PATH, 'utf8');
-        return JSON.parse(data);
-    },
-    write: (data) => {
-        fs.writeFileSync(NONCES_PATH, JSON.stringify(data, null, 2));
-    },
-    exists: (nonce) => {
-        const data = nonces.read();
-        return data.nonces.some(n => n.nonce === nonce);
-    },
-    add: (nonce, wallet, timestamp) => {
-        const data = nonces.read();
-        data.nonces.push({
-            nonce: nonce,
-            wallet: wallet.toLowerCase(),
-            timestamp: timestamp,
-            usedAt: Date.now()
-        });
-        nonces.write(data);
-    },
-    cleanup: () => {
-        // Remove nonces older than 24 hours
-        const data = nonces.read();
-        const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
-        const now = Date.now();
+    leaderboard = {
+        getAll: () => {
+            return JSON.parse(fs.readFileSync(LEADERBOARD_PATH, 'utf8'));
+        },
+        update: (data) => {
+            const leaderboardData = {
+                leaderboard: data.leaderboard || [],
+                lastUpdated: new Date().toISOString(),
+                minimumAMY: data.minimumAMY || 0
+            };
+            fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(leaderboardData, null, 2));
+            return leaderboardData;
+        },
+        addEntry: (entry) => {
+            const data = leaderboard.getAll();
+            data.leaderboard.push(entry);
+            data.lastUpdated = new Date().toISOString();
+            fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
+            return data;
+        },
+        updateEntry: (position, entry) => {
+            const data = leaderboard.getAll();
+            const index = data.leaderboard.findIndex(e => e.position === position);
+            if (index >= 0) {
+                data.leaderboard[index] = { ...data.leaderboard[index], ...entry };
+                data.lastUpdated = new Date().toISOString();
+                fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
+            }
+            return data;
+        },
+        deleteEntry: (position) => {
+            const data = leaderboard.getAll();
+            data.leaderboard = data.leaderboard.filter(e => e.position !== position);
+            data.lastUpdated = new Date().toISOString();
+            fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
+            return data;
+        }
+    };
 
-        data.nonces = data.nonces.filter(n => {
-            const age = now - n.usedAt;
-            return age < MAX_AGE;
-        });
-
-        nonces.write(data);
-        console.log('🧹 Cleaned up old nonces, remaining:', data.nonces.length);
-    }
-};
+    nonces = {
+        exists: (nonce) => {
+            const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
+            return data.nonces.some(n => n.nonce === nonce);
+        },
+        add: (nonce, wallet, timestamp) => {
+            const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
+            data.nonces.push({
+                nonce: nonce,
+                wallet: wallet.toLowerCase(),
+                timestamp: timestamp,
+                usedAt: Date.now()
+            });
+            fs.writeFileSync(NONCES_PATH, JSON.stringify(data, null, 2));
+        },
+        cleanup: () => {
+            const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
+            const MAX_AGE = 24 * 60 * 60 * 1000;
+            const now = Date.now();
+            data.nonces = data.nonces.filter(n => (now - n.usedAt) < MAX_AGE);
+            fs.writeFileSync(NONCES_PATH, JSON.stringify(data, null, 2));
+            console.log('🧹 Cleaned up old nonces, remaining:', data.nonces.length);
+        }
+    };
+}
 
 // Admin wallet whitelist - ADD YOUR ADMIN WALLET ADDRESSES HERE
 const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '')
@@ -431,7 +430,7 @@ app.post('/api/verify', async (req, res) => {
         const nonce = nonceMatch[1];
 
         // Check if nonce was already used
-        if (nonces.exists(nonce)) {
+        if (await nonces.exists(nonce)) {
             console.error('❌ Replay attack detected - nonce already used:', nonce);
             return res.status(400).json({
                 success: false,
@@ -440,7 +439,7 @@ app.post('/api/verify', async (req, res) => {
         }
 
         // Store nonce to prevent future replay attacks
-        nonces.add(nonce, wallet, timestamp);
+        await nonces.add(nonce, wallet, timestamp);
         console.log('✅ Nonce stored:', nonce);
     }
 
@@ -469,7 +468,7 @@ app.post('/api/verify', async (req, res) => {
             signatureTimestamp: parseInt(timestamp)
         };
 
-        db.addUser(userData);
+        await db.addUser(userData);
 
         console.log('✅ User verified and saved:', userData.wallet, '@' + userData.xUsername);
 
@@ -495,14 +494,14 @@ app.post('/api/verify', async (req, res) => {
 });
 
 // Check verification status for a wallet
-app.get('/api/status/:wallet', (req, res) => {
+app.get('/api/status/:wallet', async (req, res) => {
     const wallet = req.params.wallet;
 
     if (!wallet) {
         return res.status(400).json({ error: 'Wallet address required' });
     }
 
-    const user = db.getUserByWallet(wallet);
+    const user = await db.getUserByWallet(wallet);
 
     if (user) {
         res.json({
@@ -522,9 +521,9 @@ app.get('/api/status/:wallet', (req, res) => {
 // ============================================
 
 // Get all verified users (admin only)
-app.get('/api/users', isAdmin, (req, res) => {
+app.get('/api/users', isAdmin, async (req, res) => {
     try {
-        const users = db.getUsers();
+        const users = await db.getUsers();
 
         res.json({
             success: true,
@@ -539,9 +538,9 @@ app.get('/api/users', isAdmin, (req, res) => {
 });
 
 // Download JSON spreadsheet (admin only)
-app.get('/api/download', isAdmin, (req, res) => {
+app.get('/api/download', isAdmin, async (req, res) => {
     try {
-        const users = db.getUsers();
+        const users = await db.getUsers();
 
         console.log('📊 Download request - Total users in DB:', users.length);
 
@@ -574,13 +573,18 @@ app.get('/api/download', isAdmin, (req, res) => {
 });
 
 // Get user data by X username (public endpoint)
-app.get('/api/user/:username', (req, res) => {
+app.get('/api/user/:username', async (req, res) => {
     try {
         const username = req.params.username.toLowerCase();
-        const users = db.getUsers();
 
-        // Find user by X username
-        const user = users.find(u => u.xUsername.toLowerCase() === username);
+        // Try direct lookup first (faster for PostgreSQL)
+        let user = await db.getUserByUsername(username);
+
+        // Fallback to searching all users (for JSON)
+        if (!user) {
+            const users = await db.getUsers();
+            user = users.find(u => u.xUsername.toLowerCase() === username);
+        }
 
         if (user) {
             res.json({
@@ -613,9 +617,9 @@ app.get('/api/user/:username', (req, res) => {
 // ============================================
 
 // Get leaderboard (public)
-app.get('/api/leaderboard', (req, res) => {
+app.get('/api/leaderboard', async (req, res) => {
     try {
-        const data = leaderboard.getAll();
+        const data = await leaderboard.getAll();
         res.json({
             success: true,
             data: data
@@ -627,7 +631,7 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // Update entire leaderboard (admin only)
-app.post('/api/leaderboard', isAdmin, (req, res) => {
+app.post('/api/leaderboard', isAdmin, async (req, res) => {
     try {
         const { leaderboard: leaderboardData, minimumAMY } = req.body;
 
@@ -635,7 +639,7 @@ app.post('/api/leaderboard', isAdmin, (req, res) => {
             return res.status(400).json({ error: 'Leaderboard must be an array' });
         }
 
-        const data = leaderboard.update({
+        const data = await leaderboard.update({
             leaderboard: leaderboardData,
             minimumAMY: minimumAMY || 0
         });
@@ -655,7 +659,7 @@ app.post('/api/leaderboard', isAdmin, (req, res) => {
 });
 
 // Add leaderboard entry (admin only)
-app.post('/api/leaderboard/entry', isAdmin, (req, res) => {
+app.post('/api/leaderboard/entry', isAdmin, async (req, res) => {
     try {
         const { position, xUsername, mindshare } = req.body;
 
@@ -669,7 +673,7 @@ app.post('/api/leaderboard/entry', isAdmin, (req, res) => {
             mindshare: parseFloat(mindshare) || 0
         };
 
-        const data = leaderboard.addEntry(entry);
+        const data = await leaderboard.addEntry(entry);
 
         console.log('✅ Leaderboard entry added by admin:', entry);
 
@@ -686,7 +690,7 @@ app.post('/api/leaderboard/entry', isAdmin, (req, res) => {
 });
 
 // Update leaderboard entry (admin only)
-app.put('/api/leaderboard/:position', isAdmin, (req, res) => {
+app.put('/api/leaderboard/:position', isAdmin, async (req, res) => {
     try {
         const position = parseInt(req.params.position);
         const { xUsername, mindshare } = req.body;
@@ -696,7 +700,7 @@ app.put('/api/leaderboard/:position', isAdmin, (req, res) => {
         if (mindshare !== undefined) entry.mindshare = parseFloat(mindshare);
         entry.position = position;
 
-        const data = leaderboard.updateEntry(position, entry);
+        const data = await leaderboard.updateEntry(position, entry);
 
         console.log('✅ Leaderboard entry updated by admin:', position);
 
@@ -713,10 +717,10 @@ app.put('/api/leaderboard/:position', isAdmin, (req, res) => {
 });
 
 // Delete leaderboard entry (admin only)
-app.delete('/api/leaderboard/:position', isAdmin, (req, res) => {
+app.delete('/api/leaderboard/:position', isAdmin, async (req, res) => {
     try {
         const position = parseInt(req.params.position);
-        const data = leaderboard.deleteEntry(position);
+        const data = await leaderboard.deleteEntry(position);
 
         console.log('🗑️ Leaderboard entry deleted by admin:', position);
 
@@ -733,7 +737,7 @@ app.delete('/api/leaderboard/:position', isAdmin, (req, res) => {
 });
 
 // Bulk update leaderboard (admin only)
-app.post('/api/leaderboard/bulk', isAdmin, (req, res) => {
+app.post('/api/leaderboard/bulk', isAdmin, async (req, res) => {
     try {
         const { entries } = req.body;
 
@@ -742,7 +746,7 @@ app.post('/api/leaderboard/bulk', isAdmin, (req, res) => {
         }
 
         // Clear existing leaderboard and add all new entries
-        const data = leaderboard.update({
+        const data = await leaderboard.update({
             leaderboard: entries,
             minimumAMY: MINIMUM_AMY_BALANCE
         });
@@ -762,9 +766,9 @@ app.post('/api/leaderboard/bulk', isAdmin, (req, res) => {
 });
 
 // Get stats (admin only)
-app.get('/api/stats', isAdmin, (req, res) => {
+app.get('/api/stats', isAdmin, async (req, res) => {
     try {
-        const users = db.getUsers();
+        const users = await db.getUsers();
         const totalBalance = users.reduce((sum, user) => sum + user.amyBalance, 0);
 
         res.json({
@@ -784,18 +788,12 @@ app.get('/api/stats', isAdmin, (req, res) => {
 });
 
 // Delete user (admin only)
-app.delete('/api/user/:wallet', isAdmin, (req, res) => {
+app.delete('/api/user/:wallet', isAdmin, async (req, res) => {
     try {
         const wallet = req.params.wallet;
-        const data = db.read();
+        const deleted = await db.deleteUser(wallet);
 
-        const initialLength = data.users.length;
-        data.users = data.users.filter(u =>
-            u.wallet.toLowerCase() !== wallet.toLowerCase()
-        );
-
-        if (data.users.length < initialLength) {
-            db.write(data);
+        if (deleted) {
             res.json({ success: true, message: 'User deleted' });
             console.log('🗑️ User deleted by admin:', wallet);
         } else {
@@ -809,7 +807,7 @@ app.delete('/api/user/:wallet', isAdmin, (req, res) => {
 });
 
 // Bulk restore users from backup (admin only)
-app.post('/api/users/restore', isAdmin, (req, res) => {
+app.post('/api/users/restore', isAdmin, async (req, res) => {
     try {
         const { users } = req.body;
 
@@ -826,28 +824,23 @@ app.post('/api/users/restore', isAdmin, (req, res) => {
             }
         }
 
-        // Get current users
-        const data = db.read();
-
         // Add or update each user
         let added = 0;
         let updated = 0;
 
         for (const user of users) {
-            const existingIndex = data.users.findIndex(u =>
-                u.wallet.toLowerCase() === user.wallet.toLowerCase()
-            );
+            const existing = await db.getUserByWallet(user.wallet);
 
-            if (existingIndex >= 0) {
-                data.users[existingIndex] = user;
+            if (existing) {
                 updated++;
             } else {
-                data.users.push(user);
                 added++;
             }
+
+            await db.addUser(user);
         }
 
-        db.write(data);
+        const allUsers = await db.getUsers();
 
         console.log(`✅ Bulk restore completed: ${added} added, ${updated} updated`);
 
@@ -856,7 +849,7 @@ app.post('/api/users/restore', isAdmin, (req, res) => {
             message: `Restored ${users.length} users`,
             added: added,
             updated: updated,
-            total: data.users.length
+            total: allUsers.length
         });
 
     } catch (error) {
@@ -877,7 +870,7 @@ app.listen(PORT, () => {
     console.log(`📡 Server running on: http://localhost:${PORT}`);
     console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
     console.log(`🔐 Admin wallets: ${ADMIN_WALLETS.length}`);
-    console.log(`💾 Database: ${DB_PATH}`);
+    console.log(`💾 Database: ${usePostgres ? 'PostgreSQL' : 'JSON files'}`);
     console.log(`🔒 Signature verification: ENABLED`);
     console.log(`🛡️ Replay attack prevention: ENABLED`);
     console.log('');
@@ -893,12 +886,12 @@ app.listen(PORT, () => {
     console.log('');
 
     // Run nonce cleanup every hour
-    setInterval(() => {
-        nonces.cleanup();
+    setInterval(async () => {
+        await nonces.cleanup();
     }, 60 * 60 * 1000); // Run every hour
 
     // Run initial cleanup on startup
-    nonces.cleanup();
+    nonces.cleanup().catch(err => console.error('Cleanup error:', err));
 });
 
 // Graceful shutdown
