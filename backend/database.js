@@ -6,7 +6,7 @@ const path = require('path');
 let pool = null;
 
 // Initialize database connection
-function initDatabase() {
+async function initDatabase() {
     // Check if running on Railway with PostgreSQL
     if (process.env.DATABASE_URL) {
         console.log('🐘 Using PostgreSQL database');
@@ -18,7 +18,7 @@ function initDatabase() {
         });
 
         // Create tables if they don't exist
-        createTables();
+        await createTables();
         return true;
     } else {
         console.log('📁 PostgreSQL not configured, using JSON files');

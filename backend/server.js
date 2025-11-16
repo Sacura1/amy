@@ -14,144 +14,158 @@ const database = require('./database');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize PostgreSQL database (or fallback to JSON)
-const usePostgres = database.initDatabase();
-
 // Database helper functions (with JSON fallback for local development)
 let db, leaderboard, nonces;
+let usePostgres = false;
 
-if (usePostgres) {
-    // Use PostgreSQL database
-    db = database.db;
-    leaderboard = database.leaderboard;
-    nonces = database.nonces;
-} else {
-    // Fallback to JSON files for local development
-    const DATA_DIR = __dirname;
-    const DB_PATH = path.join(DATA_DIR, 'verified-users.json');
-    const LEADERBOARD_PATH = path.join(DATA_DIR, 'leaderboard.json');
-    const NONCES_PATH = path.join(DATA_DIR, 'nonces.json');
+// Setup JSON files as default (synchronous)
+const DATA_DIR = __dirname;
+const DB_PATH = path.join(DATA_DIR, 'verified-users.json');
+const LEADERBOARD_PATH = path.join(DATA_DIR, 'leaderboard.json');
+const NONCES_PATH = path.join(DATA_DIR, 'nonces.json');
 
-    console.log('📁 Data directory:', DATA_DIR);
-
-    // Initialize JSON files if they don't exist
-    if (!fs.existsSync(DB_PATH)) {
-        fs.writeFileSync(DB_PATH, JSON.stringify({ users: [] }, null, 2));
-    }
-    if (!fs.existsSync(LEADERBOARD_PATH)) {
-        fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify({
-            leaderboard: [],
-            lastUpdated: new Date().toISOString(),
-            minimumAMY: 0
-        }, null, 2));
-    }
-    if (!fs.existsSync(NONCES_PATH)) {
-        fs.writeFileSync(NONCES_PATH, JSON.stringify({ nonces: [] }, null, 2));
-    }
-
-    // JSON database helper functions
-    db = {
-        getUsers: () => {
-            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-            return data.users;
-        },
-        addUser: (user) => {
-            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-            const existingIndex = data.users.findIndex(u =>
-                u.wallet.toLowerCase() === user.wallet.toLowerCase()
-            );
-            if (existingIndex >= 0) {
-                data.users[existingIndex] = user;
-            } else {
-                data.users.push(user);
-            }
-            fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-            return user;
-        },
-        getUserByWallet: (wallet) => {
-            const users = db.getUsers();
-            return users.find(u => u.wallet.toLowerCase() === wallet.toLowerCase());
-        },
-        getUserByUsername: (username) => {
-            const users = db.getUsers();
-            return users.find(u => u.xUsername.toLowerCase() === username.toLowerCase());
-        },
-        deleteUser: (wallet) => {
-            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-            const initialLength = data.users.length;
-            data.users = data.users.filter(u => u.wallet.toLowerCase() !== wallet.toLowerCase());
-            if (data.users.length < initialLength) {
-                fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-                return true;
-            }
-            return false;
-        }
-    };
-
-    leaderboard = {
-        getAll: () => {
-            return JSON.parse(fs.readFileSync(LEADERBOARD_PATH, 'utf8'));
-        },
-        update: (data) => {
-            const leaderboardData = {
-                leaderboard: data.leaderboard || [],
-                lastUpdated: new Date().toISOString(),
-                minimumAMY: data.minimumAMY || 0
-            };
-            fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(leaderboardData, null, 2));
-            return leaderboardData;
-        },
-        addEntry: (entry) => {
-            const data = leaderboard.getAll();
-            data.leaderboard.push(entry);
-            data.lastUpdated = new Date().toISOString();
-            fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
-            return data;
-        },
-        updateEntry: (position, entry) => {
-            const data = leaderboard.getAll();
-            const index = data.leaderboard.findIndex(e => e.position === position);
-            if (index >= 0) {
-                data.leaderboard[index] = { ...data.leaderboard[index], ...entry };
-                data.lastUpdated = new Date().toISOString();
-                fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
-            }
-            return data;
-        },
-        deleteEntry: (position) => {
-            const data = leaderboard.getAll();
-            data.leaderboard = data.leaderboard.filter(e => e.position !== position);
-            data.lastUpdated = new Date().toISOString();
-            fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
-            return data;
-        }
-    };
-
-    nonces = {
-        exists: (nonce) => {
-            const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
-            return data.nonces.some(n => n.nonce === nonce);
-        },
-        add: (nonce, wallet, timestamp) => {
-            const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
-            data.nonces.push({
-                nonce: nonce,
-                wallet: wallet.toLowerCase(),
-                timestamp: timestamp,
-                usedAt: Date.now()
-            });
-            fs.writeFileSync(NONCES_PATH, JSON.stringify(data, null, 2));
-        },
-        cleanup: () => {
-            const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
-            const MAX_AGE = 24 * 60 * 60 * 1000;
-            const now = Date.now();
-            data.nonces = data.nonces.filter(n => (now - n.usedAt) < MAX_AGE);
-            fs.writeFileSync(NONCES_PATH, JSON.stringify(data, null, 2));
-            console.log('🧹 Cleaned up old nonces, remaining:', data.nonces.length);
-        }
-    };
+// Initialize JSON files if they don't exist
+if (!fs.existsSync(DB_PATH)) {
+    fs.writeFileSync(DB_PATH, JSON.stringify({ users: [] }, null, 2));
 }
+if (!fs.existsSync(LEADERBOARD_PATH)) {
+    fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify({
+        leaderboard: [],
+        lastUpdated: new Date().toISOString(),
+        minimumAMY: 0
+    }, null, 2));
+}
+if (!fs.existsSync(NONCES_PATH)) {
+    fs.writeFileSync(NONCES_PATH, JSON.stringify({ nonces: [] }, null, 2));
+}
+
+// JSON database helper functions (default)
+db = {
+    getUsers: () => {
+        const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        return data.users;
+    },
+    addUser: (user) => {
+        const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        const existingIndex = data.users.findIndex(u =>
+            u.wallet.toLowerCase() === user.wallet.toLowerCase()
+        );
+        if (existingIndex >= 0) {
+            data.users[existingIndex] = user;
+        } else {
+            data.users.push(user);
+        }
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return user;
+    },
+    getUserByWallet: (wallet) => {
+        const users = db.getUsers();
+        return users.find(u => u.wallet.toLowerCase() === wallet.toLowerCase());
+    },
+    getUserByUsername: (username) => {
+        const users = db.getUsers();
+        return users.find(u => u.xUsername.toLowerCase() === username.toLowerCase());
+    },
+    deleteUser: (wallet) => {
+        const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        const initialLength = data.users.length;
+        data.users = data.users.filter(u => u.wallet.toLowerCase() !== wallet.toLowerCase());
+        if (data.users.length < initialLength) {
+            fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+            return true;
+        }
+        return false;
+    }
+};
+
+leaderboard = {
+    getAll: () => {
+        return JSON.parse(fs.readFileSync(LEADERBOARD_PATH, 'utf8'));
+    },
+    update: (data) => {
+        const leaderboardData = {
+            leaderboard: data.leaderboard || [],
+            lastUpdated: new Date().toISOString(),
+            minimumAMY: data.minimumAMY || 0
+        };
+        fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(leaderboardData, null, 2));
+        return leaderboardData;
+    },
+    addEntry: (entry) => {
+        const data = leaderboard.getAll();
+        data.leaderboard.push(entry);
+        data.lastUpdated = new Date().toISOString();
+        fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
+        return data;
+    },
+    updateEntry: (position, entry) => {
+        const data = leaderboard.getAll();
+        const index = data.leaderboard.findIndex(e => e.position === position);
+        if (index >= 0) {
+            data.leaderboard[index] = { ...data.leaderboard[index], ...entry };
+            data.lastUpdated = new Date().toISOString();
+            fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
+        }
+        return data;
+    },
+    deleteEntry: (position) => {
+        const data = leaderboard.getAll();
+        data.leaderboard = data.leaderboard.filter(e => e.position !== position);
+        data.lastUpdated = new Date().toISOString();
+        fs.writeFileSync(LEADERBOARD_PATH, JSON.stringify(data, null, 2));
+        return data;
+    }
+};
+
+nonces = {
+    exists: (nonce) => {
+        const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
+        return data.nonces.some(n => n.nonce === nonce);
+    },
+    add: (nonce, wallet, timestamp) => {
+        const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
+        data.nonces.push({
+            nonce: nonce,
+            wallet: wallet.toLowerCase(),
+            timestamp: timestamp,
+            usedAt: Date.now()
+        });
+        fs.writeFileSync(NONCES_PATH, JSON.stringify(data, null, 2));
+    },
+    cleanup: () => {
+        const data = JSON.parse(fs.readFileSync(NONCES_PATH, 'utf8'));
+        const MAX_AGE = 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        data.nonces = data.nonces.filter(n => (now - n.usedAt) < MAX_AGE);
+        fs.writeFileSync(NONCES_PATH, JSON.stringify(data, null, 2));
+        console.log('🧹 Cleaned up old nonces, remaining:', data.nonces.length);
+    }
+};
+
+// Try to initialize PostgreSQL (will override JSON if successful)
+(async () => {
+    usePostgres = await database.initDatabase();
+
+    if (usePostgres) {
+        // Override with PostgreSQL database
+        db = database.db;
+        leaderboard = database.leaderboard;
+        nonces = database.nonces;
+        console.log('✅ PostgreSQL database ready');
+
+        // Run initial nonce cleanup for PostgreSQL
+        try {
+            await nonces.cleanup();
+        } catch (err) {
+            console.error('Cleanup error:', err);
+        }
+    } else {
+        console.log('📁 Data directory:', DATA_DIR);
+
+        // Run initial nonce cleanup for JSON
+        nonces.cleanup();
+    }
+})();
 
 // Admin wallet whitelist - ADD YOUR ADMIN WALLET ADDRESSES HERE
 const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '')
@@ -887,15 +901,12 @@ app.listen(PORT, () => {
 
     // Run nonce cleanup every hour
     setInterval(async () => {
-        await nonces.cleanup();
+        try {
+            await nonces.cleanup();
+        } catch (err) {
+            console.error('Periodic cleanup error:', err);
+        }
     }, 60 * 60 * 1000); // Run every hour
-
-    // Run initial cleanup on startup
-    if (usePostgres) {
-        nonces.cleanup().catch(err => console.error('Cleanup error:', err));
-    } else {
-        nonces.cleanup();
-    }
 });
 
 // Graceful shutdown
