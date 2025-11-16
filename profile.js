@@ -931,10 +931,15 @@ async function loadLeaderboard() {
                     const userResponse = await fetch(`${API_BASE_URL}/api/user/${entry.xUsername}`);
                     const userData = await userResponse.json();
 
+                    console.log(`Checking ${entry.xUsername}:`, userData);
+
                     if (userData.success && userData.verified && userData.data) {
                         // User has verified on the website - now fetch their LIVE balance
+                        console.log(`Fetching live balance for ${entry.xUsername} (${userData.data.walletAddress})`);
                         const liveBalance = await fetchLiveAmyBalance(userData.data.walletAddress);
                         const isEligible = liveBalance >= MINIMUM_AMY_BALANCE;
+
+                        console.log(`${entry.xUsername}: Live balance = ${liveBalance}, Eligible = ${isEligible}`);
 
                         return {
                             xUsername: userData.data.xUsername,
@@ -946,6 +951,7 @@ async function loadLeaderboard() {
                         };
                     } else {
                         // User hasn't verified yet
+                        console.log(`${entry.xUsername}: Not verified`);
                         return {
                             xUsername: entry.xUsername,
                             verified: false,
@@ -954,6 +960,7 @@ async function loadLeaderboard() {
                         };
                     }
                 } catch (error) {
+                    console.error(`Error checking ${entry.xUsername}:`, error);
                     return {
                         xUsername: entry.xUsername,
                         verified: false,
@@ -995,9 +1002,17 @@ function displayLeaderboard(data) {
     }
 
     // Filter to only show verified AND eligible users
+    console.log('All leaderboard entries:', data.leaderboard.length);
+    console.log('Verified users:', data.leaderboard.filter(u => u.verified).length);
+    console.log('Eligible users:', data.leaderboard.filter(u => u.eligible).length);
+
     const eligibleUsers = data.leaderboard.filter(user => user.verified && user.eligible);
 
+    console.log('Final eligible users to display:', eligibleUsers.length);
+    console.log('Eligible users:', eligibleUsers);
+
     if (eligibleUsers.length === 0) {
+        console.warn('No eligible users to display');
         container.innerHTML = '';
         emptyState.classList.remove('hidden');
         return;

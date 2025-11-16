@@ -808,6 +808,63 @@ app.delete('/api/user/:wallet', isAdmin, (req, res) => {
     }
 });
 
+// Bulk restore users from backup (admin only)
+app.post('/api/users/restore', isAdmin, (req, res) => {
+    try {
+        const { users } = req.body;
+
+        if (!Array.isArray(users)) {
+            return res.status(400).json({ error: 'Users must be an array' });
+        }
+
+        // Validate each user has required fields
+        for (const user of users) {
+            if (!user.wallet || !user.xUsername || user.amyBalance === undefined) {
+                return res.status(400).json({
+                    error: 'Each user must have wallet, xUsername, and amyBalance'
+                });
+            }
+        }
+
+        // Get current users
+        const data = db.read();
+
+        // Add or update each user
+        let added = 0;
+        let updated = 0;
+
+        for (const user of users) {
+            const existingIndex = data.users.findIndex(u =>
+                u.wallet.toLowerCase() === user.wallet.toLowerCase()
+            );
+
+            if (existingIndex >= 0) {
+                data.users[existingIndex] = user;
+                updated++;
+            } else {
+                data.users.push(user);
+                added++;
+            }
+        }
+
+        db.write(data);
+
+        console.log(`✅ Bulk restore completed: ${added} added, ${updated} updated`);
+
+        res.json({
+            success: true,
+            message: `Restored ${users.length} users`,
+            added: added,
+            updated: updated,
+            total: data.users.length
+        });
+
+    } catch (error) {
+        console.error('❌ Error restoring users:', error);
+        res.status(500).json({ error: 'Failed to restore users' });
+    }
+});
+
 // ============================================
 // START SERVER
 // ============================================
