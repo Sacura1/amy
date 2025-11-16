@@ -891,7 +891,11 @@ app.listen(PORT, () => {
     }, 60 * 60 * 1000); // Run every hour
 
     // Run initial cleanup on startup
-    nonces.cleanup().catch(err => console.error('Cleanup error:', err));
+    if (usePostgres) {
+        nonces.cleanup().catch(err => console.error('Cleanup error:', err));
+    } else {
+        nonces.cleanup();
+    }
 });
 
 // Graceful shutdown
