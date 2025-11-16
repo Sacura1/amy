@@ -860,12 +860,12 @@ async function downloadSpreadsheet() {
         const url = `${API_BASE_URL}/api/download?wallet=${userWallet}`;
         const link = document.createElement('a');
         link.href = url;
-        link.download = `AMY_Verified_Holders_${Date.now()}.csv`;
+        link.download = `AMY_Verified_Holders_${Date.now()}.json`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
 
-        alert('✅ Downloading spreadsheet...');
+        alert('✅ Downloading JSON file...');
 
     } catch (error) {
         alert('❌ Failed to download spreadsheet. Please try again.');

@@ -538,7 +538,7 @@ app.get('/api/users', isAdmin, (req, res) => {
     }
 });
 
-// Download CSV spreadsheet (admin only)
+// Download JSON spreadsheet (admin only)
 app.get('/api/download', isAdmin, (req, res) => {
     try {
         const users = db.getUsers();
@@ -547,24 +547,26 @@ app.get('/api/download', isAdmin, (req, res) => {
             return res.status(404).json({ error: 'No verified users found' });
         }
 
-        // Generate CSV
-        let csv = 'X Username,Wallet Address,AMY Balance,Verified Date\n';
+        // Format data for JSON export
+        const exportData = users.map(user => ({
+            xUsername: `@${user.xUsername}`,
+            walletAddress: user.wallet,
+            amyBalance: parseFloat(user.amyBalance.toFixed(2)),
+            verifiedDate: new Date(user.verifiedAt).toISOString(),
+            timestamp: user.timestamp,
+            signatureVerified: user.signatureVerified || false
+        }));
 
-        users.forEach(user => {
-            const date = new Date(user.verifiedAt).toLocaleString();
-            csv += `@${user.xUsername},${user.wallet},${user.amyBalance.toFixed(2)},${date}\n`;
-        });
+        // Send as downloadable JSON file
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename=AMY_Verified_Holders_${Date.now()}.json`);
+        res.send(JSON.stringify(exportData, null, 2));
 
-        // Send as downloadable file
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename=AMY_Verified_Holders_${Date.now()}.csv`);
-        res.send(csv);
-
-        console.log('📥 CSV downloaded by admin:', req.query.wallet);
+        console.log('📥 JSON downloaded by admin:', req.query.wallet);
 
     } catch (error) {
-        console.error('❌ Error generating CSV:', error);
-        res.status(500).json({ error: 'Failed to generate CSV' });
+        console.error('❌ Error generating JSON:', error);
+        res.status(500).json({ error: 'Failed to generate JSON' });
     }
 });
 
