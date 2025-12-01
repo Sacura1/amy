@@ -1202,25 +1202,39 @@ async function loadReferralData() {
         return;
     }
 
+    // If user has wallet and X connected, show referral section
+    // (they are eligible to use referrals even if no data exists yet)
+    if (!userWallet || !userXAccount) {
+        hideReferralSection();
+        return;
+    }
+
     try {
         const response = await fetch(`${API_BASE_URL}/api/referral/${userWallet}`);
         const result = await response.json();
 
         if (result.success && result.data) {
-            userReferralCode = result.data.referralCode;
-            userReferredBy = result.data.referredBy;
+            userReferralCode = result.data.referralCode || null;
+            userReferredBy = result.data.referredBy || null;
             userReferralCount = result.data.referralCount || 0;
-
-            updateReferralUI();
-            showReferralSection();
         } else {
-            // User not verified yet - hide referral section
-            hideReferralSection();
+            // No referral data yet, but user can still use the referral section
+            userReferralCode = null;
+            userReferredBy = null;
+            userReferralCount = 0;
         }
+
+        updateReferralUI();
+        showReferralSection();
 
     } catch (error) {
         console.error('Failed to load referral data:', error);
-        hideReferralSection();
+        // Still show referral section even if API fails - user can generate/enter codes
+        userReferralCode = null;
+        userReferredBy = null;
+        userReferralCount = 0;
+        updateReferralUI();
+        showReferralSection();
     }
 }
 
