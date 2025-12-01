@@ -684,21 +684,33 @@ function updateXAccountUI(connected) {
 
 // Check if user is eligible for verification and auto-verify
 async function checkVerificationEligibility() {
+    console.log('[DEBUG] checkVerificationEligibility called');
+    console.log('[DEBUG] userWallet:', userWallet);
+    console.log('[DEBUG] userXAccount:', userXAccount);
+
     // Auto-verify when both wallet and X account are connected
     if (userWallet && userXAccount) {
+        console.log('[DEBUG] Both wallet and X connected, proceeding...');
+
         // Check if already verified to avoid duplicate verifications
         const alreadyVerified = await isAlreadyVerified();
+        console.log('[DEBUG] alreadyVerified:', alreadyVerified);
+
         if (!alreadyVerified) {
             // Automatically trigger verification
+            console.log('[DEBUG] Not verified yet, calling verifyHoldings...');
             await verifyHoldings();
         }
 
         // Show eligibility status to the user
+        console.log('[DEBUG] Calling updateEligibilityStatus...');
         await updateEligibilityStatus();
 
         // Load referral data for the user
+        console.log('[DEBUG] Calling loadReferralData...');
         await loadReferralData();
     } else {
+        console.log('[DEBUG] Wallet or X not connected, hiding sections');
         // Hide eligibility section if not fully connected
         const eligibilitySection = document.getElementById('eligibility-section');
         if (eligibilitySection) {
@@ -1197,7 +1209,12 @@ let userReferralCount = 0;
 
 // Load referral data for user
 async function loadReferralData() {
+    console.log('[DEBUG] loadReferralData called');
+    console.log('[DEBUG] userWallet:', userWallet);
+    console.log('[DEBUG] userXAccount:', userXAccount);
+
     if (!userWallet) {
+        console.log('[DEBUG] No wallet, hiding referral section');
         hideReferralSection();
         return;
     }
@@ -1205,34 +1222,44 @@ async function loadReferralData() {
     // If user has wallet and X connected, show referral section
     // (they are eligible to use referrals even if no data exists yet)
     if (!userWallet || !userXAccount) {
+        console.log('[DEBUG] Wallet or X not connected, hiding referral section');
         hideReferralSection();
         return;
     }
 
+    console.log('[DEBUG] Fetching referral data from API...');
+
     try {
         const response = await fetch(`${API_BASE_URL}/api/referral/${userWallet}`);
+        console.log('[DEBUG] API response status:', response.status);
         const result = await response.json();
+        console.log('[DEBUG] API result:', result);
 
         if (result.success && result.data) {
+            console.log('[DEBUG] Got referral data from API');
             userReferralCode = result.data.referralCode || null;
             userReferredBy = result.data.referredBy || null;
             userReferralCount = result.data.referralCount || 0;
         } else {
+            console.log('[DEBUG] No referral data yet, using defaults');
             // No referral data yet, but user can still use the referral section
             userReferralCode = null;
             userReferredBy = null;
             userReferralCount = 0;
         }
 
+        console.log('[DEBUG] Calling updateReferralUI...');
         updateReferralUI();
+        console.log('[DEBUG] Calling showReferralSection...');
         showReferralSection();
 
     } catch (error) {
-        console.error('Failed to load referral data:', error);
+        console.error('[DEBUG] Failed to load referral data:', error);
         // Still show referral section even if API fails - user can generate/enter codes
         userReferralCode = null;
         userReferredBy = null;
         userReferralCount = 0;
+        console.log('[DEBUG] API failed, still showing referral section');
         updateReferralUI();
         showReferralSection();
     }
@@ -1283,14 +1310,21 @@ function updateReferralUI() {
 
 // Show referral section
 function showReferralSection() {
+    console.log('[DEBUG] showReferralSection called');
     const referralSection = document.getElementById('referral-section');
+    console.log('[DEBUG] referralSection element:', referralSection);
     if (referralSection) {
+        console.log('[DEBUG] Removing hidden class from referral-section');
         referralSection.classList.remove('hidden');
+        console.log('[DEBUG] referral-section classes after:', referralSection.className);
+    } else {
+        console.log('[DEBUG] ERROR: referral-section element NOT FOUND!');
     }
 }
 
 // Hide referral section
 function hideReferralSection() {
+    console.log('[DEBUG] hideReferralSection called');
     const referralSection = document.getElementById('referral-section');
     if (referralSection) {
         referralSection.classList.add('hidden');
