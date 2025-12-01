@@ -985,7 +985,7 @@ app.post('/api/referral/register', async (req, res) => {
 // Generate referral code for user
 app.post('/api/referral/generate', async (req, res) => {
     try {
-        const { wallet, xUsername } = req.body;
+        const { wallet, xUsername, amyBalance } = req.body;
 
         if (!wallet) {
             return res.status(400).json({ success: false, error: 'Wallet address required' });
@@ -1004,6 +1004,20 @@ app.post('/api/referral/generate', async (req, res) => {
                 success: true,
                 referralCode: entry.referralCode,
                 message: 'Referral code already exists'
+            });
+        }
+
+        // Check if user has minimum AMY balance to generate a code
+        // Fetch live balance if not provided
+        let balance = amyBalance;
+        if (balance === undefined) {
+            balance = await fetchAmyBalance(wallet);
+        }
+
+        if (balance === null || balance < MINIMUM_AMY_BALANCE) {
+            return res.status(400).json({
+                success: false,
+                error: `You need at least ${MINIMUM_AMY_BALANCE} $AMY to generate a referral code`
             });
         }
 

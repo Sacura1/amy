@@ -1341,6 +1341,12 @@ async function generateReferralCode() {
         return;
     }
 
+    // Check if user has 300+ AMY
+    if (amyBalance < MINIMUM_AMY_BALANCE) {
+        alert(`You need at least ${MINIMUM_AMY_BALANCE} $AMY to generate a referral code. You currently have ${amyBalance.toFixed(2)} $AMY.`);
+        return;
+    }
+
     const generateBtn = document.getElementById('generate-referral-btn');
     if (generateBtn) {
         generateBtn.disabled = true;
@@ -1353,7 +1359,7 @@ async function generateReferralCode() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ wallet: userWallet, xUsername: userXAccount })
+            body: JSON.stringify({ wallet: userWallet, xUsername: userXAccount, amyBalance: amyBalance })
         });
 
         const result = await response.json();
