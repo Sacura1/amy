@@ -1226,6 +1226,9 @@ async function loadReferralData() {
         updateReferralUI();
         showReferralSection();
 
+        // Try to auto-apply referral from URL if user doesn't have one yet
+        await tryAutoApplyReferral();
+
     } catch (error) {
         console.error('Failed to load referral data:', error);
         // Still show referral section even if API fails
@@ -1245,6 +1248,7 @@ function updateReferralUI() {
     const noReferralCode = document.getElementById('no-referral-code');
     const hasReferralCode = document.getElementById('has-referral-code');
     const yourReferralCode = document.getElementById('your-referral-code');
+    const yourReferralLink = document.getElementById('your-referral-link');
     const referralCount = document.getElementById('referral-count');
     const usedReferralCode = document.getElementById('used-referral-code');
 
@@ -1274,9 +1278,43 @@ function updateReferralUI() {
         if (noReferralCode) noReferralCode.classList.add('hidden');
         if (hasReferralCode) hasReferralCode.classList.remove('hidden');
         if (yourReferralCode) yourReferralCode.textContent = userReferralCode;
+        // Set referral link
+        if (yourReferralLink) {
+            const baseUrl = window.location.origin;
+            yourReferralLink.textContent = `${baseUrl}/profile?ref=${userReferralCode}`;
+        }
     } else {
         if (noReferralCode) noReferralCode.classList.remove('hidden');
         if (hasReferralCode) hasReferralCode.classList.add('hidden');
+    }
+}
+
+// Copy referral link to clipboard
+async function copyReferralLink() {
+    if (!userReferralCode) return;
+
+    const baseUrl = window.location.origin;
+    const referralLink = `${baseUrl}/profile?ref=${userReferralCode}`;
+
+    try {
+        await navigator.clipboard.writeText(referralLink);
+
+        // Update button to show success
+        const copyLinkIcon = document.getElementById('copy-link-icon');
+        const copyLinkText = document.getElementById('copy-link-text');
+
+        if (copyLinkIcon) copyLinkIcon.textContent = '✅';
+        if (copyLinkText) copyLinkText.textContent = 'COPIED!';
+
+        // Reset after 2 seconds
+        setTimeout(() => {
+            if (copyLinkIcon) copyLinkIcon.textContent = '🔗';
+            if (copyLinkText) copyLinkText.textContent = 'COPY LINK';
+        }, 2000);
+
+    } catch (error) {
+        console.error('Failed to copy:', error);
+        alert('Failed to copy link. Please copy manually.');
     }
 }
 
@@ -1447,5 +1485,73 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.value = e.target.value.toUpperCase();
         });
     }
+
+    // Check for referral code in URL and store it
+    checkReferralFromURL();
 });
+
+// Check URL for referral code parameter and store in localStorage
+function checkReferralFromURL() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+
+    if (refCode && refCode.length === 8) {
+        // Store in localStorage so it persists across page refreshes/OAuth redirects
+        localStorage.setItem('pendingReferralCode', refCode.toUpperCase());
+
+        // Clean URL without refreshing (remove ref param)
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+    }
+
+    // Pre-fill the referral code input if we have a pending code
+    const pendingCode = localStorage.getItem('pendingReferralCode');
+    if (pendingCode) {
+        const input = document.getElementById('referral-code-input');
+        if (input) {
+            input.value = pendingCode;
+        }
+    }
+}
+
+// Auto-apply pending referral code after wallet+X connected
+async function tryAutoApplyReferral() {
+    const pendingReferralCode = localStorage.getItem('pendingReferralCode');
+
+    if (!pendingReferralCode || !userWallet || !userXAccount) {
+        return;
+    }
+
+    // Check if user already has a referral
+    if (userReferredBy) {
+        localStorage.removeItem('pendingReferralCode');
+        return;
+    }
+
+    // Auto-submit the referral code
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/referral/use`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                wallet: userWallet,
+                referralCode: pendingReferralCode
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            userReferredBy = pendingReferralCode;
+            updateReferralUI();
+            alert(`Referral applied! You were referred by @${result.referrer}`);
+        }
+
+    } catch (error) {
+        console.error('Failed to auto-apply referral:', error);
+    }
+
+    // Clear pending code regardless of success/failure
+    localStorage.removeItem('pendingReferralCode');
+}
 

@@ -829,10 +829,25 @@ Template Name: Profile
                                             class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2"
                                         >
                                             <span id="copy-icon">📋</span>
-                                            <span id="copy-text">COPY</span>
+                                            <span id="copy-text">COPY CODE</span>
                                         </button>
                                     </div>
-                                    <p class="text-gray-300 text-xs mt-3">Share this referral code for an increased multiplier on Amy Points</p>
+                                    <!-- Referral Link -->
+                                    <div class="mt-4 pt-4 border-t border-green-500/20">
+                                        <p class="text-green-400 font-bold text-sm mb-2">Your referral link:</p>
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <p id="your-referral-link" class="text-sm text-gray-300 font-mono bg-black/30 px-3 py-2 rounded-lg break-all flex-1"></p>
+                                            <button
+                                                onclick="copyReferralLink()"
+                                                id="copy-link-btn"
+                                                class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap"
+                                            >
+                                                <span id="copy-link-icon">🔗</span>
+                                                <span id="copy-link-text">COPY LINK</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="text-gray-300 text-xs mt-3">Share your code or link for an increased multiplier on Amy Points</p>
                                 </div>
                             </div>
                         </div>
