@@ -767,7 +767,7 @@ async function updateEligibilityStatus() {
         eligibilityIcon.textContent = '❌';
         eligibilityTitle.textContent = 'Leaderboard Ineligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
-        eligibilityMessage.textContent = `You have ${amyBalance.toFixed(2)} $AMY, but you are not on the leaderboard data. Contact admin to be added.`;
+        eligibilityMessage.textContent = `You have ${amyBalance.toFixed(2)} $AMY, but you are not on the leaderboard data.`;
     } else {
         // < 300 AMY and not on leaderboard
         eligibilityIcon.textContent = '❌';
