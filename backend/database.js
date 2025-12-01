@@ -91,6 +91,28 @@ async function createTables() {
             );
         `);
 
+        // Create referrals table (separate from verified_users)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS referrals (
+                wallet VARCHAR(42) PRIMARY KEY,
+                x_username VARCHAR(255),
+                referral_code VARCHAR(8) UNIQUE,
+                referred_by VARCHAR(8),
+                referral_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Add last_known_balance column if it doesn't exist (for tracking balance changes)
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='last_known_balance') THEN
+                    ALTER TABLE referrals ADD COLUMN last_known_balance DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+            END $$;
+        `);
+
         console.log('✅ Database tables created/verified');
 
         // Migrate from JSON files if tables are empty
@@ -419,9 +441,181 @@ const nonces = {
     }
 };
 
+// Referral helper functions (separate table from verified_users)
+const referrals = {
+    // Get or create referral entry for wallet
+    getOrCreate: async (wallet, xUsername = null) => {
+        if (!pool) return null;
+
+        // Check if exists
+        const existing = await pool.query(
+            'SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount", last_known_balance as "lastKnownBalance" FROM referrals WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+
+        if (existing.rows[0]) {
+            // Update xUsername if provided and different
+            if (xUsername && existing.rows[0].xUsername !== xUsername) {
+                await pool.query(
+                    'UPDATE referrals SET x_username = $1 WHERE LOWER(wallet) = LOWER($2)',
+                    [xUsername, wallet]
+                );
+                existing.rows[0].xUsername = xUsername;
+            }
+            return existing.rows[0];
+        }
+
+        // Create new entry
+        await pool.query(
+            'INSERT INTO referrals (wallet, x_username) VALUES ($1, $2)',
+            [wallet.toLowerCase(), xUsername]
+        );
+
+        return {
+            wallet: wallet.toLowerCase(),
+            xUsername: xUsername,
+            referralCode: null,
+            referredBy: null,
+            referralCount: 0,
+            lastKnownBalance: 0
+        };
+    },
+
+    // Get referral by wallet
+    getByWallet: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            'SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount", last_known_balance as "lastKnownBalance" FROM referrals WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+        return result.rows[0] || null;
+    },
+
+    // Get referral by code
+    getByCode: async (referralCode) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            'SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount", last_known_balance as "lastKnownBalance" FROM referrals WHERE UPPER(referral_code) = UPPER($1)',
+            [referralCode]
+        );
+        return result.rows[0] || null;
+    },
+
+    // Generate referral code for wallet
+    generateCode: async (wallet) => {
+        if (!pool) return null;
+        const code = generateRandomCode();
+        await pool.query(
+            'UPDATE referrals SET referral_code = $1 WHERE LOWER(wallet) = LOWER($2)',
+            [code, wallet]
+        );
+        return code;
+    },
+
+    // Update user's last known balance
+    updateBalance: async (wallet, balance) => {
+        if (!pool) return;
+        await pool.query(
+            'UPDATE referrals SET last_known_balance = $1 WHERE LOWER(wallet) = LOWER($2)',
+            [balance, wallet]
+        );
+    },
+
+    // Use a referral code (just saves the referral link - counts are calculated dynamically)
+    useCode: async (wallet, referralCode) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        // Get user's referral entry
+        const user = await referrals.getByWallet(wallet);
+        if (!user) {
+            return { success: false, error: 'Please connect your wallet first' };
+        }
+
+        if (user.referredBy) {
+            return { success: false, error: 'You have already used a referral code' };
+        }
+
+        // Check if referral code exists
+        const referrer = await referrals.getByCode(referralCode);
+        if (!referrer) {
+            return { success: false, error: 'Invalid referral code' };
+        }
+
+        // Check user is not referring themselves
+        if (referrer.wallet.toLowerCase() === wallet.toLowerCase()) {
+            return { success: false, error: 'You cannot use your own referral code' };
+        }
+
+        // Save the referral link (referred_by) - counts are calculated dynamically
+        await pool.query(
+            'UPDATE referrals SET referred_by = $1 WHERE LOWER(wallet) = LOWER($2)',
+            [referralCode.toUpperCase(), wallet]
+        );
+
+        return {
+            success: true,
+            referrer: referrer.xUsername,
+            message: `Referral from @${referrer.xUsername} linked! It counts when you have 300+ $AMY.`
+        };
+    },
+
+    // Get all users referred by a specific referral code (with their balances)
+    getDownlines: async (referralCode) => {
+        if (!pool) return [];
+        const result = await pool.query(
+            'SELECT wallet, x_username as "xUsername", last_known_balance as "lastKnownBalance", created_at as "createdAt" FROM referrals WHERE UPPER(referred_by) = UPPER($1) ORDER BY created_at DESC',
+            [referralCode]
+        );
+        return result.rows;
+    },
+
+    // Calculate valid referral count for a user (downlines with 300+ AMY)
+    getValidReferralCount: async (referralCode) => {
+        if (!pool || !referralCode) return 0;
+        const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+        const result = await pool.query(
+            'SELECT COUNT(*) as count FROM referrals WHERE UPPER(referred_by) = UPPER($1) AND last_known_balance >= $2',
+            [referralCode, MINIMUM_AMY]
+        );
+        return parseInt(result.rows[0].count) || 0;
+    },
+
+    // Get all referrals (for batch balance updates)
+    getAll: async () => {
+        if (!pool) return [];
+        const result = await pool.query(
+            'SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy", last_known_balance as "lastKnownBalance" FROM referrals'
+        );
+        return result.rows;
+    },
+
+    // Batch update balances for multiple wallets
+    batchUpdateBalances: async (updates) => {
+        if (!pool || !updates.length) return;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const { wallet, balance } of updates) {
+                await client.query(
+                    'UPDATE referrals SET last_known_balance = $1 WHERE LOWER(wallet) = LOWER($2)',
+                    [balance, wallet]
+                );
+            }
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+};
+
 module.exports = {
     initDatabase,
     db,
     leaderboard,
-    nonces
+    nonces,
+    referrals
 };

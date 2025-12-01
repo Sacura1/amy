@@ -10,6 +10,7 @@ require('dotenv').config();
 
 // Import database module (PostgreSQL or JSON fallback)
 const database = require('./database');
+let referralsDb = null; // Will be set after PostgreSQL init
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -229,6 +230,7 @@ nonces = {
         db = database.db;
         leaderboard = database.leaderboard;
         nonces = database.nonces;
+        referralsDb = database.referrals;
         console.log('✅ PostgreSQL database ready');
 
         // Run initial nonce cleanup for PostgreSQL
@@ -950,35 +952,63 @@ app.post('/api/users/restore', isAdmin, async (req, res) => {
 });
 
 // ============================================
-// REFERRAL API ROUTES
+// REFERRAL API ROUTES (uses separate referrals table)
 // ============================================
 
-// Generate referral code for user
-app.post('/api/referral/generate', async (req, res) => {
+// Initialize/register user for referrals (called when wallet+X connected)
+app.post('/api/referral/register', async (req, res) => {
     try {
-        const { wallet } = req.body;
+        const { wallet, xUsername } = req.body;
 
         if (!wallet) {
             return res.status(400).json({ success: false, error: 'Wallet address required' });
         }
 
-        // Check if user exists
-        const user = await db.getUserByWallet(wallet);
-        if (!user) {
-            return res.status(404).json({ success: false, error: 'User not verified. Please verify your wallet first.' });
+        if (!referralsDb) {
+            return res.status(500).json({ success: false, error: 'Referral system not available' });
         }
 
+        // Create or get referral entry
+        const entry = await referralsDb.getOrCreate(wallet, xUsername);
+
+        res.json({
+            success: true,
+            data: entry
+        });
+
+    } catch (error) {
+        console.error('❌ Error registering for referrals:', error);
+        res.status(500).json({ success: false, error: 'Failed to register for referrals' });
+    }
+});
+
+// Generate referral code for user
+app.post('/api/referral/generate', async (req, res) => {
+    try {
+        const { wallet, xUsername } = req.body;
+
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        if (!referralsDb) {
+            return res.status(500).json({ success: false, error: 'Referral system not available' });
+        }
+
+        // Get or create referral entry
+        let entry = await referralsDb.getOrCreate(wallet, xUsername);
+
         // Check if user already has a referral code
-        if (user.referralCode) {
+        if (entry.referralCode) {
             return res.json({
                 success: true,
-                referralCode: user.referralCode,
+                referralCode: entry.referralCode,
                 message: 'Referral code already exists'
             });
         }
 
         // Generate new referral code
-        const code = await db.generateReferralCode(wallet);
+        const code = await referralsDb.generateCode(wallet);
 
         if (!code) {
             return res.status(500).json({ success: false, error: 'Failed to generate referral code' });
@@ -998,7 +1028,7 @@ app.post('/api/referral/generate', async (req, res) => {
     }
 });
 
-// Get referral info for user
+// Get referral info for user (with dynamic count based on current balances)
 app.get('/api/referral/:wallet', async (req, res) => {
     try {
         const wallet = req.params.wallet;
@@ -1007,28 +1037,58 @@ app.get('/api/referral/:wallet', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Wallet address required' });
         }
 
-        const user = await db.getUserByWallet(wallet);
-
-        if (!user) {
-            return res.json({
-                success: true,
-                data: null,
-                message: 'User not found'
-            });
+        if (!referralsDb) {
+            return res.status(500).json({ success: false, error: 'Referral system not available' });
         }
+
+        const entry = await referralsDb.getByWallet(wallet);
+
+        if (!entry) {
+            return res.json({ success: true, data: null });
+        }
+
+        // Calculate valid referral count dynamically (downlines with 300+ AMY)
+        const validReferralCount = entry.referralCode
+            ? await referralsDb.getValidReferralCount(entry.referralCode)
+            : 0;
 
         res.json({
             success: true,
             data: {
-                referralCode: user.referralCode || null,
-                referredBy: user.referredBy || null,
-                referralCount: user.referralCount || 0
+                referralCode: entry.referralCode || null,
+                referredBy: entry.referredBy || null,
+                referralCount: validReferralCount, // Dynamic count based on balances
+                lastKnownBalance: entry.lastKnownBalance || 0
             }
         });
 
     } catch (error) {
         console.error('❌ Error fetching referral info:', error);
         res.status(500).json({ success: false, error: 'Failed to fetch referral info' });
+    }
+});
+
+// Update user's balance in referrals table (called when user loads profile)
+app.post('/api/referral/update-balance', async (req, res) => {
+    try {
+        const { wallet, balance } = req.body;
+
+        if (!wallet || balance === undefined) {
+            return res.status(400).json({ success: false, error: 'Wallet and balance required' });
+        }
+
+        if (!referralsDb) {
+            return res.status(500).json({ success: false, error: 'Referral system not available' });
+        }
+
+        // Update the user's balance
+        await referralsDb.updateBalance(wallet, balance);
+
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('❌ Error updating balance:', error);
+        res.status(500).json({ success: false, error: 'Failed to update balance' });
     }
 });
 
@@ -1046,31 +1106,25 @@ app.post('/api/referral/use', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Invalid referral code format' });
         }
 
-        // Check if user exists (must be verified)
-        const user = await db.getUserByWallet(wallet);
-        if (!user) {
-            return res.status(404).json({ success: false, error: 'User not verified. Please verify your wallet first.' });
+        if (!referralsDb) {
+            return res.status(500).json({ success: false, error: 'Referral system not available' });
         }
 
-        // User just needs to be verified (have 300+ AMY) - no leaderboard requirement
-        if (user.amyBalance < MINIMUM_AMY_BALANCE) {
-            return res.status(400).json({
-                success: false,
-                error: `You need at least ${MINIMUM_AMY_BALANCE} $AMY to use a referral code`
-            });
-        }
+        // Make sure user has a referral entry first
+        await referralsDb.getOrCreate(wallet);
 
-        const result = await db.setReferredBy(wallet, referralCode);
+        // Use the referral code (counts are calculated dynamically based on balance)
+        const result = await referralsDb.useCode(wallet, referralCode);
 
         if (!result.success) {
             return res.status(400).json({ success: false, error: result.error });
         }
 
-        console.log('🤝 Referral used - Wallet:', wallet, '- Code:', referralCode, '- Referrer:', result.referrer);
+        console.log('🤝 Referral linked - Wallet:', wallet, '- Code:', referralCode, '- Referrer:', result.referrer);
 
         res.json({
             success: true,
-            message: `Successfully used referral code from @${result.referrer}`,
+            message: result.message,
             referrer: result.referrer
         });
 
@@ -1089,28 +1143,42 @@ app.get('/api/referral/downlines/:wallet', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Wallet address required' });
         }
 
+        if (!referralsDb) {
+            return res.status(500).json({ success: false, error: 'Referral system not available' });
+        }
+
         // Get the user's referral code first
-        const user = await db.getUserByWallet(wallet);
-        if (!user || !user.referralCode) {
+        const entry = await referralsDb.getByWallet(wallet);
+        if (!entry || !entry.referralCode) {
             return res.json({
                 success: true,
                 data: {
                     referralCode: null,
                     downlines: [],
-                    totalDownlines: 0
+                    totalDownlines: 0,
+                    validDownlines: 0
                 }
             });
         }
 
         // Get all users who used this referral code
-        const downlines = await db.getDownlines(user.referralCode);
+        const downlines = await referralsDb.getDownlines(entry.referralCode);
+
+        // Mark each downline as valid or pending based on their balance
+        const downlinesWithStatus = downlines.map(d => ({
+            ...d,
+            isValid: (d.lastKnownBalance || 0) >= MINIMUM_AMY_BALANCE
+        }));
+
+        const validCount = downlinesWithStatus.filter(d => d.isValid).length;
 
         res.json({
             success: true,
             data: {
-                referralCode: user.referralCode,
-                downlines: downlines,
-                totalDownlines: downlines.length
+                referralCode: entry.referralCode,
+                downlines: downlinesWithStatus,
+                totalDownlines: downlines.length,
+                validDownlines: validCount
             }
         });
 
@@ -1119,6 +1187,69 @@ app.get('/api/referral/downlines/:wallet', async (req, res) => {
         res.status(500).json({ success: false, error: 'Failed to fetch downlines' });
     }
 });
+
+// ============================================
+// PERIODIC JOBS
+// ============================================
+
+// ERC20 ABI for balanceOf
+const ERC20_ABI = ['function balanceOf(address owner) view returns (uint256)'];
+
+// Fetch AMY balance for a wallet
+async function fetchAmyBalance(walletAddress) {
+    try {
+        const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+        const tokenContract = new ethers.Contract(AMY_TOKEN_ADDRESS, ERC20_ABI, provider);
+        const balance = await tokenContract.balanceOf(walletAddress);
+        return parseFloat(ethers.utils.formatUnits(balance, 18));
+    } catch (error) {
+        console.error(`Failed to fetch balance for ${walletAddress}:`, error.message);
+        return null;
+    }
+}
+
+// Update all referral balances periodically
+async function updateAllReferralBalances() {
+    if (!referralsDb) {
+        console.log('⏭️ Skipping balance update - referral system not available');
+        return;
+    }
+
+    console.log('🔄 Starting periodic referral balance update...');
+
+    try {
+        const allReferrals = await referralsDb.getAll();
+        console.log(`📊 Found ${allReferrals.length} referral entries to update`);
+
+        const updates = [];
+        let updated = 0;
+        let failed = 0;
+
+        // Process in batches to avoid rate limiting
+        for (const entry of allReferrals) {
+            const balance = await fetchAmyBalance(entry.wallet);
+            if (balance !== null) {
+                updates.push({ wallet: entry.wallet, balance });
+                updated++;
+            } else {
+                failed++;
+            }
+
+            // Small delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        // Batch update all balances
+        if (updates.length > 0) {
+            await referralsDb.batchUpdateBalances(updates);
+        }
+
+        console.log(`✅ Balance update complete: ${updated} updated, ${failed} failed`);
+
+    } catch (error) {
+        console.error('❌ Error updating referral balances:', error);
+    }
+}
 
 // ============================================
 // START SERVER
@@ -1155,6 +1286,24 @@ app.listen(PORT, () => {
             console.error('Periodic cleanup error:', err);
         }
     }, 60 * 60 * 1000); // Run every hour
+
+    // Run referral balance update every 30 minutes
+    setInterval(async () => {
+        try {
+            await updateAllReferralBalances();
+        } catch (err) {
+            console.error('Periodic balance update error:', err);
+        }
+    }, 30 * 60 * 1000); // Run every 30 minutes
+
+    // Run initial balance update after 1 minute (give time for DB to initialize)
+    setTimeout(async () => {
+        try {
+            await updateAllReferralBalances();
+        } catch (err) {
+            console.error('Initial balance update error:', err);
+        }
+    }, 60 * 1000); // Run 1 minute after startup
 });
 
 // Graceful shutdown

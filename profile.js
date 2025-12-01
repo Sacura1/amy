@@ -751,25 +751,29 @@ async function updateEligibilityStatus() {
     const isEligible = hasEnoughBalance && isOnLeaderboard;
 
     if (isEligible) {
+        // 300+ AMY AND on leaderboard = shown on leaderboard
         eligibilityIcon.textContent = '✅';
-        eligibilityTitle.textContent = 'Eligible';
+        eligibilityTitle.textContent = 'Leaderboard Eligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-green-400';
-        eligibilityMessage.textContent = `You have at least ${MINIMUM_AMY_BALANCE} $AMY and you are on the AMY leaderboard.`;
+        eligibilityMessage.textContent = `You have ${amyBalance.toFixed(2)} $AMY and you are on the AMY leaderboard. You will appear on the public leaderboard.`;
     } else if (!hasEnoughBalance && isOnLeaderboard) {
+        // On leaderboard but < 300 AMY = ineligible
         eligibilityIcon.textContent = '❌';
-        eligibilityTitle.textContent = 'Ineligible';
+        eligibilityTitle.textContent = 'Leaderboard Ineligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
-        eligibilityMessage.textContent = `You are on the leaderboard, but you need at least ${MINIMUM_AMY_BALANCE} $AMY to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY.`;
+        eligibilityMessage.textContent = `You are on the leaderboard data, but you need at least ${MINIMUM_AMY_BALANCE} $AMY to be shown. You currently have ${amyBalance.toFixed(2)} $AMY.`;
     } else if (hasEnoughBalance && !isOnLeaderboard) {
+        // 300+ AMY but NOT on leaderboard = ineligible for leaderboard
         eligibilityIcon.textContent = '❌';
-        eligibilityTitle.textContent = 'Ineligible';
+        eligibilityTitle.textContent = 'Leaderboard Ineligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
-        eligibilityMessage.textContent = `You have ${amyBalance.toFixed(2)} $AMY, but you are not on the AMY leaderboard. Only leaderboard members are eligible.`;
+        eligibilityMessage.textContent = `You have ${amyBalance.toFixed(2)} $AMY, but you are not on the leaderboard data. Contact admin to be added.`;
     } else {
+        // < 300 AMY and not on leaderboard
         eligibilityIcon.textContent = '❌';
-        eligibilityTitle.textContent = 'Ineligible';
+        eligibilityTitle.textContent = 'Leaderboard Ineligible';
         eligibilityTitle.className = 'text-xl md:text-2xl font-bold mb-2 text-red-400';
-        eligibilityMessage.textContent = `You need at least ${MINIMUM_AMY_BALANCE} $AMY AND must be on the leaderboard to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY and are not on the leaderboard.`;
+        eligibilityMessage.textContent = `You need at least ${MINIMUM_AMY_BALANCE} $AMY and be on the leaderboard data to be eligible. You currently have ${amyBalance.toFixed(2)} $AMY.`;
     }
 }
 
@@ -937,15 +941,10 @@ async function loadLeaderboard() {
                     const userResponse = await fetch(`${API_BASE_URL}/api/user/${entry.xUsername}`);
                     const userData = await userResponse.json();
 
-                    console.log(`Checking ${entry.xUsername}:`, userData);
-
                     if (userData.success && userData.verified && userData.data) {
                         // User has verified on the website - now fetch their LIVE balance
-                        console.log(`Fetching live balance for ${entry.xUsername} (${userData.data.walletAddress})`);
                         const liveBalance = await fetchLiveAmyBalance(userData.data.walletAddress);
                         const isEligible = liveBalance >= MINIMUM_AMY_BALANCE;
-
-                        console.log(`${entry.xUsername}: Live balance = ${liveBalance}, Eligible = ${isEligible}`);
 
                         return {
                             xUsername: userData.data.xUsername,
@@ -957,7 +956,6 @@ async function loadLeaderboard() {
                         };
                     } else {
                         // User hasn't verified yet
-                        console.log(`${entry.xUsername}: Not verified`);
                         return {
                             xUsername: entry.xUsername,
                             verified: false,
@@ -1008,17 +1006,9 @@ function displayLeaderboard(data) {
     }
 
     // Filter to only show verified AND eligible users
-    console.log('All leaderboard entries:', data.leaderboard.length);
-    console.log('Verified users:', data.leaderboard.filter(u => u.verified).length);
-    console.log('Eligible users:', data.leaderboard.filter(u => u.eligible).length);
-
     const eligibleUsers = data.leaderboard.filter(user => user.verified && user.eligible);
 
-    console.log('Final eligible users to display:', eligibleUsers.length);
-    console.log('Eligible users:', eligibleUsers);
-
     if (eligibleUsers.length === 0) {
-        console.warn('No eligible users to display');
         container.innerHTML = '';
         emptyState.classList.remove('hidden');
         return;
@@ -1197,19 +1187,29 @@ let userReferralCount = 0;
 
 // Load referral data for user
 async function loadReferralData() {
-    if (!userWallet) {
-        hideReferralSection();
-        return;
-    }
-
-    // If user has wallet and X connected, show referral section
-    // (they are eligible to use referrals even if no data exists yet)
+    // Referral section is available to anyone with wallet + X connected
+    // (no balance or leaderboard requirement)
     if (!userWallet || !userXAccount) {
         hideReferralSection();
         return;
     }
 
     try {
+        // Register user in referrals table (creates entry if doesn't exist)
+        await fetch(`${API_BASE_URL}/api/referral/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wallet: userWallet, xUsername: userXAccount })
+        });
+
+        // Update user's balance in referrals table (for dynamic referral counting)
+        await fetch(`${API_BASE_URL}/api/referral/update-balance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wallet: userWallet, balance: amyBalance })
+        });
+
+        // Get referral data
         const response = await fetch(`${API_BASE_URL}/api/referral/${userWallet}`);
         const result = await response.json();
 
@@ -1218,7 +1218,6 @@ async function loadReferralData() {
             userReferredBy = result.data.referredBy || null;
             userReferralCount = result.data.referralCount || 0;
         } else {
-            // No referral data yet, but user can still use the referral section
             userReferralCode = null;
             userReferredBy = null;
             userReferralCount = 0;
@@ -1229,7 +1228,7 @@ async function loadReferralData() {
 
     } catch (error) {
         console.error('Failed to load referral data:', error);
-        // Still show referral section even if API fails - user can generate/enter codes
+        // Still show referral section even if API fails
         userReferralCode = null;
         userReferredBy = null;
         userReferralCount = 0;
@@ -1316,7 +1315,7 @@ async function generateReferralCode() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ wallet: userWallet })
+            body: JSON.stringify({ wallet: userWallet, xUsername: userXAccount })
         });
 
         const result = await response.json();
