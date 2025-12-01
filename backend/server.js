@@ -39,6 +39,16 @@ if (!fs.existsSync(NONCES_PATH)) {
     fs.writeFileSync(NONCES_PATH, JSON.stringify({ nonces: [] }, null, 2));
 }
 
+// Generate random 8-character referral code
+function generateRandomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclude confusing characters like O, 0, I, 1
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
+
 // JSON database helper functions (default)
 db = {
     getUsers: () => {
@@ -51,8 +61,16 @@ db = {
             u.wallet.toLowerCase() === user.wallet.toLowerCase()
         );
         if (existingIndex >= 0) {
+            // Preserve referral data when updating
+            const existing = data.users[existingIndex];
+            user.referralCode = user.referralCode || existing.referralCode;
+            user.referredBy = user.referredBy || existing.referredBy;
+            user.referralCount = existing.referralCount || 0;
             data.users[existingIndex] = user;
         } else {
+            user.referralCode = user.referralCode || null;
+            user.referredBy = user.referredBy || null;
+            user.referralCount = user.referralCount || 0;
             data.users.push(user);
         }
         fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
@@ -65,6 +83,66 @@ db = {
     getUserByUsername: (username) => {
         const users = db.getUsers();
         return users.find(u => u.xUsername.toLowerCase() === username.toLowerCase());
+    },
+    getUserByReferralCode: (referralCode) => {
+        const users = db.getUsers();
+        return users.find(u => u.referralCode && u.referralCode.toUpperCase() === referralCode.toUpperCase());
+    },
+    generateReferralCode: (wallet) => {
+        const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        const userIndex = data.users.findIndex(u => u.wallet.toLowerCase() === wallet.toLowerCase());
+        if (userIndex < 0) return null;
+
+        const code = generateRandomCode();
+        data.users[userIndex].referralCode = code;
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return code;
+    },
+    setReferredBy: (wallet, referralCode) => {
+        const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        const userIndex = data.users.findIndex(u => u.wallet.toLowerCase() === wallet.toLowerCase());
+
+        if (userIndex < 0) {
+            return { success: false, error: 'User not found' };
+        }
+
+        const user = data.users[userIndex];
+        if (user.referredBy) {
+            return { success: false, error: 'You have already used a referral code' };
+        }
+
+        // Find referrer
+        const referrerIndex = data.users.findIndex(u => u.referralCode && u.referralCode.toUpperCase() === referralCode.toUpperCase());
+        if (referrerIndex < 0) {
+            return { success: false, error: 'Invalid referral code' };
+        }
+
+        const referrer = data.users[referrerIndex];
+        if (referrer.wallet.toLowerCase() === wallet.toLowerCase()) {
+            return { success: false, error: 'You cannot use your own referral code' };
+        }
+
+        // Update user's referred_by
+        data.users[userIndex].referredBy = referralCode.toUpperCase();
+
+        // Increment referrer's referral count
+        data.users[referrerIndex].referralCount = (data.users[referrerIndex].referralCount || 0) + 1;
+
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return { success: true, referrer: referrer.xUsername };
+    },
+    getDownlines: (referralCode) => {
+        const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        // Find all users who used this referral code
+        const downlines = data.users.filter(u =>
+            u.referredBy && u.referredBy.toUpperCase() === referralCode.toUpperCase()
+        ).map(u => ({
+            wallet: u.wallet,
+            xUsername: u.xUsername,
+            amyBalance: u.amyBalance,
+            verifiedAt: u.verifiedAt
+        }));
+        return downlines;
     },
     deleteUser: (wallet) => {
         const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
@@ -162,7 +240,6 @@ nonces = {
     } else {
         console.log('📁 Data directory:', DATA_DIR);
 
-        // Run initial nonce cleanup for JSON
         nonces.cleanup();
     }
 })();
@@ -869,6 +946,177 @@ app.post('/api/users/restore', isAdmin, async (req, res) => {
     } catch (error) {
         console.error('❌ Error restoring users:', error);
         res.status(500).json({ error: 'Failed to restore users' });
+    }
+});
+
+// ============================================
+// REFERRAL API ROUTES
+// ============================================
+
+// Generate referral code for user
+app.post('/api/referral/generate', async (req, res) => {
+    try {
+        const { wallet } = req.body;
+
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        // Check if user exists
+        const user = await db.getUserByWallet(wallet);
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not verified. Please verify your wallet first.' });
+        }
+
+        // Check if user already has a referral code
+        if (user.referralCode) {
+            return res.json({
+                success: true,
+                referralCode: user.referralCode,
+                message: 'Referral code already exists'
+            });
+        }
+
+        // Generate new referral code
+        const code = await db.generateReferralCode(wallet);
+
+        if (!code) {
+            return res.status(500).json({ success: false, error: 'Failed to generate referral code' });
+        }
+
+        console.log('🎫 Referral code generated for wallet:', wallet, '- Code:', code);
+
+        res.json({
+            success: true,
+            referralCode: code,
+            message: 'Referral code generated successfully'
+        });
+
+    } catch (error) {
+        console.error('❌ Error generating referral code:', error);
+        res.status(500).json({ success: false, error: 'Failed to generate referral code' });
+    }
+});
+
+// Get referral info for user
+app.get('/api/referral/:wallet', async (req, res) => {
+    try {
+        const wallet = req.params.wallet;
+
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        const user = await db.getUserByWallet(wallet);
+
+        if (!user) {
+            return res.json({
+                success: true,
+                data: null,
+                message: 'User not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                referralCode: user.referralCode || null,
+                referredBy: user.referredBy || null,
+                referralCount: user.referralCount || 0
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching referral info:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch referral info' });
+    }
+});
+
+// Use a referral code (can only be done once per user)
+app.post('/api/referral/use', async (req, res) => {
+    try {
+        const { wallet, referralCode } = req.body;
+
+        if (!wallet || !referralCode) {
+            return res.status(400).json({ success: false, error: 'Wallet address and referral code required' });
+        }
+
+        // Validate referral code format
+        if (referralCode.length !== 8) {
+            return res.status(400).json({ success: false, error: 'Invalid referral code format' });
+        }
+
+        // Check if user exists (must be verified)
+        const user = await db.getUserByWallet(wallet);
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not verified. Please verify your wallet first.' });
+        }
+
+        // User just needs to be verified (have 300+ AMY) - no leaderboard requirement
+        if (user.amyBalance < MINIMUM_AMY_BALANCE) {
+            return res.status(400).json({
+                success: false,
+                error: `You need at least ${MINIMUM_AMY_BALANCE} $AMY to use a referral code`
+            });
+        }
+
+        const result = await db.setReferredBy(wallet, referralCode);
+
+        if (!result.success) {
+            return res.status(400).json({ success: false, error: result.error });
+        }
+
+        console.log('🤝 Referral used - Wallet:', wallet, '- Code:', referralCode, '- Referrer:', result.referrer);
+
+        res.json({
+            success: true,
+            message: `Successfully used referral code from @${result.referrer}`,
+            referrer: result.referrer
+        });
+
+    } catch (error) {
+        console.error('❌ Error using referral code:', error);
+        res.status(500).json({ success: false, error: 'Failed to use referral code' });
+    }
+});
+
+// Get all downlines (users referred by a specific user)
+app.get('/api/referral/downlines/:wallet', async (req, res) => {
+    try {
+        const wallet = req.params.wallet;
+
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        // Get the user's referral code first
+        const user = await db.getUserByWallet(wallet);
+        if (!user || !user.referralCode) {
+            return res.json({
+                success: true,
+                data: {
+                    referralCode: null,
+                    downlines: [],
+                    totalDownlines: 0
+                }
+            });
+        }
+
+        // Get all users who used this referral code
+        const downlines = await db.getDownlines(user.referralCode);
+
+        res.json({
+            success: true,
+            data: {
+                referralCode: user.referralCode,
+                downlines: downlines,
+                totalDownlines: downlines.length
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching downlines:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch downlines' });
     }
 });
 

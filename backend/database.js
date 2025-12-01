@@ -39,8 +39,27 @@ async function createTables() {
                 amy_balance DECIMAL(20, 2) NOT NULL,
                 verified_at TIMESTAMP NOT NULL,
                 timestamp BIGINT NOT NULL,
-                signature_verified BOOLEAN DEFAULT true
+                signature_verified BOOLEAN DEFAULT true,
+                referral_code VARCHAR(8) UNIQUE,
+                referred_by VARCHAR(8),
+                referral_count INTEGER DEFAULT 0
             );
+        `);
+
+        // Add referral columns if they don't exist (for existing tables)
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='referral_code') THEN
+                    ALTER TABLE verified_users ADD COLUMN referral_code VARCHAR(8) UNIQUE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='referred_by') THEN
+                    ALTER TABLE verified_users ADD COLUMN referred_by VARCHAR(8);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='referral_count') THEN
+                    ALTER TABLE verified_users ADD COLUMN referral_count INTEGER DEFAULT 0;
+                END IF;
+            END $$;
         `);
 
         // Create leaderboard table
@@ -155,7 +174,7 @@ const db = {
     getUsers: async () => {
         if (!pool) return [];
         const result = await pool.query(
-            'SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance", verified_at as "verifiedAt", timestamp, signature_verified as "signatureVerified" FROM verified_users ORDER BY verified_at DESC'
+            'SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance", verified_at as "verifiedAt", timestamp, signature_verified as "signatureVerified", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount" FROM verified_users ORDER BY verified_at DESC'
         );
         return result.rows;
     },
@@ -164,15 +183,15 @@ const db = {
     addUser: async (user) => {
         if (!pool) return null;
         await pool.query(
-            `INSERT INTO verified_users (wallet, x_username, amy_balance, verified_at, timestamp, signature_verified)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            `INSERT INTO verified_users (wallet, x_username, amy_balance, verified_at, timestamp, signature_verified, referral_code, referred_by, referral_count)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              ON CONFLICT (wallet) DO UPDATE SET
              x_username = EXCLUDED.x_username,
              amy_balance = EXCLUDED.amy_balance,
              verified_at = EXCLUDED.verified_at,
              timestamp = EXCLUDED.timestamp,
              signature_verified = EXCLUDED.signature_verified`,
-            [user.wallet, user.xUsername, user.amyBalance, user.verifiedAt, user.timestamp, user.signatureVerified || true]
+            [user.wallet, user.xUsername, user.amyBalance, user.verifiedAt, user.timestamp, user.signatureVerified || true, user.referralCode || null, user.referredBy || null, user.referralCount || 0]
         );
         return user;
     },
@@ -181,7 +200,7 @@ const db = {
     getUserByWallet: async (wallet) => {
         if (!pool) return null;
         const result = await pool.query(
-            'SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance", verified_at as "verifiedAt", timestamp, signature_verified as "signatureVerified" FROM verified_users WHERE LOWER(wallet) = LOWER($1)',
+            'SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance", verified_at as "verifiedAt", timestamp, signature_verified as "signatureVerified", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount" FROM verified_users WHERE LOWER(wallet) = LOWER($1)',
             [wallet]
         );
         return result.rows[0] || null;
@@ -191,10 +210,80 @@ const db = {
     getUserByUsername: async (username) => {
         if (!pool) return null;
         const result = await pool.query(
-            'SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance", verified_at as "verifiedAt", timestamp, signature_verified as "signatureVerified" FROM verified_users WHERE LOWER(x_username) = LOWER($1)',
+            'SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance", verified_at as "verifiedAt", timestamp, signature_verified as "signatureVerified", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount" FROM verified_users WHERE LOWER(x_username) = LOWER($1)',
             [username]
         );
         return result.rows[0] || null;
+    },
+
+    // Get user by referral code
+    getUserByReferralCode: async (referralCode) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            'SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance", verified_at as "verifiedAt", timestamp, signature_verified as "signatureVerified", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount" FROM verified_users WHERE UPPER(referral_code) = UPPER($1)',
+            [referralCode]
+        );
+        return result.rows[0] || null;
+    },
+
+    // Generate and save referral code for user
+    generateReferralCode: async (wallet) => {
+        if (!pool) return null;
+        const code = generateRandomCode();
+        await pool.query(
+            'UPDATE verified_users SET referral_code = $1 WHERE LOWER(wallet) = LOWER($2)',
+            [code, wallet]
+        );
+        return code;
+    },
+
+    // Set referred by for user (can only be done once)
+    setReferredBy: async (wallet, referralCode) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        // Check if user exists and doesn't already have a referrer
+        const user = await db.getUserByWallet(wallet);
+        if (!user) {
+            return { success: false, error: 'User not found' };
+        }
+        if (user.referredBy) {
+            return { success: false, error: 'You have already used a referral code' };
+        }
+
+        // Check if referral code exists
+        const referrer = await db.getUserByReferralCode(referralCode);
+        if (!referrer) {
+            return { success: false, error: 'Invalid referral code' };
+        }
+
+        // Check user is not referring themselves
+        if (referrer.wallet.toLowerCase() === wallet.toLowerCase()) {
+            return { success: false, error: 'You cannot use your own referral code' };
+        }
+
+        // Update user's referred_by
+        await pool.query(
+            'UPDATE verified_users SET referred_by = $1 WHERE LOWER(wallet) = LOWER($2)',
+            [referralCode.toUpperCase(), wallet]
+        );
+
+        // Increment referrer's referral count
+        await pool.query(
+            'UPDATE verified_users SET referral_count = referral_count + 1 WHERE UPPER(referral_code) = UPPER($1)',
+            [referralCode]
+        );
+
+        return { success: true, referrer: referrer.xUsername };
+    },
+
+    // Get all downlines (users who used a specific referral code)
+    getDownlines: async (referralCode) => {
+        if (!pool) return [];
+        const result = await pool.query(
+            'SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance", verified_at as "verifiedAt" FROM verified_users WHERE UPPER(referred_by) = UPPER($1) ORDER BY verified_at DESC',
+            [referralCode]
+        );
+        return result.rows;
     },
 
     // Delete user
@@ -207,6 +296,16 @@ const db = {
         return result.rowCount > 0;
     }
 };
+
+// Generate random 8-character referral code
+function generateRandomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclude confusing characters like O, 0, I, 1
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
 
 // Leaderboard helper functions
 const leaderboard = {

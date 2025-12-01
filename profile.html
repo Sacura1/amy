@@ -763,6 +763,86 @@
                     </div>
                 </div>
 
+                <!-- Referral Section (Shows when wallet is connected and verified) -->
+                <div id="referral-section" class="glass-card mt-6 hidden overflow-hidden">
+                    <!-- Enter Referral Code Section -->
+                    <div id="enter-referral-section" class="p-4 md:p-6 border-b border-yellow-400/20">
+                        <div class="mb-4">
+                            <h3 class="text-lg md:text-xl font-bold text-yellow-400 mb-2">Enter a referral code here (this cannot be changed):</h3>
+                        </div>
+                        <div class="flex gap-3 flex-col sm:flex-row">
+                            <input
+                                type="text"
+                                id="referral-code-input"
+                                maxlength="8"
+                                placeholder="XXXXXXXX"
+                                class="flex-1 px-4 py-3 rounded-xl bg-black/50 border-2 border-gray-600 text-white text-lg font-mono uppercase tracking-wider focus:border-yellow-400 focus:outline-none transition-all placeholder-gray-500"
+                            />
+                            <button
+                                onclick="useReferralCode()"
+                                id="use-referral-btn"
+                                class="btn-samy btn-samy-enhanced text-white px-6 py-3 rounded-full text-base font-bold uppercase whitespace-nowrap"
+                            >
+                                SUBMIT
+                            </button>
+                        </div>
+                        <p id="referral-input-status" class="text-xs text-gray-400 mt-2"></p>
+                    </div>
+
+                    <!-- Already Used Referral Code Section (hidden by default) -->
+                    <div id="referral-used-section" class="p-4 md:p-6 border-b border-yellow-400/20 hidden">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-green-400 text-lg">✓</span>
+                            <h3 class="text-lg md:text-xl font-bold text-green-400">Referral Code Used</h3>
+                        </div>
+                        <p class="text-gray-300 text-sm">You used referral code: <span id="used-referral-code" class="text-yellow-400 font-mono font-bold"></span></p>
+                    </div>
+
+                    <!-- Your Referral Code Section -->
+                    <div class="p-4 md:p-6 border-b border-yellow-400/20">
+                        <div id="your-referral-code-section">
+                            <div id="no-referral-code" class="text-center">
+                                <p class="text-gray-300 mb-4">Generate your unique referral code to share with friends</p>
+                                <button
+                                    onclick="generateReferralCode()"
+                                    id="generate-referral-btn"
+                                    class="btn-samy btn-samy-enhanced text-white px-8 py-3 rounded-full text-base font-bold uppercase"
+                                >
+                                    GENERATE CODE
+                                </button>
+                            </div>
+                            <div id="has-referral-code" class="hidden">
+                                <div class="bg-gradient-to-r from-green-900/30 to-emerald-900/30 p-4 rounded-xl border-2 border-green-500/30">
+                                    <div class="flex items-center justify-between flex-wrap gap-3">
+                                        <div>
+                                            <p class="text-green-400 font-bold text-sm mb-1">Your referral code:</p>
+                                            <p id="your-referral-code" class="text-2xl md:text-3xl font-black text-white font-mono tracking-wider"></p>
+                                        </div>
+                                        <button
+                                            onclick="copyReferralCode()"
+                                            id="copy-referral-btn"
+                                            class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2"
+                                        >
+                                            <span id="copy-icon">📋</span>
+                                            <span id="copy-text">COPY</span>
+                                        </button>
+                                    </div>
+                                    <p class="text-gray-300 text-xs mt-3">Share this referral code for an increased multiplier on Amy Points</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Completed Referrals Section -->
+                    <div class="p-4 md:p-6">
+                        <div class="bg-gradient-to-r from-purple-900/30 to-pink-900/30 p-4 rounded-xl border-2 border-purple-500/30">
+                            <h3 class="text-purple-400 font-bold text-sm mb-2">Completed referrals:</h3>
+                            <p id="referral-count" class="text-4xl md:text-5xl font-black text-white">0</p>
+                            <p class="text-gray-400 text-xs mt-2">To count as a referral, the new user must hold 300+ $AMY and have connected their wallet and X to the Amy website.</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Admin Download Section (Hidden by default) - REDESIGNED -->
                 <div id="admin-section" class="glass-card mt-6 hidden overflow-hidden">
                     <div class="bg-gradient-to-r from-purple-900/30 to-pink-900/30 p-3 md:p-6 border-b border-yellow-400/30">

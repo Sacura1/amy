@@ -695,12 +695,18 @@ async function checkVerificationEligibility() {
 
         // Show eligibility status to the user
         await updateEligibilityStatus();
+
+        // Load referral data for the user
+        await loadReferralData();
     } else {
         // Hide eligibility section if not fully connected
         const eligibilitySection = document.getElementById('eligibility-section');
         if (eligibilitySection) {
             eligibilitySection.classList.add('hidden');
         }
+
+        // Hide referral section if not fully connected
+        hideReferralSection();
     }
 }
 
@@ -1179,4 +1185,254 @@ async function bulkUpdateLeaderboard() {
         alert('❌ Failed to update. Please try again.');
     }
 }
+
+// ============================================
+// REFERRAL SYSTEM
+// ============================================
+
+// Global referral state
+let userReferralCode = null;
+let userReferredBy = null;
+let userReferralCount = 0;
+
+// Load referral data for user
+async function loadReferralData() {
+    if (!userWallet) {
+        hideReferralSection();
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/referral/${userWallet}`);
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            userReferralCode = result.data.referralCode;
+            userReferredBy = result.data.referredBy;
+            userReferralCount = result.data.referralCount || 0;
+
+            updateReferralUI();
+            showReferralSection();
+        } else {
+            // User not verified yet - hide referral section
+            hideReferralSection();
+        }
+
+    } catch (error) {
+        console.error('Failed to load referral data:', error);
+        hideReferralSection();
+    }
+}
+
+// Update referral UI based on state
+function updateReferralUI() {
+    const referralSection = document.getElementById('referral-section');
+    const enterReferralSection = document.getElementById('enter-referral-section');
+    const referralUsedSection = document.getElementById('referral-used-section');
+    const noReferralCode = document.getElementById('no-referral-code');
+    const hasReferralCode = document.getElementById('has-referral-code');
+    const yourReferralCode = document.getElementById('your-referral-code');
+    const referralCount = document.getElementById('referral-count');
+    const usedReferralCode = document.getElementById('used-referral-code');
+
+    if (!referralSection) return;
+
+    // Update referral count
+    if (referralCount) {
+        referralCount.textContent = userReferralCount;
+    }
+
+    // Show/hide enter referral section based on whether user already used one
+    if (userReferredBy) {
+        // User has already used a referral code
+        if (enterReferralSection) enterReferralSection.classList.add('hidden');
+        if (referralUsedSection) {
+            referralUsedSection.classList.remove('hidden');
+            if (usedReferralCode) usedReferralCode.textContent = userReferredBy;
+        }
+    } else {
+        // User can still enter a referral code
+        if (enterReferralSection) enterReferralSection.classList.remove('hidden');
+        if (referralUsedSection) referralUsedSection.classList.add('hidden');
+    }
+
+    // Show/hide generate code section based on whether user has a code
+    if (userReferralCode) {
+        if (noReferralCode) noReferralCode.classList.add('hidden');
+        if (hasReferralCode) hasReferralCode.classList.remove('hidden');
+        if (yourReferralCode) yourReferralCode.textContent = userReferralCode;
+    } else {
+        if (noReferralCode) noReferralCode.classList.remove('hidden');
+        if (hasReferralCode) hasReferralCode.classList.add('hidden');
+    }
+}
+
+// Show referral section
+function showReferralSection() {
+    const referralSection = document.getElementById('referral-section');
+    if (referralSection) {
+        referralSection.classList.remove('hidden');
+    }
+}
+
+// Hide referral section
+function hideReferralSection() {
+    const referralSection = document.getElementById('referral-section');
+    if (referralSection) {
+        referralSection.classList.add('hidden');
+    }
+}
+
+// Generate referral code
+async function generateReferralCode() {
+    if (!userWallet) {
+        alert('Please connect your wallet first!');
+        return;
+    }
+
+    const generateBtn = document.getElementById('generate-referral-btn');
+    if (generateBtn) {
+        generateBtn.disabled = true;
+        generateBtn.textContent = 'GENERATING...';
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/referral/generate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ wallet: userWallet })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            userReferralCode = result.referralCode;
+            updateReferralUI();
+            alert(`Your referral code: ${result.referralCode}`);
+        } else {
+            alert('Failed to generate referral code: ' + (result.error || 'Unknown error'));
+        }
+
+    } catch (error) {
+        console.error('Failed to generate referral code:', error);
+        alert('Failed to generate referral code. Please try again.');
+    } finally {
+        if (generateBtn) {
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'GENERATE CODE';
+        }
+    }
+}
+
+// Use (enter) a referral code
+async function useReferralCode() {
+    if (!userWallet) {
+        alert('Please connect your wallet first!');
+        return;
+    }
+
+    const input = document.getElementById('referral-code-input');
+    const statusEl = document.getElementById('referral-input-status');
+    const referralCode = input ? input.value.trim().toUpperCase() : '';
+
+    if (!referralCode) {
+        if (statusEl) {
+            statusEl.textContent = 'Please enter a referral code';
+            statusEl.className = 'text-xs text-red-400 mt-2';
+        }
+        return;
+    }
+
+    if (referralCode.length !== 8) {
+        if (statusEl) {
+            statusEl.textContent = 'Referral code must be 8 characters';
+            statusEl.className = 'text-xs text-red-400 mt-2';
+        }
+        return;
+    }
+
+    const useBtn = document.getElementById('use-referral-btn');
+    if (useBtn) {
+        useBtn.disabled = true;
+        useBtn.textContent = 'SUBMITTING...';
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/referral/use`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                wallet: userWallet,
+                referralCode: referralCode
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            userReferredBy = referralCode;
+            updateReferralUI();
+            if (statusEl) {
+                statusEl.textContent = result.message;
+                statusEl.className = 'text-xs text-green-400 mt-2';
+            }
+            if (input) input.value = '';
+        } else {
+            if (statusEl) {
+                statusEl.textContent = result.error || 'Failed to use referral code';
+                statusEl.className = 'text-xs text-red-400 mt-2';
+            }
+        }
+
+    } catch (error) {
+        console.error('Failed to use referral code:', error);
+        if (statusEl) {
+            statusEl.textContent = 'Failed to use referral code. Please try again.';
+            statusEl.className = 'text-xs text-red-400 mt-2';
+        }
+    } finally {
+        if (useBtn) {
+            useBtn.disabled = false;
+            useBtn.textContent = 'SUBMIT';
+        }
+    }
+}
+
+// Copy referral code to clipboard
+async function copyReferralCode() {
+    if (!userReferralCode) return;
+
+    try {
+        await navigator.clipboard.writeText(userReferralCode);
+
+        const copyIcon = document.getElementById('copy-icon');
+        const copyText = document.getElementById('copy-text');
+
+        if (copyIcon) copyIcon.textContent = '✅';
+        if (copyText) copyText.textContent = 'COPIED!';
+
+        setTimeout(() => {
+            if (copyIcon) copyIcon.textContent = '📋';
+            if (copyText) copyText.textContent = 'COPY';
+        }, 2000);
+
+    } catch (error) {
+        console.error('Failed to copy:', error);
+        alert('Failed to copy. Your code is: ' + userReferralCode);
+    }
+}
+
+// Auto-uppercase input as user types
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('referral-code-input');
+    if (input) {
+        input.addEventListener('input', (e) => {
+            e.target.value = e.target.value.toUpperCase();
+        });
+    }
+});
 
