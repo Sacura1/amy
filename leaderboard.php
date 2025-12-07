@@ -861,7 +861,7 @@ Template Name: Leaderboard
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/web3modal@1.9.12/dist/index.js"></script>
-    <script src="/wp-content/themes/amy/profile.js"></script>
+    <script src="/wp-content/themes/amy/profile.js?v=5"></script>
 
     <!-- Enhanced Meme Animations -->
     <script>
