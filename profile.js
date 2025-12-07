@@ -1210,10 +1210,19 @@ function showHoldersError() {
 }
 
 // Load token holders on page load (if on leaderboard page)
-if (document.getElementById('holders-container')) {
-    loadTokenHolders();
-    // Refresh token holders every 30 seconds
-    setInterval(loadTokenHolders, 30000);
+function initTokenHolders() {
+    if (document.getElementById('holders-container')) {
+        loadTokenHolders();
+        // Refresh token holders every 30 seconds
+        setInterval(loadTokenHolders, 30000);
+    }
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initTokenHolders);
+} else {
+    initTokenHolders();
 }
 
 // ============================================
