@@ -963,6 +963,9 @@ app.post('/api/users/restore', isAdmin, async (req, res) => {
 // TOKEN HOLDERS API ROUTES
 // ============================================
 
+// Excluded usernames from public holders list (project admins)
+const EXCLUDED_HOLDERS = ['Joedark01', 'viccweb3', '0xWunda_'];
+
 // Get all token holders (public - for leaderboard page)
 app.get('/api/holders', async (req, res) => {
     try {
@@ -975,7 +978,12 @@ app.get('/api/holders', async (req, res) => {
             });
         }
 
-        const holders = await holdersDb.getAll();
+        const allHolders = await holdersDb.getAll();
+
+        // Filter out excluded admin usernames
+        const holders = allHolders.filter(h =>
+            !EXCLUDED_HOLDERS.includes(h.xUsername)
+        );
 
         res.json({
             success: true,
