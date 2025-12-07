@@ -1108,6 +1108,14 @@ setInterval(loadLeaderboard, 30000);
 async function loadTokenHolders() {
     try {
         const response = await fetch(`${API_BASE_URL}/api/holders`);
+
+        if (!response.ok) {
+            // API endpoint might not exist yet - show empty state
+            console.warn('Holders API not available yet (status:', response.status, ')');
+            displayTokenHolders({ success: true, count: 0, holders: [] });
+            return;
+        }
+
         const result = await response.json();
 
         if (!result.success) {
@@ -1118,7 +1126,8 @@ async function loadTokenHolders() {
 
     } catch (error) {
         console.error('Error loading token holders:', error);
-        showHoldersError();
+        // Show empty state instead of error if API not deployed yet
+        displayTokenHolders({ success: true, count: 0, holders: [] });
     }
 }
 

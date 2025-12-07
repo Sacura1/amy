@@ -129,6 +129,9 @@ async function createTables() {
         // Migrate from JSON files if tables are empty
         await migrateFromJSON(client);
 
+        // Populate holders table from existing verified users (one-time migration)
+        await populateHoldersFromVerifiedUsers(client);
+
     } catch (error) {
         console.error('❌ Error creating tables:', error);
     } finally {
@@ -198,6 +201,48 @@ async function migrateFromJSON(client) {
 
     } catch (error) {
         console.error('❌ Migration error:', error);
+    }
+}
+
+// Populate holders table from existing verified users (run once on startup)
+async function populateHoldersFromVerifiedUsers(client) {
+    try {
+        const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+
+        // Check if holders table is empty
+        const holdersCount = await client.query('SELECT COUNT(*) FROM holders');
+        if (parseInt(holdersCount.rows[0].count) > 0) {
+            console.log('📊 Holders table already has data, skipping migration');
+            return;
+        }
+
+        // Get all verified users with 300+ AMY
+        const verifiedUsers = await client.query(
+            'SELECT wallet, x_username, amy_balance, verified_at FROM verified_users WHERE amy_balance >= $1',
+            [MINIMUM_AMY]
+        );
+
+        if (verifiedUsers.rows.length === 0) {
+            console.log('📊 No verified users with 300+ AMY to migrate to holders');
+            return;
+        }
+
+        console.log(`🔄 Migrating ${verifiedUsers.rows.length} verified users to holders table...`);
+
+        // Insert into holders table
+        for (const user of verifiedUsers.rows) {
+            await client.query(
+                `INSERT INTO holders (wallet, x_username, amy_balance, first_recorded_at, last_updated_at)
+                 VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                 ON CONFLICT (wallet) DO NOTHING`,
+                [user.wallet.toLowerCase(), user.x_username, user.amy_balance, user.verified_at]
+            );
+        }
+
+        console.log(`✅ Migrated ${verifiedUsers.rows.length} users to holders table`);
+
+    } catch (error) {
+        console.error('❌ Error populating holders table:', error);
     }
 }
 
