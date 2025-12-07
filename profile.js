@@ -1,4 +1,3 @@
-console.log('[AMY] profile.js loaded - v5 - TOKEN HOLDERS UPDATE');
 
 // Backend API Configuration
 const API_BASE_URL = 'https://amy-production-fd10.up.railway.app'; // Change to your backend URL in production

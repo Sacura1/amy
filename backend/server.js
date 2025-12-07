@@ -964,7 +964,7 @@ app.post('/api/users/restore', isAdmin, async (req, res) => {
 // ============================================
 
 // Excluded usernames from public holders list (project admins)
-const EXCLUDED_HOLDERS = ['Joedark01', 'viccweb3', '0xWunda_'];
+const EXCLUDED_HOLDERS = ['Joedark01', 'viccweb3', '0xWunda_', 'doruOlt'];
 
 // Get all token holders (public - for leaderboard page)
 app.get('/api/holders', async (req, res) => {
