@@ -1106,17 +1106,22 @@ setInterval(loadLeaderboard, 30000);
 
 // Load and display token holders
 async function loadTokenHolders() {
+    console.log('[HOLDERS] loadTokenHolders called');
     try {
+        console.log('[HOLDERS] Fetching from:', `${API_BASE_URL}/api/holders`);
         const response = await fetch(`${API_BASE_URL}/api/holders`);
+        console.log('[HOLDERS] Response status:', response.status);
 
         if (!response.ok) {
             // API endpoint might not exist yet - show empty state
-            console.warn('Holders API not available yet (status:', response.status, ')');
+            console.warn('[HOLDERS] API not available yet (status:', response.status, ')');
             displayTokenHolders({ success: true, count: 0, holders: [] });
             return;
         }
 
         const result = await response.json();
+        console.log('[HOLDERS] Result:', result);
+        console.log('[HOLDERS] Holders count:', result.count);
 
         if (!result.success) {
             throw new Error('Failed to fetch holders');
@@ -1125,7 +1130,7 @@ async function loadTokenHolders() {
         displayTokenHolders(result);
 
     } catch (error) {
-        console.error('Error loading token holders:', error);
+        console.error('[HOLDERS] Error loading token holders:', error);
         // Show empty state instead of error if API not deployed yet
         displayTokenHolders({ success: true, count: 0, holders: [] });
     }
@@ -1133,9 +1138,14 @@ async function loadTokenHolders() {
 
 // Display token holders data
 function displayTokenHolders(data) {
+    console.log('[HOLDERS] displayTokenHolders called with data:', data);
     const container = document.getElementById('holders-container');
     const emptyState = document.getElementById('holders-empty-state');
     const countElement = document.getElementById('holders-count');
+
+    console.log('[HOLDERS] Container element:', container);
+    console.log('[HOLDERS] Empty state element:', emptyState);
+    console.log('[HOLDERS] Count element:', countElement);
 
     // Update holders count
     if (countElement) {
@@ -1143,9 +1153,13 @@ function displayTokenHolders(data) {
     }
 
     // Check if container exists (only on leaderboard page)
-    if (!container) return;
+    if (!container) {
+        console.log('[HOLDERS] Container not found, returning');
+        return;
+    }
 
     const holders = data.holders || [];
+    console.log('[HOLDERS] Number of holders to display:', holders.length);
 
     if (holders.length === 0) {
         container.innerHTML = '';
@@ -1211,17 +1225,28 @@ function showHoldersError() {
 
 // Load token holders on page load (if on leaderboard page)
 function initTokenHolders() {
-    if (document.getElementById('holders-container')) {
+    console.log('[HOLDERS] initTokenHolders called');
+    console.log('[HOLDERS] Looking for holders-container element...');
+    const container = document.getElementById('holders-container');
+    console.log('[HOLDERS] holders-container found:', !!container);
+
+    if (container) {
+        console.log('[HOLDERS] Starting to load token holders...');
         loadTokenHolders();
         // Refresh token holders every 30 seconds
         setInterval(loadTokenHolders, 30000);
+    } else {
+        console.log('[HOLDERS] Not on leaderboard page, skipping');
     }
 }
 
 // Initialize when DOM is ready
+console.log('[HOLDERS] Script loaded, readyState:', document.readyState);
 if (document.readyState === 'loading') {
+    console.log('[HOLDERS] DOM still loading, adding DOMContentLoaded listener');
     document.addEventListener('DOMContentLoaded', initTokenHolders);
 } else {
+    console.log('[HOLDERS] DOM already ready, calling initTokenHolders directly');
     initTokenHolders();
 }
 
