@@ -1,3 +1,5 @@
+console.log('[AMY] profile.js loaded - v2');
+
 // Backend API Configuration
 const API_BASE_URL = 'https://amy-production-fd10.up.railway.app'; // Change to your backend URL in production
 
@@ -1113,14 +1115,12 @@ async function loadTokenHolders() {
         console.log('[HOLDERS] Response status:', response.status);
 
         if (!response.ok) {
-            // API endpoint might not exist yet - show empty state
             console.warn('[HOLDERS] API not available yet (status:', response.status, ')');
             displayTokenHolders({ success: true, count: 0, holders: [] });
             return;
         }
 
         const result = await response.json();
-        console.log('[HOLDERS] Result:', result);
         console.log('[HOLDERS] Holders count:', result.count);
 
         if (!result.success) {
@@ -1130,36 +1130,28 @@ async function loadTokenHolders() {
         displayTokenHolders(result);
 
     } catch (error) {
-        console.error('[HOLDERS] Error loading token holders:', error);
-        // Show empty state instead of error if API not deployed yet
+        console.error('[HOLDERS] Error:', error);
         displayTokenHolders({ success: true, count: 0, holders: [] });
     }
 }
 
 // Display token holders data
 function displayTokenHolders(data) {
-    console.log('[HOLDERS] displayTokenHolders called with data:', data);
+    console.log('[HOLDERS] displayTokenHolders called, count:', data.count);
     const container = document.getElementById('holders-container');
     const emptyState = document.getElementById('holders-empty-state');
     const countElement = document.getElementById('holders-count');
 
-    console.log('[HOLDERS] Container element:', container);
-    console.log('[HOLDERS] Empty state element:', emptyState);
-    console.log('[HOLDERS] Count element:', countElement);
-
-    // Update holders count
     if (countElement) {
         countElement.textContent = `${data.count || 0} holders`;
     }
 
-    // Check if container exists (only on leaderboard page)
     if (!container) {
-        console.log('[HOLDERS] Container not found, returning');
+        console.log('[HOLDERS] Container not found');
         return;
     }
 
     const holders = data.holders || [];
-    console.log('[HOLDERS] Number of holders to display:', holders.length);
 
     if (holders.length === 0) {
         container.innerHTML = '';
@@ -1169,7 +1161,6 @@ function displayTokenHolders(data) {
 
     if (emptyState) emptyState.classList.add('hidden');
 
-    // Generate holders HTML - already sorted by balance from backend
     const holdersHTML = holders.map((holder, index) => {
         const rank = index + 1;
         const balance = parseFloat(holder.amyBalance).toLocaleString(undefined, {
@@ -1177,24 +1168,15 @@ function displayTokenHolders(data) {
             maximumFractionDigits: 2
         });
 
-        // Determine badge class based on rank
         let rankBadgeClass = 'position-badge';
-        if (rank === 1) {
-            rankBadgeClass += ' position-1';
-        } else if (rank === 2) {
-            rankBadgeClass += ' position-2';
-        } else if (rank === 3) {
-            rankBadgeClass += ' position-3';
-        }
+        if (rank === 1) rankBadgeClass += ' position-1';
+        else if (rank === 2) rankBadgeClass += ' position-2';
+        else if (rank === 3) rankBadgeClass += ' position-3';
 
         return `
             <div class="leaderboard-row" style="animation-delay: ${Math.min(index * 0.1, 0.5)}s;">
                 <div class="flex items-center gap-3 md:gap-4">
-                    <!-- Rank Badge -->
-                    <div class="${rankBadgeClass}">
-                        ${rank}
-                    </div>
-
+                    <div class="${rankBadgeClass}">${rank}</div>
                     <div class="flex-1">
                         <div class="flex items-center justify-between flex-wrap gap-2">
                             <span class="text-lg md:text-xl font-bold text-white">@${holder.xUsername}</span>
@@ -1207,47 +1189,17 @@ function displayTokenHolders(data) {
     }).join('');
 
     container.innerHTML = holdersHTML;
+    console.log('[HOLDERS] Rendered', holders.length, 'holders');
 }
 
-// Show error state for holders
-function showHoldersError() {
-    const container = document.getElementById('holders-container');
-    if (!container) return;
-
-    container.innerHTML = `
-        <div class="text-center py-12">
-            <p class="text-2xl mb-2">⚠️</p>
-            <p class="text-gray-400">Failed to load token holders</p>
-            <p class="text-sm text-gray-500 mt-2">Please try again later</p>
-        </div>
-    `;
-}
-
-// Load token holders on page load (if on leaderboard page)
-function initTokenHolders() {
-    console.log('[HOLDERS] initTokenHolders called');
-    console.log('[HOLDERS] Looking for holders-container element...');
-    const container = document.getElementById('holders-container');
-    console.log('[HOLDERS] holders-container found:', !!container);
-
-    if (container) {
-        console.log('[HOLDERS] Starting to load token holders...');
-        loadTokenHolders();
-        // Refresh token holders every 30 seconds
-        setInterval(loadTokenHolders, 30000);
-    } else {
-        console.log('[HOLDERS] Not on leaderboard page, skipping');
-    }
-}
-
-// Initialize when DOM is ready
-console.log('[HOLDERS] Script loaded, readyState:', document.readyState);
-if (document.readyState === 'loading') {
-    console.log('[HOLDERS] DOM still loading, adding DOMContentLoaded listener');
-    document.addEventListener('DOMContentLoaded', initTokenHolders);
+// Load token holders immediately after leaderboard
+console.log('[HOLDERS] Checking for holders-container...');
+if (document.getElementById('holders-container')) {
+    console.log('[HOLDERS] Container found, loading holders...');
+    loadTokenHolders();
+    setInterval(loadTokenHolders, 30000);
 } else {
-    console.log('[HOLDERS] DOM already ready, calling initTokenHolders directly');
-    initTokenHolders();
+    console.log('[HOLDERS] Container not found on this page');
 }
 
 // ============================================
