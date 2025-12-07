@@ -1108,20 +1108,9 @@ setInterval(loadLeaderboard, 30000);
 
 // Load and display token holders
 async function loadTokenHolders() {
-    console.log('[HOLDERS] loadTokenHolders called');
     try {
-        console.log('[HOLDERS] Fetching from:', `${API_BASE_URL}/api/holders`);
         const response = await fetch(`${API_BASE_URL}/api/holders`);
-        console.log('[HOLDERS] Response status:', response.status);
-
-        if (!response.ok) {
-            console.warn('[HOLDERS] API not available yet (status:', response.status, ')');
-            displayTokenHolders({ success: true, count: 0, holders: [] });
-            return;
-        }
-
         const result = await response.json();
-        console.log('[HOLDERS] Holders count:', result.count);
 
         if (!result.success) {
             throw new Error('Failed to fetch holders');
@@ -1130,14 +1119,12 @@ async function loadTokenHolders() {
         displayTokenHolders(result);
 
     } catch (error) {
-        console.error('[HOLDERS] Error:', error);
-        displayTokenHolders({ success: true, count: 0, holders: [] });
+        showHoldersError();
     }
 }
 
 // Display token holders data
 function displayTokenHolders(data) {
-    console.log('[HOLDERS] displayTokenHolders called, count:', data.count);
     const container = document.getElementById('holders-container');
     const emptyState = document.getElementById('holders-empty-state');
     const countElement = document.getElementById('holders-count');
@@ -1146,10 +1133,7 @@ function displayTokenHolders(data) {
         countElement.textContent = `${data.count || 0} holders`;
     }
 
-    if (!container) {
-        console.log('[HOLDERS] Container not found');
-        return;
-    }
+    if (!container) return;
 
     const holders = data.holders || [];
 
@@ -1189,18 +1173,25 @@ function displayTokenHolders(data) {
     }).join('');
 
     container.innerHTML = holdersHTML;
-    console.log('[HOLDERS] Rendered', holders.length, 'holders');
 }
 
-// Load token holders immediately after leaderboard
-console.log('[HOLDERS] Checking for holders-container...');
-if (document.getElementById('holders-container')) {
-    console.log('[HOLDERS] Container found, loading holders...');
-    loadTokenHolders();
-    setInterval(loadTokenHolders, 30000);
-} else {
-    console.log('[HOLDERS] Container not found on this page');
+// Show error state for holders
+function showHoldersError() {
+    const container = document.getElementById('holders-container');
+    if (!container) return;
+    container.innerHTML = `
+        <div class="text-center py-12">
+            <p class="text-2xl mb-2">⚠️</p>
+            <p class="text-gray-400">Failed to load token holders</p>
+        </div>
+    `;
 }
+
+// Load token holders on page load
+loadTokenHolders();
+
+// Refresh token holders every 30 seconds
+setInterval(loadTokenHolders, 30000);
 
 // ============================================
 // ADMIN LEADERBOARD MANAGEMENT
