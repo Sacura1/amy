@@ -11,6 +11,7 @@ require('dotenv').config();
 // Import database module (PostgreSQL or JSON fallback)
 const database = require('./database');
 let referralsDb = null; // Will be set after PostgreSQL init
+let holdersDb = null; // Will be set after PostgreSQL init
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -231,6 +232,7 @@ nonces = {
         leaderboard = database.leaderboard;
         nonces = database.nonces;
         referralsDb = database.referrals;
+        holdersDb = database.holders;
         console.log('✅ PostgreSQL database ready');
 
         // Run initial nonce cleanup for PostgreSQL
@@ -562,6 +564,12 @@ app.post('/api/verify', async (req, res) => {
         };
 
         await db.addUser(userData);
+
+        // Also add to holders table if they have 300+ AMY
+        if (holdersDb && parseFloat(amyBalance) >= MINIMUM_AMY_BALANCE) {
+            await holdersDb.addOrUpdate(userData.wallet, userData.xUsername, userData.amyBalance);
+            console.log('💎 User added to holders:', userData.wallet, '@' + userData.xUsername);
+        }
 
         console.log('✅ User verified and saved:', userData.wallet, '@' + userData.xUsername);
 
@@ -952,6 +960,71 @@ app.post('/api/users/restore', isAdmin, async (req, res) => {
 });
 
 // ============================================
+// TOKEN HOLDERS API ROUTES
+// ============================================
+
+// Get all token holders (public - for leaderboard page)
+app.get('/api/holders', async (req, res) => {
+    try {
+        if (!holdersDb) {
+            return res.json({
+                success: true,
+                count: 0,
+                holders: [],
+                minimumAMY: MINIMUM_AMY_BALANCE
+            });
+        }
+
+        const holders = await holdersDb.getAll();
+
+        res.json({
+            success: true,
+            count: holders.length,
+            holders: holders,
+            minimumAMY: MINIMUM_AMY_BALANCE
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching holders:', error);
+        res.status(500).json({ error: 'Failed to fetch holders' });
+    }
+});
+
+// Update holder balance (called when user loads profile)
+app.post('/api/holders/update', async (req, res) => {
+    try {
+        const { wallet, xUsername, amyBalance } = req.body;
+
+        if (!wallet || !xUsername || amyBalance === undefined) {
+            return res.status(400).json({
+                success: false,
+                error: 'Wallet, xUsername, and amyBalance are required'
+            });
+        }
+
+        if (!holdersDb) {
+            return res.status(500).json({
+                success: false,
+                error: 'Holders system not available'
+            });
+        }
+
+        // This will add/update if >= 300 AMY, or remove if below
+        const result = await holdersDb.addOrUpdate(wallet, xUsername, parseFloat(amyBalance));
+
+        res.json({
+            success: true,
+            isHolder: result !== null,
+            data: result
+        });
+
+    } catch (error) {
+        console.error('❌ Error updating holder:', error);
+        res.status(500).json({ success: false, error: 'Failed to update holder' });
+    }
+});
+
+// ============================================
 // REFERRAL API ROUTES (uses separate referrals table)
 // ============================================
 
@@ -1243,7 +1316,7 @@ async function updateAllReferralBalances() {
         for (const entry of allReferrals) {
             const balance = await fetchAmyBalance(entry.wallet);
             if (balance !== null) {
-                updates.push({ wallet: entry.wallet, balance });
+                updates.push({ wallet: entry.wallet, balance, xUsername: entry.xUsername });
                 updated++;
             } else {
                 failed++;
@@ -1256,6 +1329,12 @@ async function updateAllReferralBalances() {
         // Batch update all balances
         if (updates.length > 0) {
             await referralsDb.batchUpdateBalances(updates);
+
+            // Also update holders table
+            if (holdersDb) {
+                await holdersDb.batchUpdateBalances(updates);
+                console.log(`💎 Holders table also updated`);
+            }
         }
 
         console.log(`✅ Balance update complete: ${updated} updated, ${failed} failed`);

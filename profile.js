@@ -589,10 +589,34 @@ async function checkTokenBalance() {
         // Update eligibility status if both wallet and X are connected
         if (userWallet && userXAccount) {
             await updateEligibilityStatus();
+            // Also update holders table with current balance
+            await updateHolderStatus();
         }
 
     } catch (error) {
         alert('Failed to check token balance. Please ensure you are on Berachain network.');
+    }
+}
+
+// Update holder status in backend (called when balance changes)
+async function updateHolderStatus() {
+    if (!userWallet || !userXAccount) return;
+
+    try {
+        await fetch(`${API_BASE_URL}/api/holders/update`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                wallet: userWallet,
+                xUsername: userXAccount,
+                amyBalance: amyBalance
+            })
+        });
+    } catch (error) {
+        // Silently fail - holder update is not critical
+        console.error('Failed to update holder status:', error);
     }
 }
 
@@ -1075,6 +1099,113 @@ loadLeaderboard();
 
 // Refresh leaderboard every 30 seconds
 setInterval(loadLeaderboard, 30000);
+
+// ============================================
+// TOKEN HOLDERS DISPLAY
+// ============================================
+
+// Load and display token holders
+async function loadTokenHolders() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/holders`);
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error('Failed to fetch holders');
+        }
+
+        displayTokenHolders(result);
+
+    } catch (error) {
+        console.error('Error loading token holders:', error);
+        showHoldersError();
+    }
+}
+
+// Display token holders data
+function displayTokenHolders(data) {
+    const container = document.getElementById('holders-container');
+    const emptyState = document.getElementById('holders-empty-state');
+    const countElement = document.getElementById('holders-count');
+
+    // Update holders count
+    if (countElement) {
+        countElement.textContent = `${data.count || 0} holders`;
+    }
+
+    // Check if container exists (only on leaderboard page)
+    if (!container) return;
+
+    const holders = data.holders || [];
+
+    if (holders.length === 0) {
+        container.innerHTML = '';
+        if (emptyState) emptyState.classList.remove('hidden');
+        return;
+    }
+
+    if (emptyState) emptyState.classList.add('hidden');
+
+    // Generate holders HTML - already sorted by balance from backend
+    const holdersHTML = holders.map((holder, index) => {
+        const rank = index + 1;
+        const balance = parseFloat(holder.amyBalance).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+
+        // Determine badge class based on rank
+        let rankBadgeClass = 'position-badge';
+        if (rank === 1) {
+            rankBadgeClass += ' position-1';
+        } else if (rank === 2) {
+            rankBadgeClass += ' position-2';
+        } else if (rank === 3) {
+            rankBadgeClass += ' position-3';
+        }
+
+        return `
+            <div class="leaderboard-row" style="animation-delay: ${Math.min(index * 0.1, 0.5)}s;">
+                <div class="flex items-center gap-3 md:gap-4">
+                    <!-- Rank Badge -->
+                    <div class="${rankBadgeClass}">
+                        ${rank}
+                    </div>
+
+                    <div class="flex-1">
+                        <div class="flex items-center justify-between flex-wrap gap-2">
+                            <span class="text-lg md:text-xl font-bold text-white">@${holder.xUsername}</span>
+                            <span class="text-yellow-400 font-bold text-sm md:text-base">${balance} $AMY</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = holdersHTML;
+}
+
+// Show error state for holders
+function showHoldersError() {
+    const container = document.getElementById('holders-container');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="text-center py-12">
+            <p class="text-2xl mb-2">⚠️</p>
+            <p class="text-gray-400">Failed to load token holders</p>
+            <p class="text-sm text-gray-500 mt-2">Please try again later</p>
+        </div>
+    `;
+}
+
+// Load token holders on page load (if on leaderboard page)
+if (document.getElementById('holders-container')) {
+    loadTokenHolders();
+    // Refresh token holders every 30 seconds
+    setInterval(loadTokenHolders, 30000);
+}
 
 // ============================================
 // ADMIN LEADERBOARD MANAGEMENT

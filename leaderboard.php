@@ -786,6 +786,65 @@ Template Name: Leaderboard
                             <p class="text-sm text-gray-400 mt-2">Connect your wallet and X account to be the first on the leaderboard! 🚀</p>
                         </div>
                     </div>
+
+                    <!-- Token Holders Section -->
+                    <div class="mt-12 md:mt-16">
+                        <!-- Token Holders Header -->
+                        <div class="text-center mb-8 md:mb-12">
+                            <div class="inline-flex items-center justify-center gap-3 mb-4">
+                                <span class="text-4xl md:text-6xl">💎</span>
+                                <h2 class="text-4xl md:text-6xl font-black hero-text">
+                                    Token Holders
+                                </h2>
+                                <span class="text-4xl md:text-6xl">💎</span>
+                            </div>
+                            <p class="text-yellow-300 text-sm md:text-base mt-2">
+                                All verified users holding 300+ $AMY (ranked by balance)
+                            </p>
+                        </div>
+
+                        <!-- Token Holders Card -->
+                        <div class="glass-card overflow-hidden">
+                            <!-- Holders Header Bar -->
+                            <div class="bg-gradient-to-r from-purple-900/40 to-pink-900/40 p-4 md:p-5 border-b-2 border-yellow-400/30">
+                                <div class="flex items-center justify-between flex-wrap gap-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="icon-badge-small">
+                                            💰
+                                        </div>
+                                        <h3 class="text-lg md:text-xl font-black text-yellow-300">$AMY Holders</h3>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-gray-400">Total:</span>
+                                        <span class="text-xs md:text-sm text-yellow-400 font-semibold" id="holders-count">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Holders Table Header -->
+                            <div class="hidden md:grid grid-cols-12 gap-4 px-6 py-4 bg-black/30 border-b border-yellow-400/20 text-xs uppercase tracking-wider text-gray-400 font-bold">
+                                <div class="col-span-1">Rank</div>
+                                <div class="col-span-5">User</div>
+                                <div class="col-span-6 text-right">$AMY Balance</div>
+                            </div>
+
+                            <!-- Holders Content -->
+                            <div class="p-4 md:p-6" id="holders-container">
+                                <!-- Holders rows will be inserted here -->
+                                <div class="text-center py-12">
+                                    <div class="loading-spinner mb-4"></div>
+                                    <p class="text-gray-400 font-semibold">Loading token holders...</p>
+                                </div>
+                            </div>
+
+                            <!-- Empty State for Holders -->
+                            <div id="holders-empty-state" class="hidden text-center py-12 px-4">
+                                <div class="text-6xl mb-4">💎</div>
+                                <p class="text-xl md:text-2xl font-bold text-gray-300 mb-2">No token holders yet</p>
+                                <p class="text-sm text-gray-400 mt-2">Be the first to connect your wallet and hold 300+ $AMY!</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>

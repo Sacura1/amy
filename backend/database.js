@@ -113,6 +113,17 @@ async function createTables() {
             END $$;
         `);
 
+        // Create holders table (tracks users with 300+ AMY who connected wallet + X)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS holders (
+                wallet VARCHAR(42) PRIMARY KEY,
+                x_username VARCHAR(255) NOT NULL,
+                amy_balance DECIMAL(20, 2) NOT NULL,
+                first_recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
         console.log('✅ Database tables created/verified');
 
         // Migrate from JSON files if tables are empty
@@ -612,10 +623,115 @@ const referrals = {
     }
 };
 
+// Holders helper functions (tracks users with 300+ AMY)
+const holders = {
+    // Add or update a holder
+    addOrUpdate: async (wallet, xUsername, amyBalance) => {
+        if (!pool) return null;
+        const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+
+        // Only save if they have minimum balance
+        if (amyBalance < MINIMUM_AMY) {
+            // Remove from holders if they no longer qualify
+            await pool.query(
+                'DELETE FROM holders WHERE LOWER(wallet) = LOWER($1)',
+                [wallet]
+            );
+            return null;
+        }
+
+        await pool.query(
+            `INSERT INTO holders (wallet, x_username, amy_balance, first_recorded_at, last_updated_at)
+             VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (wallet) DO UPDATE SET
+             x_username = EXCLUDED.x_username,
+             amy_balance = EXCLUDED.amy_balance,
+             last_updated_at = CURRENT_TIMESTAMP`,
+            [wallet.toLowerCase(), xUsername, amyBalance]
+        );
+        return { wallet: wallet.toLowerCase(), xUsername, amyBalance };
+    },
+
+    // Get all holders (sorted by balance descending)
+    getAll: async () => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance",
+             first_recorded_at as "firstRecordedAt", last_updated_at as "lastUpdatedAt"
+             FROM holders
+             ORDER BY amy_balance DESC`
+        );
+        return result.rows;
+    },
+
+    // Get holder by wallet
+    getByWallet: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance",
+             first_recorded_at as "firstRecordedAt", last_updated_at as "lastUpdatedAt"
+             FROM holders WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+        return result.rows[0] || null;
+    },
+
+    // Remove a holder
+    remove: async (wallet) => {
+        if (!pool) return false;
+        const result = await pool.query(
+            'DELETE FROM holders WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+        return result.rowCount > 0;
+    },
+
+    // Get count of holders
+    getCount: async () => {
+        if (!pool) return 0;
+        const result = await pool.query('SELECT COUNT(*) as count FROM holders');
+        return parseInt(result.rows[0].count) || 0;
+    },
+
+    // Batch update balances (used by periodic job)
+    batchUpdateBalances: async (updates) => {
+        if (!pool || !updates.length) return;
+        const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const { wallet, balance } of updates) {
+                if (balance >= MINIMUM_AMY) {
+                    // Update balance if still above minimum
+                    await client.query(
+                        `UPDATE holders SET amy_balance = $1, last_updated_at = CURRENT_TIMESTAMP
+                         WHERE LOWER(wallet) = LOWER($2)`,
+                        [balance, wallet]
+                    );
+                } else {
+                    // Remove if dropped below minimum
+                    await client.query(
+                        'DELETE FROM holders WHERE LOWER(wallet) = LOWER($1)',
+                        [wallet]
+                    );
+                }
+            }
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+};
+
 module.exports = {
     initDatabase,
     db,
     leaderboard,
     nonces,
-    referrals
+    referrals,
+    holders
 };
