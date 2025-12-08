@@ -945,7 +945,7 @@ async function fetchLiveAmyBalance(walletAddress) {
     }
 }
 
-// Load and display leaderboard
+// Load and display leaderboard (merged with token holders)
 async function loadLeaderboard() {
     try {
         // Fetch leaderboard data from backend API
@@ -977,7 +977,8 @@ async function loadLeaderboard() {
                             amyBalance: liveBalance, // Use LIVE balance from blockchain
                             eligible: isEligible, // Check against CURRENT balance
                             verified: true,
-                            originalRank: entry.position || null
+                            originalRank: entry.position || null,
+                            isFromLeaderboard: true
                         };
                     } else {
                         // User hasn't verified yet
@@ -985,7 +986,8 @@ async function loadLeaderboard() {
                             xUsername: entry.xUsername,
                             verified: false,
                             eligible: false,
-                            originalRank: entry.position || null
+                            originalRank: entry.position || null,
+                            isFromLeaderboard: true
                         };
                     }
                 } catch (error) {
@@ -994,15 +996,47 @@ async function loadLeaderboard() {
                         xUsername: entry.xUsername,
                         verified: false,
                         eligible: false,
-                        originalRank: entry.position || null
+                        originalRank: entry.position || null,
+                        isFromLeaderboard: true
                     };
                 }
             })
         );
 
-        // Display the enriched leaderboard
+        // Get eligible users from leaderboard
+        const eligibleLeaderboardUsers = enrichedLeaderboard.filter(user => user.verified && user.eligible);
+
+        // Get usernames of users already on leaderboard (for filtering token holders)
+        const leaderboardUsernames = leaderboardData.leaderboard.map(entry => entry.xUsername.toLowerCase());
+
+        // Fetch token holders
+        let tokenHoldersToAppend = [];
+        try {
+            const holdersResponse = await fetch(`${API_BASE_URL}/api/holders`);
+            const holdersResult = await holdersResponse.json();
+
+            if (holdersResult.success && holdersResult.holders) {
+                // Filter out users already on leaderboard and sort by AMY balance (descending)
+                tokenHoldersToAppend = holdersResult.holders
+                    .filter(holder => !leaderboardUsernames.includes(holder.xUsername.toLowerCase()))
+                    .sort((a, b) => parseFloat(b.amyBalance) - parseFloat(a.amyBalance))
+                    .map(holder => ({
+                        xUsername: holder.xUsername,
+                        walletAddress: holder.wallet,
+                        amyBalance: parseFloat(holder.amyBalance),
+                        eligible: true,
+                        verified: true,
+                        isFromLeaderboard: false
+                    }));
+            }
+        } catch (error) {
+            console.error('Error fetching token holders for merge:', error);
+        }
+
+        // Display the merged leaderboard
         displayLeaderboard({
             leaderboard: enrichedLeaderboard,
+            tokenHolders: tokenHoldersToAppend,
             lastUpdated: leaderboardData.lastUpdated,
             minimumAMY: leaderboardData.minimumAMY
         });
@@ -1012,7 +1046,7 @@ async function loadLeaderboard() {
     }
 }
 
-// Display leaderboard data
+// Display leaderboard data (merged with token holders)
 function displayLeaderboard(data) {
     const container = document.getElementById('leaderboard-container');
     const emptyState = document.getElementById('empty-state');
@@ -1030,10 +1064,16 @@ function displayLeaderboard(data) {
         lastUpdatedElement.textContent = `Updated: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
     }
 
-    // Filter to only show verified AND eligible users
-    const eligibleUsers = data.leaderboard.filter(user => user.verified && user.eligible);
+    // Filter to only show verified AND eligible users from main leaderboard
+    const eligibleLeaderboardUsers = data.leaderboard.filter(user => user.verified && user.eligible);
 
-    if (eligibleUsers.length === 0) {
+    // Get token holders to append (already filtered to exclude leaderboard users)
+    const tokenHolders = data.tokenHolders || [];
+
+    // Check if we have any users to display
+    const totalUsers = eligibleLeaderboardUsers.length + tokenHolders.length;
+
+    if (totalUsers === 0) {
         container.innerHTML = '';
         emptyState.classList.remove('hidden');
         return;
@@ -1041,16 +1081,20 @@ function displayLeaderboard(data) {
 
     emptyState.classList.add('hidden');
 
-    // Sort eligible users by their original rank position (lowest rank number = best = first)
-    eligibleUsers.sort((a, b) => {
+    // Sort eligible leaderboard users by their original rank position (lowest rank number = best = first)
+    eligibleLeaderboardUsers.sort((a, b) => {
         const rankA = a.originalRank || 999999;
         const rankB = b.originalRank || 999999;
         return rankA - rankB;
     });
 
-    // Generate leaderboard HTML - display sequential positions based on sorted order
-    const leaderboardHTML = eligibleUsers.map((user, index) => {
-        const displayPosition = index + 1; // Sequential position: 1, 2, 3, 4, 5... (no gaps)
+    // Generate leaderboard HTML - first show leaderboard users, then token holders
+    let currentPosition = 0;
+
+    // Generate HTML for leaderboard users
+    const leaderboardHTML = eligibleLeaderboardUsers.map((user) => {
+        currentPosition++;
+        const displayPosition = currentPosition;
 
         // Determine badge class based on display position
         let positionBadgeClass = 'position-badge';
@@ -1080,7 +1124,40 @@ function displayLeaderboard(data) {
         `;
     }).join('');
 
-    container.innerHTML = leaderboardHTML;
+    // Generate HTML for token holders (continuing from where leaderboard ended)
+    const tokenHoldersHTML = tokenHolders.map((holder) => {
+        currentPosition++;
+        const displayPosition = currentPosition;
+
+        // Determine badge class based on display position
+        let positionBadgeClass = 'position-badge';
+        if (displayPosition === 1) {
+            positionBadgeClass += ' position-1';
+        } else if (displayPosition === 2) {
+            positionBadgeClass += ' position-2';
+        } else if (displayPosition === 3) {
+            positionBadgeClass += ' position-3';
+        }
+
+        return `
+            <div class="leaderboard-row">
+                <div class="flex items-center gap-3 md:gap-4">
+                    <!-- Position Badge (sequential, no gaps) -->
+                    <div class="${positionBadgeClass}">
+                        ${displayPosition}
+                    </div>
+
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-lg md:text-xl font-bold text-white">@${holder.xUsername}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = leaderboardHTML + tokenHoldersHTML;
 }
 
 // Show error state
@@ -1101,96 +1178,6 @@ loadLeaderboard();
 // Refresh leaderboard every 30 seconds
 setInterval(loadLeaderboard, 30000);
 
-// ============================================
-// TOKEN HOLDERS DISPLAY
-// ============================================
-
-// Load and display token holders
-async function loadTokenHolders() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/holders`);
-        const result = await response.json();
-
-        if (!result.success) {
-            throw new Error('Failed to fetch holders');
-        }
-
-        displayTokenHolders(result);
-
-    } catch (error) {
-        showHoldersError();
-    }
-}
-
-// Display token holders data
-function displayTokenHolders(data) {
-    const container = document.getElementById('holders-container');
-    const emptyState = document.getElementById('holders-empty-state');
-    const countElement = document.getElementById('holders-count');
-
-    if (countElement) {
-        countElement.textContent = `${data.count || 0} holders`;
-    }
-
-    if (!container) return;
-
-    const holders = data.holders || [];
-
-    if (holders.length === 0) {
-        container.innerHTML = '';
-        if (emptyState) emptyState.classList.remove('hidden');
-        return;
-    }
-
-    if (emptyState) emptyState.classList.add('hidden');
-
-    const holdersHTML = holders.map((holder, index) => {
-        const rank = index + 1;
-        const balance = parseFloat(holder.amyBalance).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        });
-
-        let rankBadgeClass = 'position-badge';
-        if (rank === 1) rankBadgeClass += ' position-1';
-        else if (rank === 2) rankBadgeClass += ' position-2';
-        else if (rank === 3) rankBadgeClass += ' position-3';
-
-        return `
-            <div class="leaderboard-row" style="animation-delay: ${Math.min(index * 0.1, 0.5)}s;">
-                <div class="flex items-center gap-3 md:gap-4">
-                    <div class="${rankBadgeClass}">${rank}</div>
-                    <div class="flex-1">
-                        <div class="flex items-center justify-between flex-wrap gap-2">
-                            <span class="text-lg md:text-xl font-bold text-white">@${holder.xUsername}</span>
-                            <span class="text-yellow-400 font-bold text-sm md:text-base">${balance} $AMY</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-
-    container.innerHTML = holdersHTML;
-}
-
-// Show error state for holders
-function showHoldersError() {
-    const container = document.getElementById('holders-container');
-    if (!container) return;
-    container.innerHTML = `
-        <div class="text-center py-12">
-            <p class="text-2xl mb-2">⚠️</p>
-            <p class="text-gray-400">Failed to load token holders</p>
-        </div>
-    `;
-}
-
-// Load token holders on page load
-loadTokenHolders();
-
-// Refresh token holders every 30 seconds
-setInterval(loadTokenHolders, 30000);
 
 // ============================================
 // ADMIN LEADERBOARD MANAGEMENT
