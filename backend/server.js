@@ -262,9 +262,25 @@ const MINIMUM_AMY_BALANCE = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
 
 console.log('💎 Minimum AMY balance requirement:', MINIMUM_AMY_BALANCE);
 
-// Middleware
+// Middleware - Allow multiple CORS origins
+const allowedOrigins = [
+    'https://amyonbera.com',
+    'https://www.amyonbera.com',
+    'https://amy-on-bera.vercel.app'
+];
+
 app.use(cors({
-    origin:'https://amyonbera.com',
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.log('❌ CORS blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true
 }));
 app.use(express.json());
