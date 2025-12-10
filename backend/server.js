@@ -266,7 +266,8 @@ console.log('💎 Minimum AMY balance requirement:', MINIMUM_AMY_BALANCE);
 const allowedOrigins = [
     'https://amyonbera.com',
     'https://www.amyonbera.com',
-    'https://amy-on-bera.vercel.app'
+    'https://amy-on-bera.vercel.app',
+    'https://amy-on-bera.vercel'
 ];
 
 app.use(cors({
