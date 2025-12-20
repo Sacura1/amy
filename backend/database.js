@@ -124,6 +124,38 @@ async function createTables() {
             );
         `);
 
+        // Create amy_points table (tracks user points balance and earning history)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS amy_points (
+                wallet VARCHAR(42) PRIMARY KEY,
+                x_username VARCHAR(255),
+                total_points DECIMAL(20, 2) DEFAULT 0,
+                last_amy_balance DECIMAL(20, 2) DEFAULT 0,
+                current_tier VARCHAR(20) DEFAULT 'none',
+                points_per_hour DECIMAL(10, 2) DEFAULT 0,
+                last_points_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Create points_history table (tracks point earning events for auditing)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS points_history (
+                id SERIAL PRIMARY KEY,
+                wallet VARCHAR(42) NOT NULL,
+                points_earned DECIMAL(10, 2) NOT NULL,
+                reason VARCHAR(100) NOT NULL,
+                amy_balance_at_time DECIMAL(20, 2),
+                tier_at_time VARCHAR(20),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Add index for faster queries on points_history
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_points_history_wallet ON points_history(wallet);
+        `);
+
         console.log('✅ Database tables created/verified');
 
         // Migrate from JSON files if tables are empty
@@ -772,11 +804,196 @@ const holders = {
     }
 };
 
+// Points tier configuration
+const POINTS_TIERS = {
+    platinum: { minBalance: 100000, pointsPerHour: 10, name: 'Platinum', emoji: '💎' },
+    gold: { minBalance: 10000, pointsPerHour: 5, name: 'Gold', emoji: '🥇' },
+    silver: { minBalance: 1000, pointsPerHour: 3, name: 'Silver', emoji: '🥈' },
+    bronze: { minBalance: 300, pointsPerHour: 1, name: 'Bronze', emoji: '🟫' },
+    none: { minBalance: 0, pointsPerHour: 0, name: 'None', emoji: '⚪' }
+};
+
+// Calculate tier based on AMY balance
+function calculateTier(amyBalance) {
+    if (amyBalance >= POINTS_TIERS.platinum.minBalance) return 'platinum';
+    if (amyBalance >= POINTS_TIERS.gold.minBalance) return 'gold';
+    if (amyBalance >= POINTS_TIERS.silver.minBalance) return 'silver';
+    if (amyBalance >= POINTS_TIERS.bronze.minBalance) return 'bronze';
+    return 'none';
+}
+
+// Points helper functions
+const points = {
+    // Get or create points entry for a wallet
+    getOrCreate: async (wallet, xUsername = null) => {
+        if (!pool) return null;
+
+        const existing = await pool.query(
+            `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
+             last_amy_balance as "lastAmyBalance", current_tier as "currentTier",
+             points_per_hour as "pointsPerHour", last_points_update as "lastPointsUpdate",
+             created_at as "createdAt"
+             FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+
+        if (existing.rows[0]) {
+            return existing.rows[0];
+        }
+
+        // Create new entry
+        await pool.query(
+            `INSERT INTO amy_points (wallet, x_username) VALUES ($1, $2)`,
+            [wallet.toLowerCase(), xUsername]
+        );
+
+        return {
+            wallet: wallet.toLowerCase(),
+            xUsername: xUsername,
+            totalPoints: 0,
+            lastAmyBalance: 0,
+            currentTier: 'none',
+            pointsPerHour: 0,
+            lastPointsUpdate: new Date(),
+            createdAt: new Date()
+        };
+    },
+
+    // Get points for a wallet
+    getByWallet: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
+             last_amy_balance as "lastAmyBalance", current_tier as "currentTier",
+             points_per_hour as "pointsPerHour", last_points_update as "lastPointsUpdate",
+             created_at as "createdAt"
+             FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+        return result.rows[0] || null;
+    },
+
+    // Update user's balance and recalculate tier (called when balance changes)
+    updateBalance: async (wallet, amyBalance, xUsername = null) => {
+        if (!pool) return null;
+
+        const tier = calculateTier(amyBalance);
+        const pointsPerHour = POINTS_TIERS[tier].pointsPerHour;
+
+        // Upsert the points entry
+        await pool.query(
+            `INSERT INTO amy_points (wallet, x_username, last_amy_balance, current_tier, points_per_hour, last_points_update)
+             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+             ON CONFLICT (wallet) DO UPDATE SET
+             x_username = COALESCE($2, amy_points.x_username),
+             last_amy_balance = $3,
+             current_tier = $4,
+             points_per_hour = $5`,
+            [wallet.toLowerCase(), xUsername, amyBalance, tier, pointsPerHour]
+        );
+
+        return {
+            wallet: wallet.toLowerCase(),
+            tier,
+            tierInfo: POINTS_TIERS[tier],
+            pointsPerHour
+        };
+    },
+
+    // Award points to a user (called by hourly job)
+    awardPoints: async (wallet, pointsToAward, reason, amyBalance, tier) => {
+        if (!pool || pointsToAward <= 0) return null;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Update total points
+            await client.query(
+                `UPDATE amy_points SET
+                 total_points = total_points + $1,
+                 last_points_update = CURRENT_TIMESTAMP
+                 WHERE LOWER(wallet) = LOWER($2)`,
+                [pointsToAward, wallet]
+            );
+
+            // Log to history
+            await client.query(
+                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [wallet.toLowerCase(), pointsToAward, reason, amyBalance, tier]
+            );
+
+            await client.query('COMMIT');
+
+            return { success: true, pointsAwarded: pointsToAward };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    // Get all users eligible for points (those with points entry and tier != 'none')
+    getAllEligible: async () => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
+             last_amy_balance as "lastAmyBalance", current_tier as "currentTier",
+             points_per_hour as "pointsPerHour", last_points_update as "lastPointsUpdate"
+             FROM amy_points
+             WHERE current_tier != 'none' AND points_per_hour > 0
+             ORDER BY total_points DESC`
+        );
+        return result.rows;
+    },
+
+    // Get points history for a wallet
+    getHistory: async (wallet, limit = 50) => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT points_earned as "pointsEarned", reason,
+             amy_balance_at_time as "amyBalanceAtTime", tier_at_time as "tierAtTime",
+             created_at as "createdAt"
+             FROM points_history
+             WHERE LOWER(wallet) = LOWER($1)
+             ORDER BY created_at DESC
+             LIMIT $2`,
+            [wallet, limit]
+        );
+        return result.rows;
+    },
+
+    // Get leaderboard (top point holders)
+    getLeaderboard: async (limit = 100) => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
+             current_tier as "currentTier", points_per_hour as "pointsPerHour"
+             FROM amy_points
+             WHERE total_points > 0
+             ORDER BY total_points DESC
+             LIMIT $1`,
+            [limit]
+        );
+        return result.rows;
+    },
+
+    // Get tier configuration
+    getTiers: () => POINTS_TIERS,
+
+    // Calculate tier for a given balance
+    calculateTier: calculateTier
+};
+
 module.exports = {
     initDatabase,
     db,
     leaderboard,
     nonces,
     referrals,
-    holders
+    holders,
+    points,
+    POINTS_TIERS
 };

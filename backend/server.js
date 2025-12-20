@@ -12,6 +12,8 @@ require('dotenv').config();
 const database = require('./database');
 let referralsDb = null; // Will be set after PostgreSQL init
 let holdersDb = null; // Will be set after PostgreSQL init
+let pointsDb = null; // Will be set after PostgreSQL init
+let POINTS_TIERS = null; // Will be set after PostgreSQL init
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -233,6 +235,8 @@ nonces = {
         nonces = database.nonces;
         referralsDb = database.referrals;
         holdersDb = database.holders;
+        pointsDb = database.points;
+        POINTS_TIERS = database.POINTS_TIERS;
         console.log('✅ PostgreSQL database ready');
 
         // Run initial nonce cleanup for PostgreSQL
@@ -1015,6 +1019,33 @@ app.get('/api/holders', async (req, res) => {
     }
 });
 
+// Get all token holders - admin only (includes all users, no filtering)
+app.get('/api/holders/all', isAdmin, async (req, res) => {
+    try {
+        if (!holdersDb) {
+            return res.json({
+                success: true,
+                count: 0,
+                holders: [],
+                minimumAMY: MINIMUM_AMY_BALANCE
+            });
+        }
+
+        const allHolders = await holdersDb.getAll();
+
+        res.json({
+            success: true,
+            count: allHolders.length,
+            holders: allHolders,
+            minimumAMY: MINIMUM_AMY_BALANCE
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching all holders:', error);
+        res.status(500).json({ error: 'Failed to fetch holders' });
+    }
+});
+
 // Update holder balance (called when user loads profile)
 app.post('/api/holders/update', async (req, res) => {
     try {
@@ -1301,6 +1332,159 @@ app.get('/api/referral/downlines/:wallet', async (req, res) => {
 });
 
 // ============================================
+// POINTS API ROUTES
+// ============================================
+
+// Get points for a wallet (public)
+app.get('/api/points/:wallet', async (req, res) => {
+    try {
+        const wallet = req.params.wallet;
+
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        if (!pointsDb) {
+            return res.status(500).json({ success: false, error: 'Points system not available' });
+        }
+
+        const pointsData = await pointsDb.getByWallet(wallet);
+
+        if (!pointsData) {
+            // Return default data for new users
+            return res.json({
+                success: true,
+                data: {
+                    wallet: wallet.toLowerCase(),
+                    totalPoints: 0,
+                    currentTier: 'none',
+                    tierInfo: POINTS_TIERS['none'],
+                    pointsPerHour: 0,
+                    lastAmyBalance: 0
+                }
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                ...pointsData,
+                tierInfo: POINTS_TIERS[pointsData.currentTier] || POINTS_TIERS['none']
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching points:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch points' });
+    }
+});
+
+// Update user's balance and tier for points system (called when loading profile/points page)
+app.post('/api/points/update-balance', async (req, res) => {
+    try {
+        const { wallet, amyBalance, xUsername } = req.body;
+
+        if (!wallet || amyBalance === undefined) {
+            return res.status(400).json({ success: false, error: 'Wallet and amyBalance required' });
+        }
+
+        if (!pointsDb) {
+            return res.status(500).json({ success: false, error: 'Points system not available' });
+        }
+
+        // Update balance and recalculate tier
+        const result = await pointsDb.updateBalance(wallet, parseFloat(amyBalance), xUsername);
+
+        // Get updated points data
+        const pointsData = await pointsDb.getByWallet(wallet);
+
+        res.json({
+            success: true,
+            data: {
+                ...pointsData,
+                tierInfo: POINTS_TIERS[result.tier] || POINTS_TIERS['none']
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error updating points balance:', error);
+        res.status(500).json({ success: false, error: 'Failed to update balance' });
+    }
+});
+
+// Get points history for a wallet (public)
+app.get('/api/points/history/:wallet', async (req, res) => {
+    try {
+        const wallet = req.params.wallet;
+        const limit = parseInt(req.query.limit) || 50;
+
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        if (!pointsDb) {
+            return res.status(500).json({ success: false, error: 'Points system not available' });
+        }
+
+        const history = await pointsDb.getHistory(wallet, limit);
+
+        res.json({
+            success: true,
+            data: history
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching points history:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch points history' });
+    }
+});
+
+// Get points leaderboard (public)
+app.get('/api/points/leaderboard', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+
+        if (!pointsDb) {
+            return res.json({
+                success: true,
+                data: []
+            });
+        }
+
+        const leaderboardData = await pointsDb.getLeaderboard(limit);
+
+        // Add tier info to each entry
+        const enrichedData = leaderboardData.map(entry => ({
+            ...entry,
+            tierInfo: POINTS_TIERS[entry.currentTier] || POINTS_TIERS['none']
+        }));
+
+        res.json({
+            success: true,
+            data: enrichedData
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching points leaderboard:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch leaderboard' });
+    }
+});
+
+// Get tier configuration (public)
+app.get('/api/points/tiers', (req, res) => {
+    res.json({
+        success: true,
+        data: POINTS_TIERS || {
+            platinum: { minBalance: 100000, pointsPerHour: 10, name: 'Platinum', emoji: '💎' },
+            gold: { minBalance: 10000, pointsPerHour: 5, name: 'Gold', emoji: '🥇' },
+            silver: { minBalance: 1000, pointsPerHour: 3, name: 'Silver', emoji: '🥈' },
+            bronze: { minBalance: 300, pointsPerHour: 1, name: 'Bronze', emoji: '🟫' },
+            none: { minBalance: 0, pointsPerHour: 0, name: 'None', emoji: '⚪' }
+        }
+    });
+});
+
+// ============================================
 // PERIODIC JOBS
 // ============================================
 
@@ -1369,6 +1553,60 @@ async function updateAllReferralBalances() {
     }
 }
 
+// Award hourly points to all eligible users
+async function awardHourlyPoints() {
+    if (!pointsDb) {
+        console.log('⏭️ Skipping hourly points - points system not available');
+        return;
+    }
+
+    console.log('🎯 Starting hourly points distribution...');
+
+    try {
+        // First, update all balances to ensure tiers are current
+        const allReferrals = referralsDb ? await referralsDb.getAll() : [];
+
+        // Update points table with current balances
+        for (const entry of allReferrals) {
+            const balance = await fetchAmyBalance(entry.wallet);
+            if (balance !== null) {
+                await pointsDb.updateBalance(entry.wallet, balance, entry.xUsername);
+            }
+            // Small delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // Get all eligible users (those with a tier that earns points)
+        const eligibleUsers = await pointsDb.getAllEligible();
+        console.log(`📊 Found ${eligibleUsers.length} users eligible for points`);
+
+        let awarded = 0;
+        let totalPointsAwarded = 0;
+
+        for (const user of eligibleUsers) {
+            if (user.pointsPerHour > 0) {
+                const result = await pointsDb.awardPoints(
+                    user.wallet,
+                    parseFloat(user.pointsPerHour),
+                    'hourly_earning',
+                    parseFloat(user.lastAmyBalance),
+                    user.currentTier
+                );
+
+                if (result && result.success) {
+                    awarded++;
+                    totalPointsAwarded += parseFloat(user.pointsPerHour);
+                }
+            }
+        }
+
+        console.log(`✅ Hourly points distributed: ${awarded} users, ${totalPointsAwarded} total points`);
+
+    } catch (error) {
+        console.error('❌ Error awarding hourly points:', error);
+    }
+}
+
 // ============================================
 // START SERVER
 // ============================================
@@ -1414,6 +1652,15 @@ app.listen(PORT, () => {
         }
     }, 30 * 60 * 1000); // Run every 30 minutes
 
+    // Run hourly points distribution every hour
+    setInterval(async () => {
+        try {
+            await awardHourlyPoints();
+        } catch (err) {
+            console.error('Hourly points error:', err);
+        }
+    }, 60 * 60 * 1000); // Run every hour
+
     // Run initial balance update after 1 minute (give time for DB to initialize)
     setTimeout(async () => {
         try {
@@ -1422,6 +1669,15 @@ app.listen(PORT, () => {
             console.error('Initial balance update error:', err);
         }
     }, 60 * 1000); // Run 1 minute after startup
+
+    // Run initial points distribution after 2 minutes
+    setTimeout(async () => {
+        try {
+            await awardHourlyPoints();
+        } catch (err) {
+            console.error('Initial points distribution error:', err);
+        }
+    }, 2 * 60 * 1000); // Run 2 minutes after startup
 });
 
 // Graceful shutdown
