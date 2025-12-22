@@ -404,14 +404,14 @@ app.get('/auth/x/callback', async (req, res) => {
     if (!req.session || !req.session.state) {
         console.error('❌ Session lost - no state in session');
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        return res.redirect(`${frontendUrl}/profile?error=session_lost`);
+        return res.redirect(`${frontendUrl}/app/profile?error=session_lost`);
     }
 
     // Verify state (CSRF protection)
     if (state !== req.session.state) {
         console.error('❌ State mismatch:', { received: state, expected: req.session.state });
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        return res.redirect(`${frontendUrl}/profile?error=state_mismatch`);
+        return res.redirect(`${frontendUrl}/app/profile?error=state_mismatch`);
     }
 
     try {
@@ -458,7 +458,7 @@ app.get('/auth/x/callback', async (req, res) => {
 
         // Redirect back to profile page with success
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        res.redirect(`${frontendUrl}/profile?x_connected=true&username=${twitterUser.username}&wallet=${req.session.wallet}`);
+        res.redirect(`${frontendUrl}/app/profile?x_connected=true&username=${twitterUser.username}&wallet=${req.session.wallet}`);
 
     } catch (error) {
         console.error('❌ OAuth error:', error.response?.data || error.message);
@@ -469,7 +469,7 @@ app.get('/auth/x/callback', async (req, res) => {
             message: error.message
         });
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        res.redirect(`${frontendUrl}/profile?error=oauth_failed`);
+        res.redirect(`${frontendUrl}/app/profile?error=oauth_failed`);
     }
 });
 
