@@ -1742,7 +1742,20 @@ async function queryLpPositions(walletAddress) {
         for (let i = 0; i < nftCount; i++) {
             try {
                 const tokenId = await nfpm.tokenOfOwnerByIndex(walletAddress, i);
-                const position = await nfpm.positions(tokenId);
+
+                // Get position data with error handling
+                let position;
+                try {
+                    position = await nfpm.positions(tokenId);
+                } catch (posErr) {
+                    console.log(`   ⏭️ Wallet position ${i}: position lookup failed, skipping`);
+                    continue;
+                }
+
+                // Safely check tokens
+                if (!position.token0 || !position.token1) {
+                    continue;
+                }
 
                 // Check if this position is for the AMY/HONEY pool
                 const posToken0 = position.token0.toLowerCase();
@@ -1753,7 +1766,7 @@ async function queryLpPositions(walletAddress) {
                     (posToken0 === TOKENS.HONEY && posToken1 === TOKENS.AMY);
 
                 if (!isAmyHoneyPool) continue;
-                if (position.liquidity.isZero()) continue;
+                if (!position.liquidity || position.liquidity.isZero()) continue;
 
                 positionsFound++;
 
@@ -1761,7 +1774,7 @@ async function queryLpPositions(walletAddress) {
                 const isInRange = currentTick >= position.tickLower && currentTick < position.tickUpper;
 
                 // Calculate token amounts
-                const liquidity = parseFloat(ethers.utils.formatUnits(position.liquidity, 0));
+                const liquidity = parseFloat(position.liquidity.toString());
                 const { amount0, amount1 } = getTokenAmountsFromLiquidity(
                     liquidity,
                     position.tickLower,
@@ -1790,33 +1803,58 @@ async function queryLpPositions(walletAddress) {
                     inRangeValueUsd += positionUsd;
                     inRangePositions++;
                 }
+
+                console.log(`   ✅ Wallet position #${tokenId}: $${positionUsd.toFixed(2)} ${isInRange ? '(in range)' : '(out of range)'}`);
             } catch (err) {
-                console.error(`Error checking position ${i}:`, err.message);
+                console.log(`   ⏭️ Error checking wallet position ${i}:`, err.message);
             }
         }
 
         // Check FarmingCenter for staked positions using event indexing
         try {
-            // Query Deposit events for this user to find their staked tokenIds
+            // Query Deposit events for this user - limit to last 10,000 blocks (RPC limit)
+            // For older deposits, we'd need to index events separately or use a subgraph
+            const currentBlock = await provider.getBlockNumber();
+            const fromBlock = Math.max(0, currentBlock - 9900); // Stay under 10k limit
+
             const depositFilter = farmingCenter.filters.Deposit(null, walletAddress);
-            const depositEvents = await farmingCenter.queryFilter(depositFilter);
+            const depositEvents = await farmingCenter.queryFilter(depositFilter, fromBlock, currentBlock);
 
             if (depositEvents.length > 0) {
-                console.log(`📌 Found ${depositEvents.length} FarmingCenter deposit events for user`);
+                console.log(`📌 Found ${depositEvents.length} FarmingCenter deposit events for user (blocks ${fromBlock}-${currentBlock})`);
 
                 for (const event of depositEvents) {
                     const tokenId = event.args.tokenId;
 
                     try {
                         // Verify the position is still staked (owner matches)
-                        const deposit = await farmingCenter.deposits(tokenId);
-                        if (deposit.owner.toLowerCase() !== walletAddress.toLowerCase()) {
+                        let deposit;
+                        try {
+                            deposit = await farmingCenter.deposits(tokenId);
+                        } catch (depositErr) {
+                            console.log(`   ⏭️ Token #${tokenId}: deposit lookup failed, skipping`);
+                            continue;
+                        }
+
+                        if (!deposit.owner || deposit.owner.toLowerCase() !== walletAddress.toLowerCase()) {
                             // User withdrew this position, skip
                             continue;
                         }
 
-                        // Get position data
-                        const position = await nfpm.positions(tokenId);
+                        // Get position data with retry
+                        let position;
+                        try {
+                            position = await nfpm.positions(tokenId);
+                        } catch (posErr) {
+                            console.log(`   ⏭️ Token #${tokenId}: position lookup failed, skipping`);
+                            continue;
+                        }
+
+                        // Safely check tokens
+                        if (!position.token0 || !position.token1) {
+                            console.log(`   ⏭️ Token #${tokenId}: no token data, skipping`);
+                            continue;
+                        }
 
                         // Check if this position is for the AMY/HONEY pool
                         const posToken0 = position.token0.toLowerCase();
@@ -1827,7 +1865,7 @@ async function queryLpPositions(walletAddress) {
                             (posToken0 === TOKENS.HONEY && posToken1 === TOKENS.AMY);
 
                         if (!isAmyHoneyPool) continue;
-                        if (position.liquidity.isZero()) continue;
+                        if (!position.liquidity || position.liquidity.isZero()) continue;
 
                         positionsFound++;
 
@@ -1835,7 +1873,7 @@ async function queryLpPositions(walletAddress) {
                         const isPositionInRange = currentTick >= position.tickLower && currentTick < position.tickUpper;
 
                         // Calculate token amounts
-                        const liquidity = parseFloat(ethers.utils.formatUnits(position.liquidity, 0));
+                        const liquidity = parseFloat(position.liquidity.toString());
                         const { amount0, amount1 } = getTokenAmountsFromLiquidity(
                             liquidity,
                             position.tickLower,
@@ -1863,7 +1901,7 @@ async function queryLpPositions(walletAddress) {
                         console.log(`   ✅ Staked position #${tokenId}: $${positionUsd.toFixed(2)} ${isPositionInRange ? '(in range)' : '(out of range)'}`);
                     } catch (err) {
                         // Position might have been burned or error
-                        console.error(`   Error checking staked position ${tokenId}:`, err.message);
+                        console.log(`   ⏭️ Token #${tokenId}: ${err.message || 'unknown error'}`);
                     }
                 }
             }
