@@ -1587,8 +1587,11 @@ app.get('/api/lp/:wallet', async (req, res) => {
             data: {
                 wallet: wallet.toLowerCase(),
                 lpValueUsd: lpData.lpValueUsd,
+                totalLpValueUsd: lpData.totalLpValueUsd,
                 lpMultiplier: lpData.lpMultiplier,
                 positionsFound: lpData.positionsFound,
+                inRangePositions: lpData.inRangePositions,
+                isInRange: lpData.isInRange,
                 amyPriceUsd: lpData.amyPriceUsd,
                 tiers: LP_MULTIPLIER_TIERS
             }
