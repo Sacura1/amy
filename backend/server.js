@@ -1640,11 +1640,11 @@ const LP_MULTIPLIER_TIERS = [
     { minUsd: 0, multiplier: 1 }
 ];
 
-// NonfungiblePositionManager ABI (minimal for querying positions)
+// NonfungiblePositionManager ABI (Algebra Integral - no tickSpacing in positions)
 const NFPM_ABI = [
     'function balanceOf(address owner) view returns (uint256)',
     'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
-    'function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)'
+    'function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)'
 ];
 
 // Algebra Pool ABI (for getting current tick and price)
@@ -1748,7 +1748,7 @@ async function queryLpPositions(walletAddress) {
                 try {
                     position = await nfpm.positions(tokenId);
                 } catch (posErr) {
-                    console.log(`   ⏭️ Wallet position ${i}: position lookup failed, skipping`);
+                    console.log(`   ⏭️ Wallet position ${i} (token #${tokenId}): ${posErr.code || posErr.message}`);
                     continue;
                 }
 
