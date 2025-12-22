@@ -1656,7 +1656,13 @@ const POOL_ABI = [
 
 // FarmingCenter ABI (for checking staked positions)
 const FARMING_CENTER_ABI = [
-    'function deposits(uint256 tokenId) view returns (uint256 L2TokenId, uint32 numberOfFarms, bool inLimitFarming, address owner)'
+    'function deposits(uint256 tokenId) view returns (uint256 L2TokenId, uint32 numberOfFarms, bool inLimitFarming, address owner)',
+    'event Deposit(uint256 indexed tokenId, address indexed owner)'
+];
+
+// EternalFarming ABI (to check farms)
+const ETERNAL_FARMING_ABI = [
+    'function farms(uint256 tokenId, bytes32 incentiveId) view returns (uint128 liquidity, int24 tickLower, int24 tickUpper)'
 ];
 
 // Calculate LP multiplier from USD value
@@ -1728,7 +1734,9 @@ async function queryLpPositions(walletAddress) {
         const nftCount = nftBalance.toNumber();
 
         let totalLpValueUsd = 0;
+        let inRangeValueUsd = 0;
         let positionsFound = 0;
+        let inRangePositions = 0;
 
         // Check positions held directly in wallet
         for (let i = 0; i < nftCount; i++) {
@@ -1748,6 +1756,9 @@ async function queryLpPositions(walletAddress) {
                 if (position.liquidity.isZero()) continue;
 
                 positionsFound++;
+
+                // Check if position is in range
+                const isInRange = currentTick >= position.tickLower && currentTick < position.tickUpper;
 
                 // Calculate token amounts
                 const liquidity = parseFloat(ethers.utils.formatUnits(position.liquidity, 0));
@@ -1773,44 +1784,117 @@ async function queryLpPositions(walletAddress) {
                 }
 
                 totalLpValueUsd += positionUsd;
+
+                // Only count in-range positions for multiplier
+                if (isInRange) {
+                    inRangeValueUsd += positionUsd;
+                    inRangePositions++;
+                }
             } catch (err) {
                 console.error(`Error checking position ${i}:`, err.message);
             }
         }
 
-        // Also check FarmingCenter for staked positions
-        // This requires knowing which tokenIds the user has staked
-        // We'll check a reasonable range of recent tokenIds for ownership
-        // Note: In production, you might want to index these events instead
+        // Check FarmingCenter for staked positions using event indexing
         try {
-            // Check last 1000 token IDs for staked positions
-            // This is a simplified approach - a better solution would use event indexing
-            const currentNftSupply = await nfpm.balanceOf(BULLA_CONTRACTS.farmingCenter);
-            if (currentNftSupply.gt(0)) {
-                // For now, we skip deep farming center checks as it requires event indexing
-                // The wallet-held positions should cover most cases
-                console.log(`📌 FarmingCenter has ${currentNftSupply.toString()} staked positions (not yet indexed)`);
+            // Query Deposit events for this user to find their staked tokenIds
+            const depositFilter = farmingCenter.filters.Deposit(null, walletAddress);
+            const depositEvents = await farmingCenter.queryFilter(depositFilter);
+
+            if (depositEvents.length > 0) {
+                console.log(`📌 Found ${depositEvents.length} FarmingCenter deposit events for user`);
+
+                for (const event of depositEvents) {
+                    const tokenId = event.args.tokenId;
+
+                    try {
+                        // Verify the position is still staked (owner matches)
+                        const deposit = await farmingCenter.deposits(tokenId);
+                        if (deposit.owner.toLowerCase() !== walletAddress.toLowerCase()) {
+                            // User withdrew this position, skip
+                            continue;
+                        }
+
+                        // Get position data
+                        const position = await nfpm.positions(tokenId);
+
+                        // Check if this position is for the AMY/HONEY pool
+                        const posToken0 = position.token0.toLowerCase();
+                        const posToken1 = position.token1.toLowerCase();
+
+                        const isAmyHoneyPool =
+                            (posToken0 === TOKENS.AMY && posToken1 === TOKENS.HONEY) ||
+                            (posToken0 === TOKENS.HONEY && posToken1 === TOKENS.AMY);
+
+                        if (!isAmyHoneyPool) continue;
+                        if (position.liquidity.isZero()) continue;
+
+                        positionsFound++;
+
+                        // Check if position is in range
+                        const isPositionInRange = currentTick >= position.tickLower && currentTick < position.tickUpper;
+
+                        // Calculate token amounts
+                        const liquidity = parseFloat(ethers.utils.formatUnits(position.liquidity, 0));
+                        const { amount0, amount1 } = getTokenAmountsFromLiquidity(
+                            liquidity,
+                            position.tickLower,
+                            position.tickUpper,
+                            currentTick
+                        );
+
+                        const amount0Decimal = amount0 / 1e18;
+                        const amount1Decimal = amount1 / 1e18;
+
+                        let positionUsd;
+                        if (posToken0 === TOKENS.AMY) {
+                            positionUsd = (amount0Decimal * amyPriceUsd) + amount1Decimal;
+                        } else {
+                            positionUsd = amount0Decimal + (amount1Decimal * amyPriceUsd);
+                        }
+
+                        totalLpValueUsd += positionUsd;
+
+                        if (isPositionInRange) {
+                            inRangeValueUsd += positionUsd;
+                            inRangePositions++;
+                        }
+
+                        console.log(`   ✅ Staked position #${tokenId}: $${positionUsd.toFixed(2)} ${isPositionInRange ? '(in range)' : '(out of range)'}`);
+                    } catch (err) {
+                        // Position might have been burned or error
+                        console.error(`   Error checking staked position ${tokenId}:`, err.message);
+                    }
+                }
             }
         } catch (err) {
             console.error('Error checking farming center:', err.message);
         }
 
-        const multiplier = calculateLpMultiplier(totalLpValueUsd);
+        // Multiplier is based on IN-RANGE positions only
+        const multiplier = calculateLpMultiplier(inRangeValueUsd);
+        const isInRange = inRangePositions > 0;
 
-        console.log(`✅ LP result: $${totalLpValueUsd.toFixed(2)} USD, ${positionsFound} positions, ${multiplier}x multiplier`);
+        console.log(`✅ LP result: $${inRangeValueUsd.toFixed(2)} in-range (of $${totalLpValueUsd.toFixed(2)} total), ${inRangePositions}/${positionsFound} positions in range, ${multiplier}x multiplier`);
 
         return {
-            lpValueUsd: totalLpValueUsd,
+            lpValueUsd: inRangeValueUsd,
+            totalLpValueUsd: totalLpValueUsd,
             lpMultiplier: multiplier,
             positionsFound,
+            inRangePositions,
+            isInRange,
             amyPriceUsd
         };
     } catch (error) {
         console.error(`❌ Error querying LP positions for ${walletAddress}:`, error.message);
         return {
             lpValueUsd: 0,
+            totalLpValueUsd: 0,
             lpMultiplier: 1,
             positionsFound: 0,
+            inRangePositions: 0,
+            isInRange: false,
             amyPriceUsd: 0
         };
     }
