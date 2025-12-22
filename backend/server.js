@@ -420,6 +420,11 @@ app.get('/auth/x/callback', async (req, res) => {
             `${process.env.TWITTER_CLIENT_ID}:${process.env.TWITTER_CLIENT_SECRET}`
         ).toString('base64');
 
+        console.log('🔄 Exchanging code for token...');
+        console.log('Callback URL being used:', process.env.TWITTER_CALLBACK_URL);
+        console.log('Client ID:', process.env.TWITTER_CLIENT_ID ? 'SET' : 'MISSING');
+        console.log('Client Secret:', process.env.TWITTER_CLIENT_SECRET ? 'SET' : 'MISSING');
+
         // Exchange code for access token
         const tokenResponse = await axios.post(
             'https://api.twitter.com/2/oauth2/token',
@@ -468,8 +473,12 @@ app.get('/auth/x/callback', async (req, res) => {
             data: error.response?.data,
             message: error.message
         });
+
+        // Include more details in the redirect for debugging
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        res.redirect(`${frontendUrl}/app/profile?error=oauth_failed`);
+        const errorCode = error.response?.data?.error || 'unknown';
+        const errorDesc = error.response?.data?.error_description || error.message || 'Token exchange failed';
+        res.redirect(`${frontendUrl}/app/profile?error=oauth_failed&reason=${encodeURIComponent(errorCode)}&details=${encodeURIComponent(errorDesc)}`);
     }
 });
 
@@ -1485,11 +1494,365 @@ app.get('/api/points/tiers', (req, res) => {
 });
 
 // ============================================
+// OAUTH USER SAVE ENDPOINT
+// ============================================
+
+// Save user after OAuth (no signature required - OAuth already verified)
+app.post('/api/oauth/save', async (req, res) => {
+    try {
+        const { wallet, xUsername, amyBalance } = req.body;
+
+        if (!wallet || !xUsername) {
+            return res.status(400).json({
+                success: false,
+                error: 'Wallet and xUsername are required'
+            });
+        }
+
+        // Validate wallet address format
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid wallet address format'
+            });
+        }
+
+        console.log('💾 Saving OAuth user:', wallet, '@' + xUsername);
+
+        // Save to verified_users table (so checkXStatus works)
+        const userData = {
+            wallet: wallet.toLowerCase(),
+            xUsername: xUsername,
+            amyBalance: parseFloat(amyBalance) || 0,
+            verifiedAt: new Date().toISOString(),
+            timestamp: Date.now(),
+            signatureVerified: false, // OAuth verified, not signature
+            signatureTimestamp: Date.now()
+        };
+
+        await db.addUser(userData);
+
+        // Also register for referrals
+        if (referralsDb) {
+            await referralsDb.getOrCreate(wallet, xUsername);
+        }
+
+        // Also add to holders table if they have 300+ AMY
+        if (holdersDb && parseFloat(amyBalance) >= MINIMUM_AMY_BALANCE) {
+            await holdersDb.addOrUpdate(wallet, xUsername, parseFloat(amyBalance));
+        }
+
+        // Initialize points entry
+        if (pointsDb) {
+            await pointsDb.updateBalance(wallet, parseFloat(amyBalance) || 0, xUsername);
+        }
+
+        console.log('✅ OAuth user saved:', wallet, '@' + xUsername);
+
+        res.json({
+            success: true,
+            message: 'User saved successfully',
+            data: userData
+        });
+
+    } catch (error) {
+        console.error('❌ Error saving OAuth user:', error);
+        res.status(500).json({ success: false, error: 'Failed to save user' });
+    }
+});
+
+// ============================================
+// LP TRACKING API ROUTES
+// ============================================
+
+// Get LP status for a wallet (public)
+app.get('/api/lp/:wallet', async (req, res) => {
+    try {
+        const wallet = req.params.wallet;
+
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        // Query LP position from blockchain
+        const lpData = await queryLpPositions(wallet);
+
+        // Update database with fresh LP data if points system is available
+        if (pointsDb) {
+            await pointsDb.updateLpData(wallet, lpData.lpValueUsd, lpData.lpMultiplier);
+        }
+
+        res.json({
+            success: true,
+            data: {
+                wallet: wallet.toLowerCase(),
+                lpValueUsd: lpData.lpValueUsd,
+                lpMultiplier: lpData.lpMultiplier,
+                positionsFound: lpData.positionsFound,
+                amyPriceUsd: lpData.amyPriceUsd,
+                tiers: LP_MULTIPLIER_TIERS
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching LP status:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch LP status' });
+    }
+});
+
+// Get LP multiplier tiers configuration (public)
+app.get('/api/lp/tiers', (req, res) => {
+    res.json({
+        success: true,
+        data: LP_MULTIPLIER_TIERS
+    });
+});
+
+// ============================================
 // PERIODIC JOBS
 // ============================================
 
 // ERC20 ABI for balanceOf
 const ERC20_ABI = ['function balanceOf(address owner) view returns (uint256)'];
+
+// ============================================
+// LP TRACKING CONFIGURATION
+// ============================================
+
+// Bulla Exchange contract addresses on Berachain
+const BULLA_CONTRACTS = {
+    nonfungiblePositionManager: '0xc228fbF18864B6e91d15abfcc2039f87a5F66741',
+    farmingCenter: '0x8dE1e590bdcBb65864e69dC2B5B020d9855E99A2',
+    amyHoneyPool: '0xff716930eefb37b5b4ac55b1901dc5704b098d84'
+};
+
+// Token addresses
+const TOKENS = {
+    AMY: '0x098a75baeddec78f9a8d0830d6b86eac5cc8894e'.toLowerCase(),
+    HONEY: '0xfcbd14dc51f0a4d49d5e53c2e0950e0bc26d0dce'.toLowerCase()
+};
+
+// LP Multiplier tiers
+const LP_MULTIPLIER_TIERS = [
+    { minUsd: 500, multiplier: 100 },
+    { minUsd: 100, multiplier: 10 },
+    { minUsd: 10, multiplier: 3 },
+    { minUsd: 0, multiplier: 1 }
+];
+
+// NonfungiblePositionManager ABI (minimal for querying positions)
+const NFPM_ABI = [
+    'function balanceOf(address owner) view returns (uint256)',
+    'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
+    'function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)'
+];
+
+// Algebra Pool ABI (for getting current tick and price)
+const POOL_ABI = [
+    'function globalState() view returns (uint160 price, int24 tick, uint16 lastFee, uint8 pluginConfig, uint16 communityFee, bool unlocked)',
+    'function token0() view returns (address)',
+    'function token1() view returns (address)'
+];
+
+// FarmingCenter ABI (for checking staked positions)
+const FARMING_CENTER_ABI = [
+    'function deposits(uint256 tokenId) view returns (uint256 L2TokenId, uint32 numberOfFarms, bool inLimitFarming, address owner)'
+];
+
+// Calculate LP multiplier from USD value
+function calculateLpMultiplier(usdValue) {
+    for (const tier of LP_MULTIPLIER_TIERS) {
+        if (usdValue >= tier.minUsd) {
+            return tier.multiplier;
+        }
+    }
+    return 1;
+}
+
+// Calculate token amounts from liquidity and tick range
+// Based on Uniswap V3 math
+function getTokenAmountsFromLiquidity(liquidity, tickLower, tickUpper, currentTick) {
+    const sqrtPriceLower = Math.sqrt(1.0001 ** tickLower);
+    const sqrtPriceUpper = Math.sqrt(1.0001 ** tickUpper);
+    const sqrtPriceCurrent = Math.sqrt(1.0001 ** currentTick);
+
+    let amount0 = 0;
+    let amount1 = 0;
+
+    if (currentTick < tickLower) {
+        // All in token0
+        amount0 = liquidity * (1 / sqrtPriceLower - 1 / sqrtPriceUpper);
+    } else if (currentTick >= tickUpper) {
+        // All in token1
+        amount1 = liquidity * (sqrtPriceUpper - sqrtPriceLower);
+    } else {
+        // In range - mix of both
+        amount0 = liquidity * (1 / sqrtPriceCurrent - 1 / sqrtPriceUpper);
+        amount1 = liquidity * (sqrtPriceCurrent - sqrtPriceLower);
+    }
+
+    return { amount0, amount1 };
+}
+
+// Query LP positions for a wallet in the AMY/HONEY pool
+async function queryLpPositions(walletAddress) {
+    try {
+        const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+
+        const nfpm = new ethers.Contract(BULLA_CONTRACTS.nonfungiblePositionManager, NFPM_ABI, provider);
+        const pool = new ethers.Contract(BULLA_CONTRACTS.amyHoneyPool, POOL_ABI, provider);
+        const farmingCenter = new ethers.Contract(BULLA_CONTRACTS.farmingCenter, FARMING_CENTER_ABI, provider);
+
+        // Get current pool state for price calculation
+        const globalState = await pool.globalState();
+        const currentTick = globalState.tick;
+
+        // Get pool tokens to determine order
+        const token0 = (await pool.token0()).toLowerCase();
+        const token1 = (await pool.token1()).toLowerCase();
+
+        // Calculate AMY price from tick
+        // price = 1.0001^tick gives token1/token0 ratio
+        const priceRatio = 1.0001 ** currentTick;
+        // If AMY is token0, priceRatio is HONEY per AMY
+        // If AMY is token1, priceRatio is AMY per HONEY
+        const amyIsToken0 = token0 === TOKENS.AMY;
+        const amyPriceInHoney = amyIsToken0 ? priceRatio : (1 / priceRatio);
+        // HONEY is ~$1 stablecoin
+        const amyPriceUsd = amyPriceInHoney;
+
+        console.log(`🔍 LP Check for ${walletAddress.slice(0, 8)}... - AMY price: $${amyPriceUsd.toFixed(4)}`);
+
+        // Get NFT balance (positions held in wallet)
+        const nftBalance = await nfpm.balanceOf(walletAddress);
+        const nftCount = nftBalance.toNumber();
+
+        let totalLpValueUsd = 0;
+        let positionsFound = 0;
+
+        // Check positions held directly in wallet
+        for (let i = 0; i < nftCount; i++) {
+            try {
+                const tokenId = await nfpm.tokenOfOwnerByIndex(walletAddress, i);
+                const position = await nfpm.positions(tokenId);
+
+                // Check if this position is for the AMY/HONEY pool
+                const posToken0 = position.token0.toLowerCase();
+                const posToken1 = position.token1.toLowerCase();
+
+                const isAmyHoneyPool =
+                    (posToken0 === TOKENS.AMY && posToken1 === TOKENS.HONEY) ||
+                    (posToken0 === TOKENS.HONEY && posToken1 === TOKENS.AMY);
+
+                if (!isAmyHoneyPool) continue;
+                if (position.liquidity.isZero()) continue;
+
+                positionsFound++;
+
+                // Calculate token amounts
+                const liquidity = parseFloat(ethers.utils.formatUnits(position.liquidity, 0));
+                const { amount0, amount1 } = getTokenAmountsFromLiquidity(
+                    liquidity,
+                    position.tickLower,
+                    position.tickUpper,
+                    currentTick
+                );
+
+                // Convert to decimal amounts (18 decimals for both tokens)
+                const amount0Decimal = amount0 / 1e18;
+                const amount1Decimal = amount1 / 1e18;
+
+                // Calculate USD value
+                let positionUsd;
+                if (posToken0 === TOKENS.AMY) {
+                    // amount0 is AMY, amount1 is HONEY
+                    positionUsd = (amount0Decimal * amyPriceUsd) + amount1Decimal;
+                } else {
+                    // amount0 is HONEY, amount1 is AMY
+                    positionUsd = amount0Decimal + (amount1Decimal * amyPriceUsd);
+                }
+
+                totalLpValueUsd += positionUsd;
+            } catch (err) {
+                console.error(`Error checking position ${i}:`, err.message);
+            }
+        }
+
+        // Also check FarmingCenter for staked positions
+        // This requires knowing which tokenIds the user has staked
+        // We'll check a reasonable range of recent tokenIds for ownership
+        // Note: In production, you might want to index these events instead
+        try {
+            // Check last 1000 token IDs for staked positions
+            // This is a simplified approach - a better solution would use event indexing
+            const currentNftSupply = await nfpm.balanceOf(BULLA_CONTRACTS.farmingCenter);
+            if (currentNftSupply.gt(0)) {
+                // For now, we skip deep farming center checks as it requires event indexing
+                // The wallet-held positions should cover most cases
+                console.log(`📌 FarmingCenter has ${currentNftSupply.toString()} staked positions (not yet indexed)`);
+            }
+        } catch (err) {
+            console.error('Error checking farming center:', err.message);
+        }
+
+        const multiplier = calculateLpMultiplier(totalLpValueUsd);
+
+        console.log(`✅ LP result: $${totalLpValueUsd.toFixed(2)} USD, ${positionsFound} positions, ${multiplier}x multiplier`);
+
+        return {
+            lpValueUsd: totalLpValueUsd,
+            lpMultiplier: multiplier,
+            positionsFound,
+            amyPriceUsd
+        };
+    } catch (error) {
+        console.error(`❌ Error querying LP positions for ${walletAddress}:`, error.message);
+        return {
+            lpValueUsd: 0,
+            lpMultiplier: 1,
+            positionsFound: 0,
+            amyPriceUsd: 0
+        };
+    }
+}
+
+// Update LP data for all eligible users
+async function updateAllLpPositions() {
+    if (!pointsDb) {
+        console.log('⏭️ Skipping LP update - points system not available');
+        return;
+    }
+
+    console.log('🔄 Starting LP positions update...');
+
+    try {
+        const eligibleUsers = await pointsDb.getAllEligible();
+        console.log(`📊 Checking LP for ${eligibleUsers.length} eligible users`);
+
+        let updated = 0;
+        let withLp = 0;
+
+        for (const user of eligibleUsers) {
+            const lpData = await queryLpPositions(user.wallet);
+
+            // Update database with LP data
+            await pointsDb.updateLpData(user.wallet, lpData.lpValueUsd, lpData.lpMultiplier);
+
+            updated++;
+            if (lpData.lpMultiplier > 1) {
+                withLp++;
+            }
+
+            // Small delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        console.log(`✅ LP update complete: ${updated} users checked, ${withLp} have active LP multipliers`);
+
+    } catch (error) {
+        console.error('❌ Error updating LP positions:', error);
+    }
+}
 
 // Fetch AMY balance for a wallet
 async function fetchAmyBalance(walletAddress) {
@@ -1576,31 +1939,47 @@ async function awardHourlyPoints() {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
 
+        // Update LP positions for all users (check their LP and update multipliers)
+        await updateAllLpPositions();
+
         // Get all eligible users (those with a tier that earns points)
         const eligibleUsers = await pointsDb.getAllEligible();
         console.log(`📊 Found ${eligibleUsers.length} users eligible for points`);
 
         let awarded = 0;
         let totalPointsAwarded = 0;
+        let lpBonusUsers = 0;
 
         for (const user of eligibleUsers) {
             if (user.pointsPerHour > 0) {
+                // Apply LP multiplier to base points
+                const basePoints = parseFloat(user.pointsPerHour);
+                const lpMultiplier = parseInt(user.lpMultiplier) || 1;
+                const finalPoints = basePoints * lpMultiplier;
+
+                const reason = lpMultiplier > 1
+                    ? `hourly_earning_lp_${lpMultiplier}x`
+                    : 'hourly_earning';
+
                 const result = await pointsDb.awardPoints(
                     user.wallet,
-                    parseFloat(user.pointsPerHour),
-                    'hourly_earning',
+                    finalPoints,
+                    reason,
                     parseFloat(user.lastAmyBalance),
                     user.currentTier
                 );
 
                 if (result && result.success) {
                     awarded++;
-                    totalPointsAwarded += parseFloat(user.pointsPerHour);
+                    totalPointsAwarded += finalPoints;
+                    if (lpMultiplier > 1) {
+                        lpBonusUsers++;
+                    }
                 }
             }
         }
 
-        console.log(`✅ Hourly points distributed: ${awarded} users, ${totalPointsAwarded} total points`);
+        console.log(`✅ Hourly points distributed: ${awarded} users, ${totalPointsAwarded.toFixed(2)} total points, ${lpBonusUsers} with LP bonus`);
 
     } catch (error) {
         console.error('❌ Error awarding hourly points:', error);

@@ -156,6 +156,22 @@ async function createTables() {
             CREATE INDEX IF NOT EXISTS idx_points_history_wallet ON points_history(wallet);
         `);
 
+        // Add LP tracking columns to amy_points table
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='lp_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN lp_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='lp_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN lp_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='last_lp_check') THEN
+                    ALTER TABLE amy_points ADD COLUMN last_lp_check TIMESTAMP;
+                END IF;
+            END $$;
+        `);
+
         console.log('✅ Database tables created/verified');
 
         // Migrate from JSON files if tables are empty
@@ -832,7 +848,8 @@ const points = {
             `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
              last_amy_balance as "lastAmyBalance", current_tier as "currentTier",
              points_per_hour as "pointsPerHour", last_points_update as "lastPointsUpdate",
-             created_at as "createdAt"
+             created_at as "createdAt", lp_value_usd as "lpValueUsd",
+             lp_multiplier as "lpMultiplier", last_lp_check as "lastLpCheck"
              FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
@@ -855,7 +872,10 @@ const points = {
             currentTier: 'none',
             pointsPerHour: 0,
             lastPointsUpdate: new Date(),
-            createdAt: new Date()
+            createdAt: new Date(),
+            lpValueUsd: 0,
+            lpMultiplier: 1,
+            lastLpCheck: null
         };
     },
 
@@ -866,7 +886,8 @@ const points = {
             `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
              last_amy_balance as "lastAmyBalance", current_tier as "currentTier",
              points_per_hour as "pointsPerHour", last_points_update as "lastPointsUpdate",
-             created_at as "createdAt"
+             created_at as "createdAt", lp_value_usd as "lpValueUsd",
+             lp_multiplier as "lpMultiplier", last_lp_check as "lastLpCheck"
              FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
@@ -941,12 +962,27 @@ const points = {
         const result = await pool.query(
             `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
              last_amy_balance as "lastAmyBalance", current_tier as "currentTier",
-             points_per_hour as "pointsPerHour", last_points_update as "lastPointsUpdate"
+             points_per_hour as "pointsPerHour", last_points_update as "lastPointsUpdate",
+             lp_value_usd as "lpValueUsd", lp_multiplier as "lpMultiplier"
              FROM amy_points
              WHERE current_tier != 'none' AND points_per_hour > 0
              ORDER BY total_points DESC`
         );
         return result.rows;
+    },
+
+    // Update LP data for a user
+    updateLpData: async (wallet, lpValueUsd, lpMultiplier) => {
+        if (!pool) return null;
+        await pool.query(
+            `UPDATE amy_points SET
+             lp_value_usd = $1,
+             lp_multiplier = $2,
+             last_lp_check = CURRENT_TIMESTAMP
+             WHERE LOWER(wallet) = LOWER($3)`,
+            [lpValueUsd, lpMultiplier, wallet]
+        );
+        return { lpValueUsd, lpMultiplier };
     },
 
     // Get points history for a wallet
