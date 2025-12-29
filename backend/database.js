@@ -420,6 +420,38 @@ const db = {
             [wallet]
         );
         return result.rowCount > 0;
+    },
+
+    // Update user's AMY balance
+    updateBalance: async (wallet, balance) => {
+        if (!pool) return false;
+        const result = await pool.query(
+            'UPDATE verified_users SET amy_balance = $1 WHERE LOWER(wallet) = LOWER($2)',
+            [balance, wallet]
+        );
+        return result.rowCount > 0;
+    },
+
+    // Batch update balances for multiple users
+    batchUpdateBalances: async (updates) => {
+        if (!pool || updates.length === 0) return;
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const { wallet, balance } of updates) {
+                await client.query(
+                    'UPDATE verified_users SET amy_balance = $1 WHERE LOWER(wallet) = LOWER($2)',
+                    [balance, wallet]
+                );
+            }
+            await client.query('COMMIT');
+            console.log(`✅ Updated ${updates.length} verified_users balances`);
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
     }
 };
 

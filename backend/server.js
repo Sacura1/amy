@@ -1992,28 +1992,24 @@ async function fetchAmyBalance(walletAddress) {
     }
 }
 
-// Update all referral balances periodically
+// Update all user balances periodically (verified_users, referrals, holders)
 async function updateAllReferralBalances() {
-    if (!referralsDb) {
-        console.log('⏭️ Skipping balance update - referral system not available');
-        return;
-    }
-
-    console.log('🔄 Starting periodic referral balance update...');
+    console.log('🔄 Starting periodic balance update for all users...');
 
     try {
-        const allReferrals = await referralsDb.getAll();
-        console.log(`📊 Found ${allReferrals.length} referral entries to update`);
+        // Get ALL verified users (main source of truth)
+        const allVerifiedUsers = await db.getUsers();
+        console.log(`📊 Found ${allVerifiedUsers.length} verified users to update`);
 
         const updates = [];
         let updated = 0;
         let failed = 0;
 
-        // Process in batches to avoid rate limiting
-        for (const entry of allReferrals) {
-            const balance = await fetchAmyBalance(entry.wallet);
+        // Process all verified users
+        for (const user of allVerifiedUsers) {
+            const balance = await fetchAmyBalance(user.wallet);
             if (balance !== null) {
-                updates.push({ wallet: entry.wallet, balance, xUsername: entry.xUsername });
+                updates.push({ wallet: user.wallet, balance, xUsername: user.xUsername });
                 updated++;
             } else {
                 failed++;
@@ -2023,21 +2019,31 @@ async function updateAllReferralBalances() {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        // Batch update all balances
+        // Batch update all tables
         if (updates.length > 0) {
-            await referralsDb.batchUpdateBalances(updates);
+            // Update verified_users table (main user table for /api/user endpoint)
+            if (db && db.batchUpdateBalances) {
+                await db.batchUpdateBalances(updates);
+                console.log(`👤 Verified users table updated`);
+            }
 
-            // Also update holders table
+            // Update referrals table
+            if (referralsDb) {
+                await referralsDb.batchUpdateBalances(updates);
+                console.log(`🔗 Referrals table updated`);
+            }
+
+            // Update holders table
             if (holdersDb) {
                 await holdersDb.batchUpdateBalances(updates);
-                console.log(`💎 Holders table also updated`);
+                console.log(`💎 Holders table updated`);
             }
         }
 
         console.log(`✅ Balance update complete: ${updated} updated, ${failed} failed`);
 
     } catch (error) {
-        console.error('❌ Error updating referral balances:', error);
+        console.error('❌ Error updating balances:', error);
     }
 }
 
