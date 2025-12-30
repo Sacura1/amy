@@ -1052,7 +1052,93 @@ const points = {
     getTiers: () => POINTS_TIERS,
 
     // Calculate tier for a given balance
-    calculateTier: calculateTier
+    calculateTier: calculateTier,
+
+    // Add bonus points by X username (for giveaways)
+    addBonusByUsername: async (xUsername, pointsToAdd, reason = 'admin_bonus') => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        const cleanUsername = xUsername.replace(/^@/, '').trim();
+
+        let result = await pool.query(
+            `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
+             last_amy_balance as "lastAmyBalance", current_tier as "currentTier"
+             FROM amy_points WHERE LOWER(x_username) = LOWER($1)`,
+            [cleanUsername]
+        );
+
+        if (!result.rows[0]) {
+            const verifiedUser = await pool.query(
+                `SELECT wallet, x_username as "xUsername", amy_balance as "amyBalance"
+                 FROM verified_users WHERE LOWER(x_username) = LOWER($1)`,
+                [cleanUsername]
+            );
+
+            if (!verifiedUser.rows[0]) {
+                return { success: false, error: `User @${cleanUsername} not found` };
+            }
+
+            const user = verifiedUser.rows[0];
+            const tier = calculateTier(parseFloat(user.amyBalance) || 0);
+            await pool.query(
+                `INSERT INTO amy_points (wallet, x_username, last_amy_balance, current_tier, points_per_hour)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (wallet) DO UPDATE SET x_username = $2`,
+                [user.wallet.toLowerCase(), user.xUsername, user.amyBalance || 0, tier, POINTS_TIERS[tier].pointsPerHour]
+            );
+
+            result = await pool.query(
+                `SELECT wallet, x_username as "xUsername", total_points as "totalPoints",
+                 last_amy_balance as "lastAmyBalance", current_tier as "currentTier"
+                 FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+                [user.wallet]
+            );
+        }
+
+        const user = result.rows[0];
+        if (!user) {
+            return { success: false, error: `User @${cleanUsername} not found` };
+        }
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            await client.query(
+                `UPDATE amy_points SET
+                 total_points = total_points + $1,
+                 last_points_update = CURRENT_TIMESTAMP
+                 WHERE LOWER(wallet) = LOWER($2)`,
+                [pointsToAdd, user.wallet]
+            );
+
+            await client.query(
+                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [user.wallet.toLowerCase(), pointsToAdd, reason, user.lastAmyBalance || 0, user.currentTier || 'none']
+            );
+
+            await client.query('COMMIT');
+
+            const updated = await pool.query(
+                `SELECT total_points as "totalPoints" FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+                [user.wallet]
+            );
+
+            return {
+                success: true,
+                xUsername: user.xUsername,
+                wallet: user.wallet,
+                pointsAdded: pointsToAdd,
+                newTotal: parseFloat(updated.rows[0]?.totalPoints) || pointsToAdd
+            };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
 };
 
 module.exports = {

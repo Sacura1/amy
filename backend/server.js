@@ -1493,6 +1493,110 @@ app.get('/api/points/tiers', (req, res) => {
     });
 });
 
+
+
+// Add bonus points to user (admin only - for giveaways)
+app.post('/api/points/add-bonus', isAdmin, async (req, res) => {
+    try {
+        const { xUsername, points, reason } = req.body;
+
+        if (!xUsername || points === undefined) {
+            return res.status(400).json({
+                success: false,
+                error: 'xUsername and points are required'
+            });
+        }
+
+        if (!pointsDb) {
+            return res.status(500).json({
+                success: false,
+                error: 'Points system not available'
+            });
+        }
+
+        const result = await pointsDb.addBonusByUsername(
+            xUsername,
+            parseFloat(points),
+            reason || 'admin_bonus'
+        );
+
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        console.log(`🎁 Bonus points awarded: ${points} to @${result.xUsername} by admin`);
+
+        res.json({
+            success: true,
+            message: `Added ${points} points to @${result.xUsername}`,
+            data: result
+        });
+
+    } catch (error) {
+        console.error('❌ Error adding bonus points:', error);
+        res.status(500).json({ success: false, error: 'Failed to add bonus points' });
+    }
+});
+
+// Bulk add bonus points (admin only - for giveaways)
+app.post('/api/points/add-bonus/bulk', isAdmin, async (req, res) => {
+    try {
+        const { awards, reason } = req.body;
+
+        if (!Array.isArray(awards) || awards.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'awards array is required with {xUsername, points} entries'
+            });
+        }
+
+        if (!pointsDb) {
+            return res.status(500).json({
+                success: false,
+                error: 'Points system not available'
+            });
+        }
+
+        const results = [];
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const award of awards) {
+            if (!award.xUsername || award.points === undefined) {
+                results.push({ xUsername: award.xUsername, success: false, error: 'Missing xUsername or points' });
+                failCount++;
+                continue;
+            }
+
+            const result = await pointsDb.addBonusByUsername(
+                award.xUsername,
+                parseFloat(award.points),
+                reason || 'admin_bonus_bulk'
+            );
+
+            results.push(result);
+            if (result.success) {
+                successCount++;
+                console.log(`🎁 Bulk bonus: ${award.points} to @${result.xUsername}`);
+            } else {
+                failCount++;
+            }
+        }
+
+        console.log(`✅ Bulk bonus complete: ${successCount} success, ${failCount} failed`);
+
+        res.json({
+            success: true,
+            message: `Processed ${awards.length} awards: ${successCount} success, ${failCount} failed`,
+            results
+        });
+
+    } catch (error) {
+        console.error('❌ Error in bulk bonus:', error);
+        res.status(500).json({ success: false, error: 'Failed to process bulk bonus' });
+    }
+});
+
 // ============================================
 // OAUTH USER SAVE ENDPOINT
 // ============================================
