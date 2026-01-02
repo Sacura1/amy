@@ -1409,16 +1409,38 @@ app.get('/api/points/:wallet', async (req, res) => {
                     currentTier: 'none',
                     tierInfo: POINTS_TIERS['none'],
                     pointsPerHour: 0,
-                    lastAmyBalance: 0
+                    lastAmyBalance: 0,
+                    totalMultiplier: 1,
+                    lpMultiplier: 1,
+                    sailrMultiplier: 1,
+                    plvhedgeMultiplier: 1
                 }
             });
         }
+
+        // Calculate total multiplier from all sources
+        let sailrMult = 1;
+        let plvhedgeMult = 1;
+        try {
+            const tokenHoldings = await queryAllTokenHoldings(wallet);
+            sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 1;
+            plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 1;
+        } catch (err) {
+            console.error('Error fetching token holdings for multiplier:', err.message);
+        }
+
+        const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 1;
+        // Total multiplier is additive: base 1 + (lp-1) + (sailr-1) + (plvhedge-1)
+        const totalMultiplier = 1 + (lpMult > 1 ? lpMult - 1 : 0) + (sailrMult > 1 ? sailrMult - 1 : 0) + (plvhedgeMult > 1 ? plvhedgeMult - 1 : 0);
 
         res.json({
             success: true,
             data: {
                 ...pointsData,
-                tierInfo: POINTS_TIERS[pointsData.currentTier] || POINTS_TIERS['none']
+                tierInfo: POINTS_TIERS[pointsData.currentTier] || POINTS_TIERS['none'],
+                totalMultiplier: totalMultiplier,
+                sailrMultiplier: sailrMult,
+                plvhedgeMultiplier: plvhedgeMult
             }
         });
 
@@ -2050,10 +2072,7 @@ app.post('/api/profile/avatar/upload', avatarUpload.single('avatar'), async (req
         }
 
         // Update profile with new avatar URL
-        const profile = await database.profiles.update(wallet, {
-            avatarType: 'upload',
-            avatarUrl: avatarUrl
-        });
+        const profile = await database.profiles.updateAvatar(wallet, avatarUrl);
 
         res.json({
             success: true,
