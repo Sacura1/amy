@@ -158,7 +158,7 @@ async function createTables() {
 
         // Add LP tracking columns to amy_points table
         await client.query(`
-            DO $
+            DO $$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='lp_value_usd') THEN
                     ALTER TABLE amy_points ADD COLUMN lp_value_usd DECIMAL(20, 2) DEFAULT 0;
@@ -169,12 +169,12 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='last_lp_check') THEN
                     ALTER TABLE amy_points ADD COLUMN last_lp_check TIMESTAMP;
                 END IF;
-            END $;
+            END $$;
         `);
 
         // Add social connection columns to verified_users
         await client.query(`
-            DO $
+            DO $$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='discord_username') THEN
                     ALTER TABLE verified_users ADD COLUMN discord_username VARCHAR(255);
@@ -185,7 +185,7 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='email') THEN
                     ALTER TABLE verified_users ADD COLUMN email VARCHAR(255);
                 END IF;
-            END $;
+            END $$;
         `);
 
         // Create user_profiles table for extended profile data
