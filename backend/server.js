@@ -1842,11 +1842,11 @@ async function queryTokenBalance(wallet, tokenKey) {
 
     try {
         const { ethers } = require('ethers');
-        const provider = new ethers.JsonRpcProvider('https://rpc.berachain.com');
+        const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
         const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
 
         const balance = await contract.balanceOf(wallet);
-        const balanceFormatted = parseFloat(ethers.formatUnits(balance, token.decimals));
+        const balanceFormatted = parseFloat(ethers.utils.formatUnits(balance, token.decimals));
 
         // Get price and calculate USD value
         const price = await fetchTokenPrice(tokenKey);
