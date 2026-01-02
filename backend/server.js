@@ -6,7 +6,44 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const ethers = require('ethers');
+const multer = require('multer');
 require('dotenv').config();
+
+// Configure multer for avatar uploads
+const UPLOADS_DIR = path.join(__dirname, 'uploads', 'avatars');
+
+// Ensure uploads directory exists
+if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+const avatarStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, UPLOADS_DIR);
+    },
+    filename: (req, file, cb) => {
+        // Generate unique filename: wallet_timestamp.ext
+        const wallet = req.body.wallet || req.params.wallet || 'unknown';
+        const ext = path.extname(file.originalname).toLowerCase();
+        const filename = `${wallet.toLowerCase()}_${Date.now()}${ext}`;
+        cb(null, filename);
+    }
+});
+
+const avatarUpload = multer({
+    storage: avatarStorage,
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB max
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.'));
+        }
+    }
+});
 
 // Import database module (PostgreSQL or JSON fallback)
 const database = require('./database');
@@ -289,6 +326,9 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json());
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Trust proxy - important for Railway deployment
 app.set('trust proxy', 1);
@@ -1716,6 +1756,589 @@ app.get('/api/lp/tiers', (req, res) => {
 });
 
 // ============================================
+// TOKEN HOLDINGS TRACKING (SAIL.r, plvHEDGE)
+// ============================================
+
+// Token addresses for multiplier badges
+const BADGE_TOKENS = {
+    SAILR: {
+        address: '0x59a61B8d3064A51a95a5D6393c03e2152b1a2770',
+        symbol: 'SAIL.r',
+        decimals: 18,
+        geckoId: 'berachain_0x59a61b8d3064a51a95a5d6393c03e2152b1a2770'
+    },
+    PLVHEDGE: {
+        address: '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A',
+        symbol: 'plvHEDGE',
+        decimals: 18,
+        geckoId: 'berachain_0x28602b1ae8ca0ff5cd01b96a36f88f72febe727a'
+    }
+};
+
+// Token holdings multiplier tiers (same for both tokens)
+const TOKEN_MULTIPLIER_TIERS = [
+    { minUsd: 500, multiplier: 10 },
+    { minUsd: 100, multiplier: 5 },
+    { minUsd: 10, multiplier: 3 },
+    { minUsd: 0, multiplier: 1 }
+];
+
+// Cache for token prices (refresh every 5 minutes)
+let tokenPriceCache = {
+    sailr: { price: 0, timestamp: 0 },
+    plvhedge: { price: 0, timestamp: 0 }
+};
+const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Fetch token price from GeckoTerminal
+async function fetchTokenPrice(tokenKey) {
+    const token = BADGE_TOKENS[tokenKey];
+    const cacheKey = tokenKey.toLowerCase();
+    const now = Date.now();
+
+    // Return cached price if still valid
+    if (tokenPriceCache[cacheKey] && (now - tokenPriceCache[cacheKey].timestamp) < PRICE_CACHE_TTL) {
+        return tokenPriceCache[cacheKey].price;
+    }
+
+    try {
+        // Try GeckoTerminal API
+        const response = await fetch(
+            `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${token.address.toLowerCase()}`,
+            { headers: { 'Accept': 'application/json' } }
+        );
+
+        if (response.ok) {
+            const data = await response.json();
+            const price = parseFloat(data?.data?.attributes?.token_prices?.[token.address.toLowerCase()] || 0);
+            if (price > 0) {
+                tokenPriceCache[cacheKey] = { price, timestamp: now };
+                console.log(`💰 ${token.symbol} price: ${price.toFixed(6)}`);
+                return price;
+            }
+        }
+
+        // Fallback: return cached price even if expired, or 0
+        return tokenPriceCache[cacheKey]?.price || 0;
+    } catch (error) {
+        console.error(`❌ Error fetching ${token.symbol} price:`, error.message);
+        return tokenPriceCache[cacheKey]?.price || 0;
+    }
+}
+
+// Get multiplier for a given USD value
+function getTokenMultiplier(usdValue) {
+    for (const tier of TOKEN_MULTIPLIER_TIERS) {
+        if (usdValue >= tier.minUsd) {
+            return tier.multiplier;
+        }
+    }
+    return 1;
+}
+
+// Query token balance for a wallet
+async function queryTokenBalance(wallet, tokenKey) {
+    const token = BADGE_TOKENS[tokenKey];
+
+    try {
+        const { ethers } = require('ethers');
+        const provider = new ethers.JsonRpcProvider('https://rpc.berachain.com');
+        const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
+
+        const balance = await contract.balanceOf(wallet);
+        const balanceFormatted = parseFloat(ethers.formatUnits(balance, token.decimals));
+
+        // Get price and calculate USD value
+        const price = await fetchTokenPrice(tokenKey);
+        const usdValue = balanceFormatted * price;
+        const multiplier = getTokenMultiplier(usdValue);
+
+        return {
+            token: token.symbol,
+            address: token.address,
+            balance: balanceFormatted,
+            priceUsd: price,
+            valueUsd: usdValue,
+            multiplier: multiplier,
+            isActive: multiplier > 1
+        };
+    } catch (error) {
+        console.error(`❌ Error querying ${token.symbol} balance:`, error.message);
+        return {
+            token: token.symbol,
+            address: token.address,
+            balance: 0,
+            priceUsd: 0,
+            valueUsd: 0,
+            multiplier: 1,
+            isActive: false
+        };
+    }
+}
+
+// Query all badge token holdings for a wallet
+async function queryAllTokenHoldings(wallet) {
+    const [sailr, plvhedge] = await Promise.all([
+        queryTokenBalance(wallet, 'SAILR'),
+        queryTokenBalance(wallet, 'PLVHEDGE')
+    ]);
+
+    return {
+        sailr,
+        plvhedge,
+        tiers: TOKEN_MULTIPLIER_TIERS
+    };
+}
+
+// API endpoint: Get token holdings for badges
+app.get('/api/tokens/:wallet', async (req, res) => {
+    try {
+        const wallet = req.params.wallet;
+
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        const holdings = await queryAllTokenHoldings(wallet);
+
+        res.json({
+            success: true,
+            data: {
+                wallet: wallet.toLowerCase(),
+                ...holdings
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching token holdings:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch token holdings' });
+    }
+});
+
+// API endpoint: Get token multiplier tiers
+app.get('/api/tokens/tiers', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            tiers: TOKEN_MULTIPLIER_TIERS,
+            tokens: Object.entries(BADGE_TOKENS).map(([key, token]) => ({
+                key: key.toLowerCase(),
+                symbol: token.symbol,
+                address: token.address
+            }))
+        }
+    });
+});
+
+// ============================================
+// PROFILE ENDPOINTS
+// ============================================
+
+// Get user profile
+app.get('/api/profile/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        const profilesDb = database.profiles;
+        if (!profilesDb) {
+            return res.status(500).json({ success: false, error: 'Profiles not available' });
+        }
+
+        const profile = await profilesDb.getOrCreate(wallet);
+        const equippedBadges = await database.badges.getEquipped(wallet);
+        const earnedBadges = await database.badges.getEarned(wallet);
+        const socialConnections = await database.social.getConnections(wallet);
+
+        res.json({
+            success: true,
+            data: {
+                profile,
+                badges: {
+                    equipped: equippedBadges,
+                    earned: earnedBadges
+                },
+                social: socialConnections
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error getting profile:', error);
+        res.status(500).json({ success: false, error: 'Failed to get profile' });
+    }
+});
+
+// Update user profile (bio, display name)
+app.post('/api/profile/update', async (req, res) => {
+    try {
+        const { wallet, displayName, bio } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        // Validate bio length
+        if (bio && bio.length > 140) {
+            return res.status(400).json({ success: false, error: 'Bio must be 140 characters or less' });
+        }
+
+        // Validate display name length
+        if (displayName && displayName.length > 50) {
+            return res.status(400).json({ success: false, error: 'Display name must be 50 characters or less' });
+        }
+
+        const profile = await database.profiles.update(wallet, { displayName, bio });
+
+        res.json({
+            success: true,
+            data: profile
+        });
+    } catch (error) {
+        console.error('❌ Error updating profile:', error);
+        res.status(500).json({ success: false, error: 'Failed to update profile' });
+    }
+});
+
+// Upload avatar image
+app.post('/api/profile/avatar/upload', avatarUpload.single('avatar'), async (req, res) => {
+    try {
+        const { wallet } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            // Delete uploaded file if wallet is invalid
+            if (req.file) {
+                fs.unlinkSync(req.file.path);
+            }
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'No file uploaded' });
+        }
+
+        // Generate the URL for the uploaded avatar
+        const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+
+        // Delete old avatar if exists
+        const existingProfile = await database.profiles.get(wallet);
+        if (existingProfile && existingProfile.avatarUrl && existingProfile.avatarUrl.startsWith('/uploads/avatars/')) {
+            const oldAvatarPath = path.join(__dirname, existingProfile.avatarUrl);
+            if (fs.existsSync(oldAvatarPath)) {
+                try {
+                    fs.unlinkSync(oldAvatarPath);
+                } catch (err) {
+                    console.error('Error deleting old avatar:', err);
+                }
+            }
+        }
+
+        // Update profile with new avatar URL
+        const profile = await database.profiles.update(wallet, {
+            avatarType: 'upload',
+            avatarUrl: avatarUrl
+        });
+
+        res.json({
+            success: true,
+            data: {
+                avatarUrl: avatarUrl,
+                profile: profile
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error uploading avatar:', error);
+        // Clean up file if error occurred
+        if (req.file) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (err) {
+                console.error('Error cleaning up file:', err);
+            }
+        }
+        res.status(500).json({ success: false, error: 'Failed to upload avatar' });
+    }
+});
+
+// Error handler for multer
+app.use((error, req, res, next) => {
+    if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ success: false, error: 'File too large. Maximum size is 5MB.' });
+        }
+        return res.status(400).json({ success: false, error: error.message });
+    }
+    if (error.message === 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.') {
+        return res.status(400).json({ success: false, error: error.message });
+    }
+    next(error);
+});
+
+// ============================================
+// BADGE ENDPOINTS
+// ============================================
+
+// Get all badge definitions
+app.get('/api/badges/available', (req, res) => {
+    res.json({
+        success: true,
+        data: database.BADGE_DEFINITIONS
+    });
+});
+
+// Get user's badges (earned and equipped)
+app.get('/api/badges/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        const equipped = await database.badges.getEquipped(wallet);
+        const earned = await database.badges.getEarned(wallet);
+
+        res.json({
+            success: true,
+            data: {
+                equipped,
+                earned,
+                definitions: database.BADGE_DEFINITIONS
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error getting badges:', error);
+        res.status(500).json({ success: false, error: 'Failed to get badges' });
+    }
+});
+
+// Equip a badge to a slot
+app.post('/api/badges/:wallet/equip', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        const { slotNumber, badgeId } = req.body;
+
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!slotNumber || slotNumber < 1 || slotNumber > 5) {
+            return res.status(400).json({ success: false, error: 'Slot number must be between 1 and 5' });
+        }
+
+        if (!badgeId) {
+            return res.status(400).json({ success: false, error: 'Badge ID is required' });
+        }
+
+        // Verify user has earned this badge
+        const earned = await database.badges.getEarned(wallet);
+        const hasEarned = earned.some(b => b.id === badgeId);
+        if (!hasEarned) {
+            return res.status(400).json({ success: false, error: 'You have not earned this badge' });
+        }
+
+        const result = await database.badges.equip(wallet, slotNumber, badgeId);
+        const equipped = await database.badges.getEquipped(wallet);
+
+        res.json({
+            success: true,
+            data: equipped
+        });
+    } catch (error) {
+        console.error('❌ Error equipping badge:', error);
+        res.status(500).json({ success: false, error: 'Failed to equip badge' });
+    }
+});
+
+// Unequip a badge from a slot
+app.post('/api/badges/:wallet/unequip', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        const { slotNumber } = req.body;
+
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!slotNumber || slotNumber < 1 || slotNumber > 5) {
+            return res.status(400).json({ success: false, error: 'Slot number must be between 1 and 5' });
+        }
+
+        await database.badges.unequip(wallet, slotNumber);
+        const equipped = await database.badges.getEquipped(wallet);
+
+        res.json({
+            success: true,
+            data: equipped
+        });
+    } catch (error) {
+        console.error('❌ Error unequipping badge:', error);
+        res.status(500).json({ success: false, error: 'Failed to unequip badge' });
+    }
+});
+
+// ============================================
+// CUSTOMIZATION ENDPOINTS
+// ============================================
+
+// Get all customization items
+app.get('/api/customization/items', async (req, res) => {
+    try {
+        const { type } = req.query;
+        const items = await database.customization.getItems(type || null);
+
+        res.json({
+            success: true,
+            data: items
+        });
+    } catch (error) {
+        console.error('❌ Error getting customization items:', error);
+        res.status(500).json({ success: false, error: 'Failed to get items' });
+    }
+});
+
+// Get user's owned items
+app.get('/api/customization/:wallet/owned', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        const owned = await database.customization.getPurchased(wallet);
+
+        res.json({
+            success: true,
+            data: owned
+        });
+    } catch (error) {
+        console.error('❌ Error getting owned items:', error);
+        res.status(500).json({ success: false, error: 'Failed to get owned items' });
+    }
+});
+
+// Purchase a customization item
+app.post('/api/customization/purchase', async (req, res) => {
+    try {
+        const { wallet, itemId } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!itemId) {
+            return res.status(400).json({ success: false, error: 'Item ID is required' });
+        }
+
+        const result = await database.customization.purchase(wallet, itemId);
+
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error('❌ Error purchasing item:', error);
+        res.status(500).json({ success: false, error: 'Failed to purchase item' });
+    }
+});
+
+// Apply a customization (background, filter, animation)
+app.post('/api/customization/:wallet/apply', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        const { type, itemId } = req.body;
+
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!type || !['background', 'filter', 'animation'].includes(type)) {
+            return res.status(400).json({ success: false, error: 'Type must be background, filter, or animation' });
+        }
+
+        if (!itemId) {
+            return res.status(400).json({ success: false, error: 'Item ID is required' });
+        }
+
+        // Check if user owns the item (or it's default)
+        const item = await database.customization.getById(itemId);
+        if (!item) {
+            return res.status(404).json({ success: false, error: 'Item not found' });
+        }
+
+        if (!item.isDefault) {
+            const owns = await database.customization.ownsItem(wallet, itemId);
+            if (!owns) {
+                return res.status(400).json({ success: false, error: 'You do not own this item' });
+            }
+        }
+
+        const profile = await database.profiles.applyCustomization(wallet, type, itemId);
+
+        res.json({
+            success: true,
+            data: profile
+        });
+    } catch (error) {
+        console.error('❌ Error applying customization:', error);
+        res.status(500).json({ success: false, error: 'Failed to apply customization' });
+    }
+});
+
+// ============================================
+// SOCIAL CONNECTION ENDPOINTS (Thirdweb)
+// ============================================
+
+// Get user's social connections
+app.get('/api/social/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        const connections = await database.social.getConnections(wallet);
+
+        res.json({
+            success: true,
+            data: connections
+        });
+    } catch (error) {
+        console.error('❌ Error getting social connections:', error);
+        res.status(500).json({ success: false, error: 'Failed to get social connections' });
+    }
+});
+
+// Sync social connections from Thirdweb
+app.post('/api/social/sync', async (req, res) => {
+    try {
+        const { wallet, discord, telegram, email } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        const connections = await database.social.updateConnections(wallet, {
+            discord,
+            telegram,
+            email
+        });
+
+        res.json({
+            success: true,
+            data: connections
+        });
+    } catch (error) {
+        console.error('❌ Error syncing social connections:', error);
+        res.status(500).json({ success: false, error: 'Failed to sync social connections' });
+    }
+});
+
+// ============================================
 // PERIODIC JOBS
 // ============================================
 
@@ -2183,18 +2806,37 @@ async function awardHourlyPoints() {
 
         let awarded = 0;
         let totalPointsAwarded = 0;
-        let lpBonusUsers = 0;
+        let multiplierUsers = 0;
 
         for (const user of eligibleUsers) {
             if (user.pointsPerHour > 0) {
-                // Apply LP multiplier to base points
-                const basePoints = parseFloat(user.pointsPerHour);
-                const lpMultiplier = parseInt(user.lpMultiplier) || 1;
-                const finalPoints = basePoints * lpMultiplier;
+                // Fetch token holdings for this user to get all multipliers
+                let sailrMult = 0;
+                let plvhedgeMult = 0;
+                try {
+                    const tokenHoldings = await queryAllTokenHoldings(user.wallet);
+                    sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
+                    plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 0;
+                } catch (err) {
+                    // If token query fails, continue with LP only
+                }
 
-                const reason = lpMultiplier > 1
-                    ? `hourly_earning_lp_${lpMultiplier}x`
-                    : 'hourly_earning';
+                // Calculate total multiplier from all badges (additive)
+                const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult);
+
+                const basePoints = parseFloat(user.pointsPerHour);
+                const finalPoints = basePoints * totalMultiplier;
+
+                // Build reason string
+                let reason = 'hourly_earning';
+                if (totalMultiplier > 1) {
+                    const parts = [];
+                    if (lpMult > 1) parts.push(`lp${lpMult}x`);
+                    if (sailrMult > 1) parts.push(`sailr${sailrMult}x`);
+                    if (plvhedgeMult > 1) parts.push(`plvh${plvhedgeMult}x`);
+                    reason = `hourly_${parts.join('_')}_total${totalMultiplier}x`;
+                }
 
                 const result = await pointsDb.awardPoints(
                     user.wallet,
@@ -2207,14 +2849,17 @@ async function awardHourlyPoints() {
                 if (result && result.success) {
                     awarded++;
                     totalPointsAwarded += finalPoints;
-                    if (lpMultiplier > 1) {
-                        lpBonusUsers++;
+                    if (totalMultiplier > 1) {
+                        multiplierUsers++;
                     }
                 }
+
+                // Small delay between users to avoid rate limiting on token queries
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
 
-        console.log(`✅ Hourly points distributed: ${awarded} users, ${totalPointsAwarded.toFixed(2)} total points, ${lpBonusUsers} with LP bonus`);
+        console.log(`✅ Hourly points distributed: ${awarded} users, ${totalPointsAwarded.toFixed(2)} total points, ${multiplierUsers} with multipliers`);
 
     } catch (error) {
         console.error('❌ Error awarding hourly points:', error);

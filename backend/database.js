@@ -158,7 +158,7 @@ async function createTables() {
 
         // Add LP tracking columns to amy_points table
         await client.query(`
-            DO $$
+            DO $
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='lp_value_usd') THEN
                     ALTER TABLE amy_points ADD COLUMN lp_value_usd DECIMAL(20, 2) DEFAULT 0;
@@ -169,7 +169,88 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='last_lp_check') THEN
                     ALTER TABLE amy_points ADD COLUMN last_lp_check TIMESTAMP;
                 END IF;
-            END $$;
+            END $;
+        `);
+
+        // Add social connection columns to verified_users
+        await client.query(`
+            DO $
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='discord_username') THEN
+                    ALTER TABLE verified_users ADD COLUMN discord_username VARCHAR(255);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='telegram_username') THEN
+                    ALTER TABLE verified_users ADD COLUMN telegram_username VARCHAR(255);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='email') THEN
+                    ALTER TABLE verified_users ADD COLUMN email VARCHAR(255);
+                END IF;
+            END $;
+        `);
+
+        // Create user_profiles table for extended profile data
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                wallet VARCHAR(42) PRIMARY KEY,
+                display_name VARCHAR(50),
+                bio VARCHAR(140),
+                avatar_type VARCHAR(10) DEFAULT 'default',
+                avatar_url VARCHAR(500),
+                avatar_nft_address VARCHAR(42),
+                avatar_nft_token_id VARCHAR(100),
+                background_id VARCHAR(50) DEFAULT 'default',
+                filter_id VARCHAR(50) DEFAULT 'default',
+                animation_id VARCHAR(50) DEFAULT 'default',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Create user_badges table for equipped badges (5 slots)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS user_badges (
+                id SERIAL PRIMARY KEY,
+                wallet VARCHAR(42) NOT NULL,
+                slot_number INTEGER NOT NULL CHECK (slot_number >= 1 AND slot_number <= 5),
+                badge_id VARCHAR(50) NOT NULL,
+                equipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(wallet, slot_number)
+            );
+        `);
+
+        // Create customization_items table for purchasable items
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS customization_items (
+                id VARCHAR(50) PRIMARY KEY,
+                type VARCHAR(20) NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                preview_url VARCHAR(500),
+                cost_points INTEGER NOT NULL DEFAULT 0,
+                is_default BOOLEAN DEFAULT false,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Create user_purchases table for tracking bought items
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS user_purchases (
+                id SERIAL PRIMARY KEY,
+                wallet VARCHAR(42) NOT NULL,
+                item_id VARCHAR(50) NOT NULL,
+                purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                points_spent INTEGER NOT NULL,
+                UNIQUE(wallet, item_id)
+            );
+        `);
+
+        // Add index for faster badge queries
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_user_badges_wallet ON user_badges(wallet);
+        `);
+
+        // Add index for faster purchase queries
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_user_purchases_wallet ON user_purchases(wallet);
         `);
 
         console.log('✅ Database tables created/verified');
@@ -1141,6 +1222,426 @@ const points = {
     }
 };
 
+
+
+// Badge definitions - earned badges based on user activity
+const BADGE_DEFINITIONS = {
+    verified: { id: 'verified', name: 'Verified', description: 'Connected X account', icon: '✓' },
+    og_holder: { id: 'og_holder', name: 'OG Holder', description: 'Early AMY holder', icon: '🏆' },
+    lp_x3: { id: 'lp_x3', name: 'LP Bronze', description: '$10+ LP position', icon: '🥉' },
+    lp_x5: { id: 'lp_x5', name: 'LP Silver', description: '$100+ LP position', icon: '🥈' },
+    lp_x10: { id: 'lp_x10', name: 'LP Gold', description: '$500+ LP position', icon: '🥇' },
+    sailr_x3: { id: 'sailr_x3', name: 'SAIL.r Bronze', description: '$10+ SAIL.r', icon: '⛵' },
+    sailr_x5: { id: 'sailr_x5', name: 'SAIL.r Silver', description: '$100+ SAIL.r', icon: '⛵' },
+    sailr_x10: { id: 'sailr_x10', name: 'SAIL.r Gold', description: '$500+ SAIL.r', icon: '⛵' },
+    plvhedge_x3: { id: 'plvhedge_x3', name: 'plvHEDGE Bronze', description: '$10+ plvHEDGE', icon: '🛡️' },
+    plvhedge_x5: { id: 'plvhedge_x5', name: 'plvHEDGE Silver', description: '$100+ plvHEDGE', icon: '🛡️' },
+    plvhedge_x10: { id: 'plvhedge_x10', name: 'plvHEDGE Gold', description: '$500+ plvHEDGE', icon: '🛡️' },
+    referrer_5: { id: 'referrer_5', name: 'Referrer', description: '5+ referrals', icon: '👥' },
+    referrer_10: { id: 'referrer_10', name: 'Super Referrer', description: '10+ referrals', icon: '👥' },
+    points_1k: { id: 'points_1k', name: 'Point Collector', description: '1,000+ points', icon: '⭐' },
+    points_10k: { id: 'points_10k', name: 'Point Master', description: '10,000+ points', icon: '💫' }
+};
+
+// User profiles helper functions
+const profiles = {
+    // Get or create profile for a wallet
+    getOrCreate: async (wallet) => {
+        if (!pool) return null;
+
+        const existing = await pool.query(
+            `SELECT wallet, display_name as "displayName", bio, avatar_type as "avatarType",
+             avatar_url as "avatarUrl", avatar_nft_address as "avatarNftAddress",
+             avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId",
+             filter_id as "filterId", animation_id as "animationId",
+             created_at as "createdAt", updated_at as "updatedAt"
+             FROM user_profiles WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+
+        if (existing.rows[0]) {
+            return existing.rows[0];
+        }
+
+        // Create new profile
+        await pool.query(
+            `INSERT INTO user_profiles (wallet) VALUES ($1)`,
+            [wallet.toLowerCase()]
+        );
+
+        return {
+            wallet: wallet.toLowerCase(),
+            displayName: null,
+            bio: null,
+            avatarType: 'default',
+            avatarUrl: null,
+            avatarNftAddress: null,
+            avatarNftTokenId: null,
+            backgroundId: 'default',
+            filterId: 'default',
+            animationId: 'default',
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+    },
+
+    // Get profile by wallet
+    getByWallet: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT wallet, display_name as "displayName", bio, avatar_type as "avatarType",
+             avatar_url as "avatarUrl", avatar_nft_address as "avatarNftAddress",
+             avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId",
+             filter_id as "filterId", animation_id as "animationId",
+             created_at as "createdAt", updated_at as "updatedAt"
+             FROM user_profiles WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+        return result.rows[0] || null;
+    },
+
+    // Update profile (bio, display name)
+    update: async (wallet, updates) => {
+        if (!pool) return null;
+        const { displayName, bio } = updates;
+
+        await pool.query(
+            `INSERT INTO user_profiles (wallet, display_name, bio, updated_at)
+             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+             ON CONFLICT (wallet) DO UPDATE SET
+             display_name = COALESCE($2, user_profiles.display_name),
+             bio = COALESCE($3, user_profiles.bio),
+             updated_at = CURRENT_TIMESTAMP`,
+            [wallet.toLowerCase(), displayName, bio]
+        );
+
+        return await profiles.getByWallet(wallet);
+    },
+
+    // Update avatar (upload)
+    updateAvatar: async (wallet, avatarUrl) => {
+        if (!pool) return null;
+        await pool.query(
+            `UPDATE user_profiles SET
+             avatar_type = 'upload',
+             avatar_url = $1,
+             avatar_nft_address = NULL,
+             avatar_nft_token_id = NULL,
+             updated_at = CURRENT_TIMESTAMP
+             WHERE LOWER(wallet) = LOWER($2)`,
+            [avatarUrl, wallet]
+        );
+        return await profiles.getByWallet(wallet);
+    },
+
+    // Update avatar (NFT)
+    updateAvatarNft: async (wallet, nftAddress, tokenId) => {
+        if (!pool) return null;
+        await pool.query(
+            `UPDATE user_profiles SET
+             avatar_type = 'nft',
+             avatar_url = NULL,
+             avatar_nft_address = $1,
+             avatar_nft_token_id = $2,
+             updated_at = CURRENT_TIMESTAMP
+             WHERE LOWER(wallet) = LOWER($3)`,
+            [nftAddress, tokenId, wallet]
+        );
+        return await profiles.getByWallet(wallet);
+    },
+
+    // Apply customization (background, filter, animation)
+    applyCustomization: async (wallet, type, itemId) => {
+        if (!pool) return null;
+
+        const columnMap = {
+            background: 'background_id',
+            filter: 'filter_id',
+            animation: 'animation_id'
+        };
+
+        const column = columnMap[type];
+        if (!column) return null;
+
+        await pool.query(
+            `UPDATE user_profiles SET
+             ${column} = $1,
+             updated_at = CURRENT_TIMESTAMP
+             WHERE LOWER(wallet) = LOWER($2)`,
+            [itemId, wallet]
+        );
+        return await profiles.getByWallet(wallet);
+    }
+};
+
+// User badges helper functions
+const badges = {
+    // Get all badge definitions
+    getDefinitions: () => BADGE_DEFINITIONS,
+
+    // Get equipped badges for a wallet (5 slots)
+    getEquipped: async (wallet) => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT slot_number as "slotNumber", badge_id as "badgeId", equipped_at as "equippedAt"
+             FROM user_badges
+             WHERE LOWER(wallet) = LOWER($1)
+             ORDER BY slot_number ASC`,
+            [wallet]
+        );
+        return result.rows;
+    },
+
+    // Equip a badge to a slot (1-5)
+    equip: async (wallet, slotNumber, badgeId) => {
+        if (!pool) return null;
+        if (slotNumber < 1 || slotNumber > 5) {
+            return { success: false, error: 'Slot number must be between 1 and 5' };
+        }
+
+        await pool.query(
+            `INSERT INTO user_badges (wallet, slot_number, badge_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (wallet, slot_number) DO UPDATE SET
+             badge_id = $3,
+             equipped_at = CURRENT_TIMESTAMP`,
+            [wallet.toLowerCase(), slotNumber, badgeId]
+        );
+        return { success: true };
+    },
+
+    // Unequip a badge from a slot
+    unequip: async (wallet, slotNumber) => {
+        if (!pool) return null;
+        await pool.query(
+            `DELETE FROM user_badges
+             WHERE LOWER(wallet) = LOWER($1) AND slot_number = $2`,
+            [wallet, slotNumber]
+        );
+        return { success: true };
+    },
+
+    // Get earned badges for a user (calculated based on their stats)
+    getEarned: async (wallet) => {
+        if (!pool) return [];
+
+        const earned = [];
+
+        // Get user data
+        const userData = await pool.query(
+            `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
+             r.referral_count
+             FROM verified_users v
+             LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
+             LEFT JOIN referrals r ON LOWER(v.wallet) = LOWER(r.wallet)
+             WHERE LOWER(v.wallet) = LOWER($1)`,
+            [wallet]
+        );
+
+        if (userData.rows[0]) {
+            const user = userData.rows[0];
+
+            // Verified badge (has X username)
+            if (user.x_username) {
+                earned.push(BADGE_DEFINITIONS.verified);
+            }
+
+            // LP badges
+            const lpUsd = parseFloat(user.lp_value_usd) || 0;
+            if (lpUsd >= 500) earned.push(BADGE_DEFINITIONS.lp_x10);
+            else if (lpUsd >= 100) earned.push(BADGE_DEFINITIONS.lp_x5);
+            else if (lpUsd >= 10) earned.push(BADGE_DEFINITIONS.lp_x3);
+
+            // Referral badges
+            const refs = parseInt(user.referral_count) || 0;
+            if (refs >= 10) earned.push(BADGE_DEFINITIONS.referrer_10);
+            else if (refs >= 5) earned.push(BADGE_DEFINITIONS.referrer_5);
+
+            // Points badges
+            const pts = parseFloat(user.total_points) || 0;
+            if (pts >= 10000) earned.push(BADGE_DEFINITIONS.points_10k);
+            else if (pts >= 1000) earned.push(BADGE_DEFINITIONS.points_1k);
+        }
+
+        return earned;
+    }
+};
+
+// Customization items helper functions
+const customization = {
+    // Get all items (optionally by type)
+    getItems: async (type = null) => {
+        if (!pool) return [];
+        let query = `SELECT id, type, name, preview_url as "previewUrl",
+                     cost_points as "costPoints", is_default as "isDefault"
+                     FROM customization_items`;
+        const params = [];
+
+        if (type) {
+            query += ' WHERE type = $1';
+            params.push(type);
+        }
+
+        query += ' ORDER BY is_default DESC, cost_points ASC';
+
+        const result = await pool.query(query, params);
+        return result.rows;
+    },
+
+    // Get item by ID
+    getById: async (itemId) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT id, type, name, preview_url as "previewUrl",
+             cost_points as "costPoints", is_default as "isDefault"
+             FROM customization_items WHERE id = $1`,
+            [itemId]
+        );
+        return result.rows[0] || null;
+    },
+
+    // Add a new item (admin)
+    addItem: async (item) => {
+        if (!pool) return null;
+        const { id, type, name, previewUrl, costPoints, isDefault } = item;
+        await pool.query(
+            `INSERT INTO customization_items (id, type, name, preview_url, cost_points, is_default)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (id) DO UPDATE SET
+             type = $2, name = $3, preview_url = $4, cost_points = $5, is_default = $6`,
+            [id, type, name, previewUrl, costPoints || 0, isDefault || false]
+        );
+        return await customization.getById(id);
+    },
+
+    // Get user's purchased items
+    getPurchased: async (wallet) => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT ci.id, ci.type, ci.name, ci.preview_url as "previewUrl",
+             up.purchased_at as "purchasedAt", up.points_spent as "pointsSpent"
+             FROM user_purchases up
+             JOIN customization_items ci ON up.item_id = ci.id
+             WHERE LOWER(up.wallet) = LOWER($1)
+             ORDER BY up.purchased_at DESC`,
+            [wallet]
+        );
+        return result.rows;
+    },
+
+    // Check if user owns an item
+    ownsItem: async (wallet, itemId) => {
+        if (!pool) return false;
+        const result = await pool.query(
+            `SELECT 1 FROM user_purchases
+             WHERE LOWER(wallet) = LOWER($1) AND item_id = $2`,
+            [wallet, itemId]
+        );
+        return result.rows.length > 0;
+    },
+
+    // Purchase an item (deducts points)
+    purchase: async (wallet, itemId) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        // Get item
+        const item = await customization.getById(itemId);
+        if (!item) {
+            return { success: false, error: 'Item not found' };
+        }
+
+        // Check if already owned or is default
+        if (item.isDefault) {
+            return { success: false, error: 'Default items do not need to be purchased' };
+        }
+
+        const owned = await customization.ownsItem(wallet, itemId);
+        if (owned) {
+            return { success: false, error: 'You already own this item' };
+        }
+
+        // Check if user has enough points
+        const pointsData = await points.getByWallet(wallet);
+        if (!pointsData || parseFloat(pointsData.totalPoints) < item.costPoints) {
+            return { success: false, error: 'Not enough Amy Points' };
+        }
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Deduct points
+            await client.query(
+                `UPDATE amy_points SET
+                 total_points = total_points - $1,
+                 last_points_update = CURRENT_TIMESTAMP
+                 WHERE LOWER(wallet) = LOWER($2)`,
+                [item.costPoints, wallet]
+            );
+
+            // Log the purchase as negative points in history
+            await client.query(
+                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [wallet.toLowerCase(), -item.costPoints, `purchase_${itemId}`, pointsData.lastAmyBalance || 0, pointsData.currentTier || 'none']
+            );
+
+            // Record purchase
+            await client.query(
+                `INSERT INTO user_purchases (wallet, item_id, points_spent)
+                 VALUES ($1, $2, $3)`,
+                [wallet.toLowerCase(), itemId, item.costPoints]
+            );
+
+            await client.query('COMMIT');
+
+            return {
+                success: true,
+                item: item,
+                pointsSpent: item.costPoints,
+                newBalance: parseFloat(pointsData.totalPoints) - item.costPoints
+            };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+};
+
+// Social connections helper functions (for syncing Thirdweb linked profiles)
+const social = {
+    // Update social connections for a user
+    updateConnections: async (wallet, connections) => {
+        if (!pool) return null;
+        const { discord, telegram, email } = connections;
+
+        await pool.query(
+            `UPDATE verified_users SET
+             discord_username = COALESCE($1, discord_username),
+             telegram_username = COALESCE($2, telegram_username),
+             email = COALESCE($3, email)
+             WHERE LOWER(wallet) = LOWER($4)`,
+            [discord, telegram, email, wallet]
+        );
+
+        return await social.getConnections(wallet);
+    },
+
+    // Get social connections for a user
+    getConnections: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT x_username as "xUsername", discord_username as "discordUsername",
+             telegram_username as "telegramUsername", email
+             FROM verified_users WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+        return result.rows[0] || null;
+    }
+};
+
 module.exports = {
     initDatabase,
     db,
@@ -1149,5 +1650,10 @@ module.exports = {
     referrals,
     holders,
     points,
-    POINTS_TIERS
+    profiles,
+    badges,
+    customization,
+    social,
+    POINTS_TIERS,
+    BADGE_DEFINITIONS
 };
