@@ -7,7 +7,16 @@ const fs = require('fs');
 const path = require('path');
 const ethers = require('ethers');
 const multer = require('multer');
+const sgMail = require('@sendgrid/mail');
 require('dotenv').config();
+
+// Configure SendGrid
+if (process.env.SENDGRID_API_KEY) {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    console.log('📧 SendGrid configured');
+} else {
+    console.log('⚠️ SendGrid API key not configured - email verification will not work');
+}
 
 // Configure multer for avatar uploads
 const UPLOADS_DIR = path.join(__dirname, 'uploads', 'avatars');
@@ -2060,29 +2069,25 @@ app.post('/api/profile/avatar/upload', avatarUpload.single('avatar'), async (req
             return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
-        // Generate the URL for the uploaded avatar
-        const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+        // Read the file and convert to base64
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const base64Data = `data:${req.file.mimetype};base64,${fileBuffer.toString('base64')}`;
 
-        // Delete old avatar if exists
-        const existingProfile = await database.profiles.getByWallet(wallet);
-        if (existingProfile && existingProfile.avatarUrl && existingProfile.avatarUrl.startsWith('/uploads/avatars/')) {
-            const oldAvatarPath = path.join(__dirname, existingProfile.avatarUrl);
-            if (fs.existsSync(oldAvatarPath)) {
-                try {
-                    fs.unlinkSync(oldAvatarPath);
-                } catch (err) {
-                    console.error('Error deleting old avatar:', err);
-                }
-            }
+        // Delete the temporary file immediately
+        try {
+            fs.unlinkSync(req.file.path);
+        } catch (err) {
+            console.error('Error deleting temp file:', err);
         }
 
-        // Update profile with new avatar URL
-        const profile = await database.profiles.updateAvatar(wallet, avatarUrl);
+        // Update profile with base64 avatar data (stored in PostgreSQL)
+        const profile = await database.profiles.updateAvatar(wallet, null, base64Data);
 
         res.json({
             success: true,
             data: {
-                avatarUrl: avatarUrl,
+                avatarUrl: null,
+                avatarData: base64Data,
                 profile: profile
             }
         });
@@ -2374,6 +2379,103 @@ app.post('/api/social/sync', async (req, res) => {
     } catch (error) {
         console.error('❌ Error syncing social connections:', error);
         res.status(500).json({ success: false, error: 'Failed to sync social connections' });
+    }
+});
+
+// ============================================
+// EMAIL VERIFICATION (SendGrid)
+// ============================================
+
+// Send verification email
+app.post('/api/email/send-verification', async (req, res) => {
+    try {
+        const { wallet, email } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!email || !email.includes('@')) {
+            return res.status(400).json({ success: false, error: 'Invalid email address' });
+        }
+
+        if (!process.env.SENDGRID_API_KEY) {
+            return res.status(500).json({ success: false, error: 'Email service not configured' });
+        }
+
+        // Check if email is already linked to another wallet
+        const isLinked = await database.emailVerification.isEmailLinked(email);
+        if (isLinked) {
+            return res.status(400).json({ success: false, error: 'This email is already linked to another wallet' });
+        }
+
+        // Create verification code
+        const { code, expiresAt } = await database.emailVerification.createVerification(wallet, email);
+
+        // Send email via SendGrid
+        const msg = {
+            to: email,
+            from: process.env.SENDGRID_FROM_EMAIL || 'noreply@amy.money',
+            subject: 'Amy Points - Email Verification Code',
+            text: `Your verification code is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this, please ignore this email.`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #ec4899;">Amy Points - Email Verification</h2>
+                    <p>Your verification code is:</p>
+                    <div style="background: #1f2937; color: #fbbf24; font-size: 32px; font-weight: bold; text-align: center; padding: 20px; border-radius: 10px; letter-spacing: 5px;">
+                        ${code}
+                    </div>
+                    <p style="color: #9ca3af; margin-top: 20px;">This code expires in 10 minutes.</p>
+                    <p style="color: #9ca3af;">If you didn't request this, please ignore this email.</p>
+                    <hr style="border: none; border-top: 1px solid #374151; margin: 20px 0;">
+                    <p style="color: #6b7280; font-size: 12px;">Amy Points - Berachain</p>
+                </div>
+            `
+        };
+
+        await sgMail.send(msg);
+        console.log(`📧 Verification email sent to ${email} for wallet ${wallet}`);
+
+        res.json({
+            success: true,
+            message: 'Verification code sent to your email',
+            expiresAt
+        });
+    } catch (error) {
+        console.error('❌ Error sending verification email:', error);
+        res.status(500).json({ success: false, error: 'Failed to send verification email' });
+    }
+});
+
+// Verify email code
+app.post('/api/email/verify', async (req, res) => {
+    try {
+        const { wallet, code } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!code || code.length !== 6) {
+            return res.status(400).json({ success: false, error: 'Invalid verification code' });
+        }
+
+        const result = await database.emailVerification.verifyCode(wallet, code);
+
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        console.log(`✅ Email verified for wallet ${wallet}: ${result.email}`);
+
+        res.json({
+            success: true,
+            message: 'Email verified successfully',
+            email: result.email
+        });
+    } catch (error) {
+        console.error('❌ Error verifying email:', error);
+        res.status(500).json({ success: false, error: 'Failed to verify email' });
     }
 });
 

@@ -48,7 +48,7 @@ async function createTables() {
 
         // Add referral columns if they don't exist (for existing tables)
         await client.query(`
-            DO $$
+            DO $$$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='referral_code') THEN
                     ALTER TABLE verified_users ADD COLUMN referral_code VARCHAR(8) UNIQUE;
@@ -59,7 +59,7 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='referral_count') THEN
                     ALTER TABLE verified_users ADD COLUMN referral_count INTEGER DEFAULT 0;
                 END IF;
-            END $$;
+            END $$$;
         `);
 
         // Create leaderboard table
@@ -105,12 +105,12 @@ async function createTables() {
 
         // Add last_known_balance column if it doesn't exist (for tracking balance changes)
         await client.query(`
-            DO $$
+            DO $$$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='last_known_balance') THEN
                     ALTER TABLE referrals ADD COLUMN last_known_balance DECIMAL(20, 2) DEFAULT 0;
                 END IF;
-            END $$;
+            END $$$;
         `);
 
         // Create holders table (tracks users with 300+ AMY who connected wallet + X)
@@ -158,7 +158,7 @@ async function createTables() {
 
         // Add LP tracking columns to amy_points table
         await client.query(`
-            DO $$
+            DO $$$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='lp_value_usd') THEN
                     ALTER TABLE amy_points ADD COLUMN lp_value_usd DECIMAL(20, 2) DEFAULT 0;
@@ -181,12 +181,12 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plvhedge_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN plvhedge_multiplier INTEGER DEFAULT 1;
                 END IF;
-            END $$;
+            END $$$;
         `);
 
         // Add social connection columns to verified_users
         await client.query(`
-            DO $$
+            DO $$$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='discord_username') THEN
                     ALTER TABLE verified_users ADD COLUMN discord_username VARCHAR(255);
@@ -197,7 +197,7 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='email') THEN
                     ALTER TABLE verified_users ADD COLUMN email VARCHAR(255);
                 END IF;
-            END $$;
+            END $$$;
         `);
 
         // Create user_profiles table for extended profile data
@@ -218,6 +218,15 @@ async function createTables() {
             );
         `);
 
+        // Add avatar_data column for base64 storage if it doesn't exist
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_profiles' AND column_name='avatar_data') THEN
+                    ALTER TABLE user_profiles ADD COLUMN avatar_data TEXT;
+                END IF;
+            END $$;
+        `);
         // Create user_badges table for equipped badges (5 slots)
         await client.query(`
             CREATE TABLE IF NOT EXISTS user_badges (
@@ -265,6 +274,17 @@ async function createTables() {
             CREATE INDEX IF NOT EXISTS idx_user_purchases_wallet ON user_purchases(wallet);
         `);
 
+        // Create email_verifications table for SendGrid verification codes
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS email_verifications (
+                wallet VARCHAR(42) PRIMARY KEY,
+                email VARCHAR(255) NOT NULL,
+                code VARCHAR(6) NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
         console.log('✅ Database tables created/verified');
 
         // Migrate from JSON files if tables are empty
@@ -272,6 +292,9 @@ async function createTables() {
 
         // Populate holders table from existing verified users (one-time migration)
         await populateHoldersFromVerifiedUsers(client);
+
+        // Seed customization items if table is empty
+        await seedCustomizationItems(client);
 
     } catch (error) {
         console.error('❌ Error creating tables:', error);
@@ -384,6 +407,61 @@ async function populateHoldersFromVerifiedUsers(client) {
 
     } catch (error) {
         console.error('❌ Error populating holders table:', error);
+    }
+}
+
+// Seed customization items if table is empty
+async function seedCustomizationItems(client) {
+    try {
+        // Check if items already exist
+        const count = await client.query('SELECT COUNT(*) FROM customization_items');
+        if (parseInt(count.rows[0].count) > 0) {
+            console.log('📊 Customization items already seeded');
+            return;
+        }
+
+        console.log('🌱 Seeding customization items...');
+
+        // Backgrounds
+        const backgrounds = [
+            { id: 'bg_default', type: 'background', name: 'Default', previewUrl: null, costPoints: 0, isDefault: true },
+            { id: 'bg_1', type: 'background', name: 'BG 1', previewUrl: '/bg_1.jpg', costPoints: 50, isDefault: false },
+            { id: 'bg_2', type: 'background', name: 'BG 2', previewUrl: '/bg_2.jpg', costPoints: 100, isDefault: false },
+            { id: 'bg_3', type: 'background', name: 'BG 3', previewUrl: '/bg_3.jpg', costPoints: 50, isDefault: false },
+            { id: 'bg_4', type: 'background', name: 'BG 4', previewUrl: '/bg_4.jpg', costPoints: 50, isDefault: false },
+        ];
+
+        // Filters
+        const filters = [
+            { id: 'filter_none', type: 'filter', name: 'None', previewUrl: null, costPoints: 0, isDefault: true },
+            { id: 'filter_grey', type: 'filter', name: 'Grey', previewUrl: null, costPoints: 50, isDefault: false },
+            { id: 'filter_blue', type: 'filter', name: 'Blue', previewUrl: null, costPoints: 50, isDefault: false },
+            { id: 'filter_pink', type: 'filter', name: 'Pink', previewUrl: null, costPoints: 50, isDefault: false },
+            { id: 'filter_yellow', type: 'filter', name: 'Yellow', previewUrl: null, costPoints: 50, isDefault: false },
+        ];
+
+        // Animations
+        const animations = [
+            { id: 'anim_none', type: 'animation', name: 'Turn OFF', previewUrl: null, costPoints: 0, isDefault: true },
+            { id: 'anim_floating', type: 'animation', name: 'Turn ON', previewUrl: null, costPoints: 0, isDefault: true },
+            { id: 'anim_custom', type: 'animation', name: 'Custom', previewUrl: null, costPoints: 9999, isDefault: false },
+        ];
+
+        const allItems = [...backgrounds, ...filters, ...animations];
+
+        for (const item of allItems) {
+            await client.query(
+                `INSERT INTO customization_items (id, type, name, preview_url, cost_points, is_default)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (id) DO NOTHING`,
+                [item.id, item.type, item.name, item.previewUrl, item.costPoints, item.isDefault]
+            );
+        }
+
+        console.log(`✅ Seeded ${allItems.length} customization items`);
+
+    } catch (error) {
+        console.error('❌ Error seeding customization items:', error);
     }
 }
 
@@ -1278,7 +1356,8 @@ const profiles = {
 
         const existing = await pool.query(
             `SELECT wallet, display_name as "displayName", bio, avatar_type as "avatarType",
-             avatar_url as "avatarUrl", avatar_nft_address as "avatarNftAddress",
+             avatar_url as "avatarUrl", avatar_data as "avatarData",
+             avatar_nft_address as "avatarNftAddress",
              avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId",
              filter_id as "filterId", animation_id as "animationId",
              created_at as "createdAt", updated_at as "updatedAt"
@@ -1302,6 +1381,7 @@ const profiles = {
             bio: null,
             avatarType: 'default',
             avatarUrl: null,
+            avatarData: null,
             avatarNftAddress: null,
             avatarNftTokenId: null,
             backgroundId: 'default',
@@ -1317,7 +1397,8 @@ const profiles = {
         if (!pool) return null;
         const result = await pool.query(
             `SELECT wallet, display_name as "displayName", bio, avatar_type as "avatarType",
-             avatar_url as "avatarUrl", avatar_nft_address as "avatarNftAddress",
+             avatar_url as "avatarUrl", avatar_data as "avatarData",
+             avatar_nft_address as "avatarNftAddress",
              avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId",
              filter_id as "filterId", animation_id as "animationId",
              created_at as "createdAt", updated_at as "updatedAt"
@@ -1345,21 +1426,22 @@ const profiles = {
         return await profiles.getByWallet(wallet);
     },
 
-    // Update avatar (upload)
-    updateAvatar: async (wallet, avatarUrl) => {
+    // Update avatar (upload with base64)
+    updateAvatar: async (wallet, avatarUrl, avatarData = null) => {
         if (!pool) return null;
         // First ensure profile exists
         await profiles.getOrCreate(wallet);
-        // Then update avatar
+        // Then update avatar - store base64 if provided
         await pool.query(
             `UPDATE user_profiles SET
              avatar_type = 'upload',
              avatar_url = $1,
+             avatar_data = $2,
              avatar_nft_address = NULL,
              avatar_nft_token_id = NULL,
              updated_at = CURRENT_TIMESTAMP
-             WHERE LOWER(wallet) = LOWER($2)`,
-            [avatarUrl, wallet]
+             WHERE LOWER(wallet) = LOWER($3)`,
+            [avatarUrl, avatarData, wallet]
         );
         return await profiles.getByWallet(wallet);
     },
@@ -1653,6 +1735,101 @@ const customization = {
     }
 };
 
+// Email verification helper functions (using SendGrid)
+const emailVerification = {
+    // Create verification code for a wallet
+    createVerification: async (wallet, email) => {
+        if (!pool) return null;
+
+        // Generate 6-digit code
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        // Delete any existing verification for this wallet
+        await pool.query(
+            'DELETE FROM email_verifications WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+
+        // Create new verification
+        await pool.query(
+            `INSERT INTO email_verifications (wallet, email, code, expires_at)
+             VALUES ($1, $2, $3, $4)`,
+            [wallet.toLowerCase(), email.toLowerCase(), code, expiresAt]
+        );
+
+        return { code, expiresAt };
+    },
+
+    // Verify code and link email to wallet
+    verifyCode: async (wallet, code) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        // Get verification record
+        const result = await pool.query(
+            `SELECT email, code, expires_at as "expiresAt"
+             FROM email_verifications
+             WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+
+        if (!result.rows[0]) {
+            return { success: false, error: 'No verification pending. Please request a new code.' };
+        }
+
+        const verification = result.rows[0];
+
+        // Check if expired
+        if (new Date() > new Date(verification.expiresAt)) {
+            await pool.query(
+                'DELETE FROM email_verifications WHERE LOWER(wallet) = LOWER($1)',
+                [wallet]
+            );
+            return { success: false, error: 'Verification code expired. Please request a new one.' };
+        }
+
+        // Check code
+        if (verification.code !== code) {
+            return { success: false, error: 'Invalid verification code.' };
+        }
+
+        // Check if email is already linked to another wallet
+        const existingEmail = await pool.query(
+            `SELECT wallet FROM verified_users
+             WHERE LOWER(email) = LOWER($1) AND LOWER(wallet) != LOWER($2)`,
+            [verification.email, wallet]
+        );
+
+        if (existingEmail.rows.length > 0) {
+            return { success: false, error: 'This email is already linked to another wallet.' };
+        }
+
+        // Link email to wallet
+        await pool.query(
+            `UPDATE verified_users SET email = $1 WHERE LOWER(wallet) = LOWER($2)`,
+            [verification.email, wallet]
+        );
+
+        // Delete verification record
+        await pool.query(
+            'DELETE FROM email_verifications WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+
+        return { success: true, email: verification.email };
+    },
+
+    // Check if email is already linked
+    isEmailLinked: async (email) => {
+        if (!pool) return false;
+        const result = await pool.query(
+            `SELECT 1 FROM verified_users WHERE LOWER(email) = LOWER($1)`,
+            [email]
+        );
+        return result.rows.length > 0;
+    }
+};
+
 // Social connections helper functions (for syncing Thirdweb linked profiles)
 const social = {
     // Update social connections for a user
@@ -1697,6 +1874,7 @@ module.exports = {
     badges,
     customization,
     social,
+    emailVerification,
     POINTS_TIERS,
     BADGE_DEFINITIONS
 };
