@@ -48,7 +48,7 @@ async function createTables() {
 
         // Add referral columns if they don't exist (for existing tables)
         await client.query(`
-            DO $$$
+            DO $$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='referral_code') THEN
                     ALTER TABLE verified_users ADD COLUMN referral_code VARCHAR(8) UNIQUE;
@@ -59,7 +59,7 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='referral_count') THEN
                     ALTER TABLE verified_users ADD COLUMN referral_count INTEGER DEFAULT 0;
                 END IF;
-            END $$$;
+            END $$;
         `);
 
         // Create leaderboard table
@@ -105,12 +105,12 @@ async function createTables() {
 
         // Add last_known_balance column if it doesn't exist (for tracking balance changes)
         await client.query(`
-            DO $$$
+            DO $$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='last_known_balance') THEN
                     ALTER TABLE referrals ADD COLUMN last_known_balance DECIMAL(20, 2) DEFAULT 0;
                 END IF;
-            END $$$;
+            END $$;
         `);
 
         // Create holders table (tracks users with 300+ AMY who connected wallet + X)
@@ -158,7 +158,7 @@ async function createTables() {
 
         // Add LP tracking columns to amy_points table
         await client.query(`
-            DO $$$
+            DO $$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='lp_value_usd') THEN
                     ALTER TABLE amy_points ADD COLUMN lp_value_usd DECIMAL(20, 2) DEFAULT 0;
@@ -181,12 +181,12 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plvhedge_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN plvhedge_multiplier INTEGER DEFAULT 1;
                 END IF;
-            END $$$;
+            END $$;
         `);
 
         // Add social connection columns to verified_users
         await client.query(`
-            DO $$$
+            DO $$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='discord_username') THEN
                     ALTER TABLE verified_users ADD COLUMN discord_username VARCHAR(255);
@@ -197,7 +197,7 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='email') THEN
                     ALTER TABLE verified_users ADD COLUMN email VARCHAR(255);
                 END IF;
-            END $$$;
+            END $$;
         `);
 
         // Create user_profiles table for extended profile data
