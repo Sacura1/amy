@@ -169,7 +169,19 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='last_lp_check') THEN
                     ALTER TABLE amy_points ADD COLUMN last_lp_check TIMESTAMP;
                 END IF;
-            END $$;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='sailr_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN sailr_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='sailr_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN sailr_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plvhedge_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN plvhedge_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plvhedge_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN plvhedge_multiplier INTEGER DEFAULT 1;
+                END IF;
+            END $;
         `);
 
         // Add social connection columns to verified_users
@@ -1427,9 +1439,10 @@ const badges = {
 
         const earned = [];
 
-        // Get user data
+        // Get user data including token holdings
         const userData = await pool.query(
             `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
+             p.sailr_multiplier, p.sailr_value_usd, p.plvhedge_multiplier, p.plvhedge_value_usd,
              r.referral_count
              FROM verified_users v
              LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
@@ -1446,11 +1459,23 @@ const badges = {
                 earned.push(BADGE_DEFINITIONS.verified);
             }
 
-            // LP badges
+            // LP (Bulla Exchange) badges
             const lpUsd = parseFloat(user.lp_value_usd) || 0;
             if (lpUsd >= 500) earned.push(BADGE_DEFINITIONS.lp_x10);
             else if (lpUsd >= 100) earned.push(BADGE_DEFINITIONS.lp_x5);
             else if (lpUsd >= 10) earned.push(BADGE_DEFINITIONS.lp_x3);
+
+            // SAIL.r badges
+            const sailrUsd = parseFloat(user.sailr_value_usd) || 0;
+            if (sailrUsd >= 500) earned.push(BADGE_DEFINITIONS.sailr_x10);
+            else if (sailrUsd >= 100) earned.push(BADGE_DEFINITIONS.sailr_x5);
+            else if (sailrUsd >= 10) earned.push(BADGE_DEFINITIONS.sailr_x3);
+
+            // plvHEDGE badges
+            const plvhedgeUsd = parseFloat(user.plvhedge_value_usd) || 0;
+            if (plvhedgeUsd >= 500) earned.push(BADGE_DEFINITIONS.plvhedge_x10);
+            else if (plvhedgeUsd >= 100) earned.push(BADGE_DEFINITIONS.plvhedge_x5);
+            else if (plvhedgeUsd >= 10) earned.push(BADGE_DEFINITIONS.plvhedge_x3);
 
             // Referral badges
             const refs = parseInt(user.referral_count) || 0;
