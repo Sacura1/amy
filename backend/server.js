@@ -1901,6 +1901,21 @@ app.get('/api/tokens/:wallet', async (req, res) => {
 
         const holdings = await queryAllTokenHoldings(wallet);
 
+        // Save token values to database for badge system
+        try {
+            if (pointsDb) {
+                await pointsDb.updateTokenData(
+                    wallet,
+                    holdings.sailr.valueUsd || 0,
+                    holdings.sailr.multiplier || 1,
+                    holdings.plvhedge.valueUsd || 0,
+                    holdings.plvhedge.multiplier || 1
+                );
+            }
+        } catch (err) {
+            console.error('Error saving token data:', err.message);
+        }
+
         res.json({
             success: true,
             data: {
@@ -2022,7 +2037,7 @@ app.post('/api/profile/avatar/upload', avatarUpload.single('avatar'), async (req
         const avatarUrl = `/uploads/avatars/${req.file.filename}`;
 
         // Delete old avatar if exists
-        const existingProfile = await database.profiles.get(wallet);
+        const existingProfile = await database.profiles.getByWallet(wallet);
         if (existingProfile && existingProfile.avatarUrl && existingProfile.avatarUrl.startsWith('/uploads/avatars/')) {
             const oldAvatarPath = path.join(__dirname, existingProfile.avatarUrl);
             if (fs.existsSync(oldAvatarPath)) {

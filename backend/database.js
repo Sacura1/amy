@@ -181,7 +181,7 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plvhedge_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN plvhedge_multiplier INTEGER DEFAULT 1;
                 END IF;
-            END $;
+            END $$;
         `);
 
         // Add social connection columns to verified_users
@@ -1108,6 +1108,21 @@ const points = {
             [lpValueUsd, lpMultiplier, wallet]
         );
         return { lpValueUsd, lpMultiplier };
+    },
+
+    // Update token holdings data for a user (SAIL.r and plvHEDGE)
+    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier) => {
+        if (!pool) return null;
+        await pool.query(
+            `UPDATE amy_points SET
+             sailr_value_usd = $1,
+             sailr_multiplier = $2,
+             plvhedge_value_usd = $3,
+             plvhedge_multiplier = $4
+             WHERE LOWER(wallet) = LOWER($5)`,
+            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, wallet]
+        );
+        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier };
     },
 
     // Get points history for a wallet
