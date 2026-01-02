@@ -1429,9 +1429,13 @@ app.get('/api/points/:wallet', async (req, res) => {
             console.error('Error fetching token holdings for multiplier:', err.message);
         }
 
-        const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 1;
-        // Total multiplier is additive: base 1 + (lp-1) + (sailr-1) + (plvhedge-1)
-        const totalMultiplier = 1 + (lpMult > 1 ? lpMult - 1 : 0) + (sailrMult > 1 ? sailrMult - 1 : 0) + (plvhedgeMult > 1 ? plvhedgeMult - 1 : 0);
+        const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
+        // Total multiplier: sum of active multipliers (same as cron job)
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0));
+
+        // Calculate effective points per hour (base * multiplier)
+        const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
+        const effectivePointsPerHour = basePointsPerHour * totalMultiplier;
 
         res.json({
             success: true,
@@ -1439,8 +1443,9 @@ app.get('/api/points/:wallet', async (req, res) => {
                 ...pointsData,
                 tierInfo: POINTS_TIERS[pointsData.currentTier] || POINTS_TIERS['none'],
                 totalMultiplier: totalMultiplier,
-                sailrMultiplier: sailrMult,
-                plvhedgeMultiplier: plvhedgeMult
+                effectivePointsPerHour: effectivePointsPerHour,
+                sailrMultiplier: sailrMult > 1 ? sailrMult : 0,
+                plvhedgeMultiplier: plvhedgeMult > 1 ? plvhedgeMult : 0
             }
         });
 

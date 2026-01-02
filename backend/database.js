@@ -1348,6 +1348,9 @@ const profiles = {
     // Update avatar (upload)
     updateAvatar: async (wallet, avatarUrl) => {
         if (!pool) return null;
+        // First ensure profile exists
+        await profiles.getOrCreate(wallet);
+        // Then update avatar
         await pool.query(
             `UPDATE user_profiles SET
              avatar_type = 'upload',
