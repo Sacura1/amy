@@ -532,6 +532,201 @@ app.get('/auth/x/callback', async (req, res) => {
 });
 
 // ============================================
+// DISCORD OAUTH ROUTES
+// ============================================
+
+// Route: Initiate Discord OAuth flow
+app.get('/auth/discord', (req, res) => {
+    const wallet = req.query.wallet;
+
+    if (!wallet) {
+        return res.status(400).send('Wallet address required. Use: /auth/discord?wallet=0x...');
+    }
+
+    const state = crypto.randomBytes(16).toString('hex');
+
+    // Store in session
+    req.session.discordState = state;
+    req.session.wallet = wallet;
+
+    console.log('🔐 Starting Discord OAuth flow');
+    console.log('Session ID:', req.sessionID);
+    console.log('State generated:', state);
+    console.log('Wallet:', wallet);
+
+    const authUrl = `https://discord.com/api/oauth2/authorize?` +
+        `client_id=${process.env.DISCORD_CLIENT_ID}` +
+        `&redirect_uri=${encodeURIComponent(process.env.DISCORD_CALLBACK_URL)}` +
+        `&response_type=code` +
+        `&scope=identify` +
+        `&state=${state}`;
+
+    res.redirect(authUrl);
+});
+
+// Route: Discord OAuth callback
+app.get('/auth/discord/callback', async (req, res) => {
+    const { code, state } = req.query;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+    console.log('📥 Discord OAuth callback received');
+    console.log('State from query:', state);
+    console.log('State from session:', req.session.discordState);
+
+    // Check if session exists
+    if (!req.session || !req.session.discordState) {
+        console.error('❌ Session lost - no discordState in session');
+        return res.redirect(`${frontendUrl}/app/profile?error=session_lost&provider=discord`);
+    }
+
+    // Verify state (CSRF protection)
+    if (state !== req.session.discordState) {
+        console.error('❌ State mismatch');
+        return res.redirect(`${frontendUrl}/app/profile?error=state_mismatch&provider=discord`);
+    }
+
+    try {
+        console.log('🔄 Exchanging Discord code for token...');
+
+        // Exchange code for access token
+        const tokenResponse = await axios.post(
+            'https://discord.com/api/oauth2/token',
+            new URLSearchParams({
+                client_id: process.env.DISCORD_CLIENT_ID,
+                client_secret: process.env.DISCORD_CLIENT_SECRET,
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: process.env.DISCORD_CALLBACK_URL
+            }),
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            }
+        );
+
+        const accessToken = tokenResponse.data.access_token;
+
+        // Get user profile from Discord
+        const userResponse = await axios.get('https://discord.com/api/users/@me', {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        const discordUser = userResponse.data;
+        console.log('✅ Discord user fetched:', discordUser.username);
+
+        // Save Discord username to database
+        const wallet = req.session.wallet;
+        if (wallet) {
+            await database.social.updateConnections(wallet, {
+                discord: discordUser.username
+            });
+            console.log('✅ Discord username saved to database for wallet:', wallet);
+        }
+
+        // Redirect back to profile page with success
+        res.redirect(`${frontendUrl}/app/profile?discord_connected=true&discord_username=${encodeURIComponent(discordUser.username)}&wallet=${wallet}`);
+
+    } catch (error) {
+        console.error('❌ Discord OAuth error:', error.response?.data || error.message);
+        const errorMsg = error.response?.data?.error_description || error.message || 'OAuth failed';
+        res.redirect(`${frontendUrl}/app/profile?error=discord_oauth_failed&details=${encodeURIComponent(errorMsg)}`);
+    }
+});
+
+// ============================================
+// TELEGRAM AUTH ROUTES
+// ============================================
+
+// Route: Initiate Telegram auth (redirect to Telegram login widget page)
+app.get('/auth/telegram', (req, res) => {
+    const wallet = req.query.wallet;
+
+    if (!wallet) {
+        return res.status(400).send('Wallet address required. Use: /auth/telegram?wallet=0x...');
+    }
+
+    // Store wallet in session for callback
+    req.session.wallet = wallet;
+    req.session.telegramAuthPending = true;
+
+    console.log('🔐 Starting Telegram auth flow');
+    console.log('Wallet:', wallet);
+
+    // Redirect to a page that shows the Telegram login widget
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    res.redirect(`${frontendUrl}/app/profile?telegram_auth=pending&wallet=${wallet}`);
+});
+
+// Route: Telegram auth callback (receives data from Telegram Login Widget)
+app.post('/auth/telegram/callback', async (req, res) => {
+    const { id, first_name, last_name, username, photo_url, auth_date, hash, wallet } = req.body;
+
+    console.log('📥 Telegram auth callback received');
+    console.log('Telegram user:', { id, username, first_name });
+
+    if (!wallet || !id || !hash) {
+        return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    try {
+        // Verify the Telegram auth data
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (!botToken) {
+            return res.status(500).json({ success: false, error: 'Telegram bot not configured' });
+        }
+
+        // Create the data-check-string
+        const dataCheckArr = [];
+        if (auth_date) dataCheckArr.push(`auth_date=${auth_date}`);
+        if (first_name) dataCheckArr.push(`first_name=${first_name}`);
+        if (id) dataCheckArr.push(`id=${id}`);
+        if (last_name) dataCheckArr.push(`last_name=${last_name}`);
+        if (photo_url) dataCheckArr.push(`photo_url=${photo_url}`);
+        if (username) dataCheckArr.push(`username=${username}`);
+        dataCheckArr.sort();
+        const dataCheckString = dataCheckArr.join('\n');
+
+        // Create secret key from bot token
+        const secretKey = crypto.createHash('sha256').update(botToken).digest();
+        const calculatedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+
+        if (calculatedHash !== hash) {
+            console.error('❌ Telegram hash verification failed');
+            return res.status(401).json({ success: false, error: 'Invalid Telegram auth data' });
+        }
+
+        // Check auth_date is not too old (within 1 day)
+        const authTime = parseInt(auth_date);
+        const now = Math.floor(Date.now() / 1000);
+        if (now - authTime > 86400) {
+            return res.status(401).json({ success: false, error: 'Telegram auth expired' });
+        }
+
+        // Save Telegram username to database
+        const telegramUsername = username || first_name || id.toString();
+        await database.social.updateConnections(wallet, {
+            telegram: telegramUsername
+        });
+        console.log('✅ Telegram username saved to database for wallet:', wallet);
+
+        res.json({
+            success: true,
+            data: {
+                username: telegramUsername,
+                id: id
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Telegram auth error:', error.message);
+        res.status(500).json({ success: false, error: 'Telegram auth failed' });
+    }
+});
+
+// ============================================
 // VERIFICATION API ROUTES
 // ============================================
 
@@ -1745,6 +1940,10 @@ app.post('/api/oauth/save', async (req, res) => {
 // LP TRACKING API ROUTES
 // ============================================
 
+// Cache for LP positions (refresh every 6 hours to reduce blockchain queries)
+const lpPositionCache = new Map();
+const LP_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+
 // Get LP status for a wallet (public)
 app.get('/api/lp/:wallet', async (req, res) => {
     try {
@@ -1754,8 +1953,38 @@ app.get('/api/lp/:wallet', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Wallet address required' });
         }
 
+        const walletLower = wallet.toLowerCase();
+        const now = Date.now();
+
+        // Check cache first
+        const cached = lpPositionCache.get(walletLower);
+        if (cached && (now - cached.timestamp) < LP_CACHE_TTL) {
+            return res.json({
+                success: true,
+                data: {
+                    ...cached.data,
+                    cached: true,
+                    cacheAge: Math.round((now - cached.timestamp) / 1000 / 60), // minutes
+                    tiers: LP_MULTIPLIER_TIERS
+                }
+            });
+        }
+
         // Query LP position from blockchain
         const lpData = await queryLpPositions(wallet);
+
+        // Cache the result
+        const responseData = {
+            wallet: walletLower,
+            lpValueUsd: lpData.lpValueUsd,
+            totalLpValueUsd: lpData.totalLpValueUsd,
+            lpMultiplier: lpData.lpMultiplier,
+            positionsFound: lpData.positionsFound,
+            inRangePositions: lpData.inRangePositions,
+            isInRange: lpData.isInRange,
+            amyPriceUsd: lpData.amyPriceUsd,
+        };
+        lpPositionCache.set(walletLower, { data: responseData, timestamp: now });
 
         // Update database with fresh LP data if points system is available
         if (pointsDb) {
@@ -1765,14 +1994,8 @@ app.get('/api/lp/:wallet', async (req, res) => {
         res.json({
             success: true,
             data: {
-                wallet: wallet.toLowerCase(),
-                lpValueUsd: lpData.lpValueUsd,
-                totalLpValueUsd: lpData.totalLpValueUsd,
-                lpMultiplier: lpData.lpMultiplier,
-                positionsFound: lpData.positionsFound,
-                inRangePositions: lpData.inRangePositions,
-                isInRange: lpData.isInRange,
-                amyPriceUsd: lpData.amyPriceUsd,
+                ...responseData,
+                cached: false,
                 tiers: LP_MULTIPLIER_TIERS
             }
         });

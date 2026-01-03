@@ -410,25 +410,20 @@ async function populateHoldersFromVerifiedUsers(client) {
     }
 }
 
-// Seed customization items if table is empty
+// Seed/update customization items
 async function seedCustomizationItems(client) {
     try {
-        // Check if items already exist
-        const count = await client.query('SELECT COUNT(*) FROM customization_items');
-        if (parseInt(count.rows[0].count) > 0) {
-            console.log('📊 Customization items already seeded');
-            return;
-        }
+        console.log('🌱 Seeding/updating customization items...');
 
-        console.log('🌱 Seeding customization items...');
-
-        // Backgrounds
+        // Backgrounds (mobile/desktop variants handled by frontend)
         const backgrounds = [
             { id: 'bg_default', type: 'background', name: 'Default', previewUrl: null, costPoints: 0, isDefault: true },
-            { id: 'bg_1', type: 'background', name: 'BG 1', previewUrl: '/bg_1.jpg', costPoints: 50, isDefault: false },
-            { id: 'bg_2', type: 'background', name: 'BG 2', previewUrl: '/bg_2.jpg', costPoints: 100, isDefault: false },
-            { id: 'bg_3', type: 'background', name: 'BG 3', previewUrl: '/bg_3.jpg', costPoints: 50, isDefault: false },
-            { id: 'bg_4', type: 'background', name: 'BG 4', previewUrl: '/bg_4.jpg', costPoints: 50, isDefault: false },
+            { id: 'bg_1', type: 'background', name: 'BG 1', previewUrl: '/bg_desktop_1.jpg', costPoints: 50, isDefault: false },
+            { id: 'bg_2', type: 'background', name: 'BG 2', previewUrl: '/bg_desktop_2.jpg', costPoints: 50, isDefault: false },
+            { id: 'bg_3', type: 'background', name: 'BG 3', previewUrl: '/bg_desktop_3.jpg', costPoints: 50, isDefault: false },
+            { id: 'bg_4', type: 'background', name: 'BG 4', previewUrl: '/bg_desktop_4.jpg', costPoints: 50, isDefault: false },
+            { id: 'bg_5', type: 'background', name: 'BG 5', previewUrl: '/bg_desktop_5.jpg', costPoints: 100, isDefault: false },
+            { id: 'bg_6', type: 'background', name: 'BG 6', previewUrl: '/bg_desktop_6.jpg', costPoints: 150, isDefault: false },
         ];
 
         // Filters
@@ -453,12 +448,13 @@ async function seedCustomizationItems(client) {
             await client.query(
                 `INSERT INTO customization_items (id, type, name, preview_url, cost_points, is_default)
                  VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (id) DO NOTHING`,
+                 ON CONFLICT (id) DO UPDATE SET
+                 type = $2, name = $3, preview_url = $4, cost_points = $5, is_default = $6`,
                 [item.id, item.type, item.name, item.previewUrl, item.costPoints, item.isDefault]
             );
         }
 
-        console.log(`✅ Seeded ${allItems.length} customization items`);
+        console.log(`✅ Seeded/updated ${allItems.length} customization items`);
 
     } catch (error) {
         console.error('❌ Error seeding customization items:', error);
@@ -1837,6 +1833,15 @@ const social = {
         if (!pool) return null;
         const { discord, telegram, email } = connections;
 
+        // First ensure the user exists in verified_users
+        await pool.query(
+            `INSERT INTO verified_users (wallet)
+             VALUES ($1)
+             ON CONFLICT (wallet) DO NOTHING`,
+            [wallet.toLowerCase()]
+        );
+
+        // Then update the social connections
         await pool.query(
             `UPDATE verified_users SET
              discord_username = COALESCE($1, discord_username),
