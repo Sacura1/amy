@@ -62,6 +62,40 @@ async function createTables() {
             END $$;
         `);
 
+        // Add social connection columns and make x_username nullable (for Discord/Telegram-first users)
+        await client.query(`
+            DO $$
+            BEGIN
+                -- Add discord_username column if it doesn't exist
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='discord_username') THEN
+                    ALTER TABLE verified_users ADD COLUMN discord_username VARCHAR(255);
+                END IF;
+                -- Add telegram_username column if it doesn't exist
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='telegram_username') THEN
+                    ALTER TABLE verified_users ADD COLUMN telegram_username VARCHAR(255);
+                END IF;
+                -- Add email column if it doesn't exist
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verified_users' AND column_name='email') THEN
+                    ALTER TABLE verified_users ADD COLUMN email VARCHAR(255);
+                END IF;
+                -- Make x_username nullable (users can now connect Discord/Telegram first)
+                ALTER TABLE verified_users ALTER COLUMN x_username DROP NOT NULL;
+                -- Make amy_balance nullable with default 0
+                ALTER TABLE verified_users ALTER COLUMN amy_balance SET DEFAULT 0;
+                ALTER TABLE verified_users ALTER COLUMN amy_balance DROP NOT NULL;
+                -- Make verified_at nullable with default now
+                ALTER TABLE verified_users ALTER COLUMN verified_at SET DEFAULT CURRENT_TIMESTAMP;
+                ALTER TABLE verified_users ALTER COLUMN verified_at DROP NOT NULL;
+                -- Make timestamp nullable with default 0
+                ALTER TABLE verified_users ALTER COLUMN timestamp SET DEFAULT 0;
+                ALTER TABLE verified_users ALTER COLUMN timestamp DROP NOT NULL;
+            EXCEPTION
+                WHEN others THEN
+                    -- Ignore errors if columns already modified
+                    NULL;
+            END $$;
+        `);
+
         // Create leaderboard table
         await client.query(`
             CREATE TABLE IF NOT EXISTS leaderboard (
