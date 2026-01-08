@@ -3238,23 +3238,25 @@ async function awardHourlyPoints() {
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
 
-                // Build reason string
-                let reason = 'hourly_earning';
+                // Build human-readable description
+                let description = 'Hourly points earned from holding $AMY';
                 if (totalMultiplier > 1) {
-                    const parts = [];
-                    if (lpMult > 1) parts.push(`lp${lpMult}x`);
-                    if (sailrMult > 1) parts.push(`sailr${sailrMult}x`);
-                    if (plvhedgeMult > 1) parts.push(`plvh${plvhedgeMult}x`);
-                    if (plsberaMult > 1) parts.push(`plsb${plsberaMult}x`);
-                    reason = `hourly_${parts.join('_')}_total${totalMultiplier}x`;
+                    const boostParts = [];
+                    if (lpMult > 1) boostParts.push(`AMY/HONEY LP ${lpMult}x`);
+                    if (sailrMult > 1) boostParts.push(`SAIL.r ${sailrMult}x`);
+                    if (plvhedgeMult > 1) boostParts.push(`plvHEDGE ${plvhedgeMult}x`);
+                    if (plsberaMult > 1) boostParts.push(`plsBERA ${plsberaMult}x`);
+                    description = `Hourly earning with ${totalMultiplier}x multiplier (${boostParts.join(' + ')})`;
                 }
 
                 const result = await pointsDb.awardPoints(
                     user.wallet,
                     finalPoints,
-                    reason,
+                    'hourly_earning',
                     parseFloat(user.lastAmyBalance),
-                    user.currentTier
+                    user.currentTier,
+                    'DAILY_EARN',
+                    description
                 );
 
                 if (result && result.success) {
