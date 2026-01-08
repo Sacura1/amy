@@ -1625,17 +1625,19 @@ app.get('/api/points/:wallet', async (req, res) => {
         // Calculate total multiplier from all sources
         let sailrMult = 1;
         let plvhedgeMult = 1;
+        let plsberaMult = 1;
         try {
             const tokenHoldings = await queryAllTokenHoldings(wallet);
             sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 1;
             plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 1;
+            plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 1;
         } catch (err) {
             console.error('Error fetching token holdings for multiplier:', err.message);
         }
 
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0));
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0));
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1649,7 +1651,8 @@ app.get('/api/points/:wallet', async (req, res) => {
                 totalMultiplier: totalMultiplier,
                 effectivePointsPerHour: effectivePointsPerHour,
                 sailrMultiplier: sailrMult > 1 ? sailrMult : 0,
-                plvhedgeMultiplier: plvhedgeMult > 1 ? plvhedgeMult : 0
+                plvhedgeMultiplier: plvhedgeMult > 1 ? plvhedgeMult : 0,
+                plsberaMultiplier: plsberaMult > 1 ? plsberaMult : 0
             }
         });
 
@@ -2031,6 +2034,13 @@ const BADGE_TOKENS = {
         symbol: 'plvHEDGE',
         decimals: 18,
         geckoId: 'berachain_0x28602b1ae8ca0ff5cd01b96a36f88f72febe727a'
+    },
+    PLSBERA: {
+        address: '0xe8bEB147a93BB757DB15e468FaBD119CA087EfAE', // staking contract (balanceOf)
+        tokenAddress: '0xc66D1a2460De7b96631f4AC37ce906aCFa6A3c30', // plsBERA token
+        symbol: 'plsBERA',
+        decimals: 18,
+        geckoPoolAddress: '0x225915329b032b3385ac28b0dc53d989e8446fd1' // GeckoTerminal plsBERA/WBERA pool
     }
 };
 
@@ -2045,7 +2055,8 @@ const TOKEN_MULTIPLIER_TIERS = [
 // Cache for token prices (refresh every 5 minutes)
 let tokenPriceCache = {
     sailr: { price: 0, timestamp: 0 },
-    plvhedge: { price: 0, timestamp: 0 }
+    plvhedge: { price: 0, timestamp: 0 },
+    plsbera: { price: 0, timestamp: 0 }
 };
 const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -2061,20 +2072,36 @@ async function fetchTokenPrice(tokenKey) {
     }
 
     try {
-        // Try GeckoTerminal API
-        const response = await fetch(
-            `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${token.address.toLowerCase()}`,
-            { headers: { 'Accept': 'application/json' } }
-        );
+        let price = 0;
 
-        if (response.ok) {
-            const data = await response.json();
-            const price = parseFloat(data?.data?.attributes?.token_prices?.[token.address.toLowerCase()] || 0);
-            if (price > 0) {
-                tokenPriceCache[cacheKey] = { price, timestamp: now };
-                console.log(`💰 ${token.symbol} price: ${price.toFixed(6)}`);
-                return price;
+        // For plsBERA, use pool API to get price
+        if (token.geckoPoolAddress) {
+            const response = await fetch(
+                `https://api.geckoterminal.com/api/v2/networks/berachain/pools/${token.geckoPoolAddress}`,
+                { headers: { 'Accept': 'application/json' } }
+            );
+            if (response.ok) {
+                const data = await response.json();
+                // Get base token price (plsBERA is the base token in plsBERA/WBERA pool)
+                price = parseFloat(data?.data?.attributes?.base_token_price_usd || 0);
             }
+        } else {
+            // Standard token price lookup
+            const response = await fetch(
+                `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${token.address.toLowerCase()}`,
+                { headers: { 'Accept': 'application/json' } }
+            );
+
+            if (response.ok) {
+                const data = await response.json();
+                price = parseFloat(data?.data?.attributes?.token_prices?.[token.address.toLowerCase()] || 0);
+            }
+        }
+
+        if (price > 0) {
+            tokenPriceCache[cacheKey] = { price, timestamp: now };
+            console.log(`💰 ${token.symbol} price: ${price.toFixed(6)}`);
+            return price;
         }
 
         // Fallback: return cached price even if expired, or 0
@@ -2137,14 +2164,16 @@ async function queryTokenBalance(wallet, tokenKey) {
 
 // Query all badge token holdings for a wallet
 async function queryAllTokenHoldings(wallet) {
-    const [sailr, plvhedge] = await Promise.all([
+    const [sailr, plvhedge, plsbera] = await Promise.all([
         queryTokenBalance(wallet, 'SAILR'),
-        queryTokenBalance(wallet, 'PLVHEDGE')
+        queryTokenBalance(wallet, 'PLVHEDGE'),
+        queryTokenBalance(wallet, 'PLSBERA')
     ]);
 
     return {
         sailr,
         plvhedge,
+        plsbera,
         tiers: TOKEN_MULTIPLIER_TIERS
     };
 }
@@ -2168,7 +2197,9 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                     holdings.sailr.valueUsd || 0,
                     holdings.sailr.multiplier || 1,
                     holdings.plvhedge.valueUsd || 0,
-                    holdings.plvhedge.multiplier || 1
+                    holdings.plvhedge.multiplier || 1,
+                    holdings.plsbera.valueUsd || 0,
+                    holdings.plsbera.multiplier || 1
                 );
             }
         } catch (err) {
@@ -3177,17 +3208,32 @@ async function awardHourlyPoints() {
                 // Fetch token holdings for this user to get all multipliers
                 let sailrMult = 0;
                 let plvhedgeMult = 0;
+                let plsberaMult = 0;
                 try {
                     const tokenHoldings = await queryAllTokenHoldings(user.wallet);
                     sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
                     plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 0;
+                    plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 0;
+
+                    // Save updated token data to database (handles stake/unstake changes)
+                    if (pointsDb) {
+                        await pointsDb.updateTokenData(
+                            user.wallet,
+                            tokenHoldings.sailr.valueUsd || 0,
+                            tokenHoldings.sailr.multiplier || 1,
+                            tokenHoldings.plvhedge.valueUsd || 0,
+                            tokenHoldings.plvhedge.multiplier || 1,
+                            tokenHoldings.plsbera.valueUsd || 0,
+                            tokenHoldings.plsbera.multiplier || 1
+                        );
+                    }
                 } catch (err) {
                     // If token query fails, continue with LP only
                 }
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -3199,6 +3245,7 @@ async function awardHourlyPoints() {
                     if (lpMult > 1) parts.push(`lp${lpMult}x`);
                     if (sailrMult > 1) parts.push(`sailr${sailrMult}x`);
                     if (plvhedgeMult > 1) parts.push(`plvh${plvhedgeMult}x`);
+                    if (plsberaMult > 1) parts.push(`plsb${plsberaMult}x`);
                     reason = `hourly_${parts.join('_')}_total${totalMultiplier}x`;
                 }
 

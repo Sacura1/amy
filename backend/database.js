@@ -187,7 +187,20 @@ async function createTables() {
 
         // Add index for faster queries on points_history
         await client.query(`
-            CREATE INDEX IF NOT EXISTS idx_points_history_wallet ON points_history(wallet);
+                    CREATE INDEX IF NOT EXISTS idx_points_history_wallet ON points_history(wallet);
+        `);
+
+        // Add category and description columns to points_history table
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='points_history' AND column_name='category') THEN
+                    ALTER TABLE points_history ADD COLUMN category VARCHAR(50);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='points_history' AND column_name='description') THEN
+                    ALTER TABLE points_history ADD COLUMN description VARCHAR(255);
+                END IF;
+            END $$;
         `);
 
         // Add LP tracking columns to amy_points table
@@ -215,7 +228,13 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plvhedge_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN plvhedge_multiplier INTEGER DEFAULT 1;
                 END IF;
-            END $$;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plsbera_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN plsbera_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plsbera_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN plsbera_multiplier INTEGER DEFAULT 1;
+                END IF;
+            END $;
         `);
 
         // Add social connection columns to verified_users
@@ -1062,6 +1081,30 @@ const POINTS_TIERS = {
     none: { minBalance: 0, pointsPerHour: 0, name: 'None', emoji: '⚪' }
 };
 
+// Points history categories
+const POINTS_CATEGORIES = {
+    DAILY_EARN: 'DAILY_EARN',
+    GIVEAWAY: 'GIVEAWAY',
+    COSMETIC_BACKGROUND_BUY: 'COSMETIC_BACKGROUND_BUY',
+    COSMETIC_FILTER_BUY: 'COSMETIC_FILTER_BUY',
+    RAFFLE_ENTRY: 'RAFFLE_ENTRY',
+    PREDICTION_WAGER: 'PREDICTION_WAGER',
+    PREDICTION_PAYOUT: 'PREDICTION_PAYOUT',
+    PREDICTION_REFUND: 'PREDICTION_REFUND'
+};
+
+// Category descriptions for display
+const CATEGORY_DESCRIPTIONS = {
+    DAILY_EARN: 'Daily Points Earned',
+    GIVEAWAY: 'Amy Point Giveaway',
+    COSMETIC_BACKGROUND_BUY: 'Background Purchase',
+    COSMETIC_FILTER_BUY: 'Filter Purchase',
+    RAFFLE_ENTRY: 'Raffle Entry',
+    PREDICTION_WAGER: 'Prediction Market Wager',
+    PREDICTION_PAYOUT: 'Prediction Market Payout',
+    PREDICTION_REFUND: 'Prediction Market Refund'
+};
+
 // Calculate tier based on AMY balance
 function calculateTier(amyBalance) {
     if (amyBalance >= POINTS_TIERS.platinum.minBalance) return 'platinum';
@@ -1155,7 +1198,7 @@ const points = {
     },
 
     // Award points to a user (called by hourly job)
-    awardPoints: async (wallet, pointsToAward, reason, amyBalance, tier) => {
+    awardPoints: async (wallet, pointsToAward, reason, amyBalance, tier, category = null, description = null) => {
         if (!pool || pointsToAward <= 0) return null;
 
         const client = await pool.connect();
@@ -1171,11 +1214,11 @@ const points = {
                 [pointsToAward, wallet]
             );
 
-            // Log to history
+            // Log to history with category and description
             await client.query(
-                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [wallet.toLowerCase(), pointsToAward, reason, amyBalance, tier]
+                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [wallet.toLowerCase(), pointsToAward, reason, amyBalance, tier, category, description]
             );
 
             await client.query('COMMIT');
@@ -1218,26 +1261,28 @@ const points = {
         return { lpValueUsd, lpMultiplier };
     },
 
-    // Update token holdings data for a user (SAIL.r and plvHEDGE)
-    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier) => {
+    // Update token holdings data for a user (SAIL.r, plvHEDGE, and plsBERA)
+    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier) => {
         if (!pool) return null;
         await pool.query(
             `UPDATE amy_points SET
              sailr_value_usd = $1,
              sailr_multiplier = $2,
              plvhedge_value_usd = $3,
-             plvhedge_multiplier = $4
-             WHERE LOWER(wallet) = LOWER($5)`,
-            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, wallet]
+             plvhedge_multiplier = $4,
+             plsbera_value_usd = $5,
+             plsbera_multiplier = $6
+             WHERE LOWER(wallet) = LOWER($7)`,
+            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, wallet]
         );
-        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier };
+        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier };
     },
 
     // Get points history for a wallet
     getHistory: async (wallet, limit = 50) => {
         if (!pool) return [];
         const result = await pool.query(
-            `SELECT points_earned as "pointsEarned", reason,
+            `SELECT points_earned as "pointsEarned", reason, category, description,
              amy_balance_at_time as "amyBalanceAtTime", tier_at_time as "tierAtTime",
              created_at as "createdAt"
              FROM points_history
@@ -1329,9 +1374,9 @@ const points = {
             );
 
             await client.query(
-                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [user.wallet.toLowerCase(), pointsToAdd, reason, user.lastAmyBalance || 0, user.currentTier || 'none']
+                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [user.wallet.toLowerCase(), pointsToAdd, reason, user.lastAmyBalance || 0, user.currentTier || 'none', 'GIVEAWAY', 'Amy Point Giveaway']
             );
 
             await client.query('COMMIT');
@@ -1372,6 +1417,9 @@ const BADGE_DEFINITIONS = {
     plvhedge_x3: { id: 'plvhedge_x3', name: 'plvHEDGE Bronze', description: '$10+ plvHEDGE', icon: '🛡️' },
     plvhedge_x5: { id: 'plvhedge_x5', name: 'plvHEDGE Silver', description: '$100+ plvHEDGE', icon: '🛡️' },
     plvhedge_x10: { id: 'plvhedge_x10', name: 'plvHEDGE Gold', description: '$500+ plvHEDGE', icon: '🛡️' },
+    plsbera_x3: { id: 'plsbera_x3', name: 'plsBERA Bronze', description: '$10+ plsBERA staked', icon: '🐻' },
+    plsbera_x5: { id: 'plsbera_x5', name: 'plsBERA Silver', description: '$100+ plsBERA staked', icon: '🐻' },
+    plsbera_x10: { id: 'plsbera_x10', name: 'plsBERA Gold', description: '$500+ plsBERA staked', icon: '🐻' },
     referrer_5: { id: 'referrer_5', name: 'Referrer', description: '5+ referrals', icon: '👥' },
     referrer_10: { id: 'referrer_10', name: 'Super Referrer', description: '10+ referrals', icon: '👥' },
     points_1k: { id: 'points_1k', name: 'Point Collector', description: '1,000+ points', icon: '⭐' },
@@ -1573,7 +1621,7 @@ const badges = {
         const userData = await pool.query(
             `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
              p.sailr_multiplier, p.sailr_value_usd, p.plvhedge_multiplier, p.plvhedge_value_usd,
-             r.referral_count
+             p.plsbera_multiplier, p.plsbera_value_usd, r.referral_count
              FROM verified_users v
              LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
              LEFT JOIN referrals r ON LOWER(v.wallet) = LOWER(r.wallet)
@@ -1606,6 +1654,12 @@ const badges = {
             if (plvhedgeUsd >= 500) earned.push(BADGE_DEFINITIONS.plvhedge_x10);
             else if (plvhedgeUsd >= 100) earned.push(BADGE_DEFINITIONS.plvhedge_x5);
             else if (plvhedgeUsd >= 10) earned.push(BADGE_DEFINITIONS.plvhedge_x3);
+
+            // plsBERA badges
+            const plsberaUsd = parseFloat(user.plsbera_value_usd) || 0;
+            if (plsberaUsd >= 500) earned.push(BADGE_DEFINITIONS.plsbera_x10);
+            else if (plsberaUsd >= 100) earned.push(BADGE_DEFINITIONS.plsbera_x5);
+            else if (plsberaUsd >= 10) earned.push(BADGE_DEFINITIONS.plsbera_x3);
 
             // Referral badges
             const refs = parseInt(user.referral_count) || 0;
@@ -1736,9 +1790,9 @@ const customization = {
 
             // Log the purchase as negative points in history
             await client.query(
-                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [wallet.toLowerCase(), -item.costPoints, `purchase_${itemId}`, pointsData.lastAmyBalance || 0, pointsData.currentTier || 'none']
+                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [wallet.toLowerCase(), -item.costPoints, `purchase_${itemId}`, pointsData.lastAmyBalance || 0, pointsData.currentTier || 'none', item.type === 'background' ? 'COSMETIC_BACKGROUND_BUY' : 'COSMETIC_FILTER_BUY', item.type === 'background' ? `Background ${item.name} Purchase` : `Filter ${item.name} Purchase`]
             );
 
             // Record purchase
@@ -1915,5 +1969,7 @@ module.exports = {
     social,
     emailVerification,
     POINTS_TIERS,
+    POINTS_CATEGORIES,
+    CATEGORY_DESCRIPTIONS,
     BADGE_DEFINITIONS
 };
