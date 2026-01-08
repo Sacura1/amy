@@ -362,52 +362,40 @@ async function createTables() {
 // Migrate old points_history entries to have proper category and description
 async function migratePointsHistoryDescriptions(client) {
     try {
-        // Find entries that need fixing (have hourly_ reason but no proper description)
-        const result = await client.query(`
-            SELECT id, reason, category, description
-            FROM points_history
-            WHERE reason LIKE 'hourly%'
+        // First, do a quick batch update for simple hourly_earning entries
+        const simpleResult = await client.query(`
+            UPDATE points_history
+            SET category = 'DAILY_EARN',
+                description = 'Hourly points earned from holding $AMY'
+            WHERE reason = 'hourly_earning'
             AND (category IS NULL OR description IS NULL OR description LIKE 'hourly_%')
         `);
 
-        if (result.rows.length === 0) {
-            return;
+        if (simpleResult.rowCount > 0) {
+            console.log(`✅ Fixed ${simpleResult.rowCount} simple hourly entries`);
         }
 
-        console.log(`🔄 Fixing ${result.rows.length} old points history entries...`);
+        // Now handle entries with multipliers using SQL pattern matching
+        // LP multiplier patterns
+        await client.query(`
+            UPDATE points_history
+            SET category = 'DAILY_EARN',
+                description = 'Hourly earning with ' ||
+                    SUBSTRING(reason FROM 'total(\\d+)x') || 'x multiplier (' ||
+                    CASE WHEN reason ~ 'lp\\d+x' THEN 'AMY/HONEY LP ' || SUBSTRING(reason FROM 'lp(\\d+)x') || 'x' ELSE '' END ||
+                    CASE WHEN reason ~ 'lp\\d+x' AND reason ~ '(sailr|plvh|plsb)' THEN ' + ' ELSE '' END ||
+                    CASE WHEN reason ~ 'sailr\\d+x' THEN 'SAIL.r ' || SUBSTRING(reason FROM 'sailr(\\d+)x') || 'x' ELSE '' END ||
+                    CASE WHEN reason ~ 'sailr\\d+x' AND reason ~ '(plvh|plsb)' THEN ' + ' ELSE '' END ||
+                    CASE WHEN reason ~ 'plvh\\d+x' THEN 'plvHEDGE ' || SUBSTRING(reason FROM 'plvh(\\d+)x') || 'x' ELSE '' END ||
+                    CASE WHEN reason ~ 'plvh\\d+x' AND reason ~ 'plsb' THEN ' + ' ELSE '' END ||
+                    CASE WHEN reason ~ 'plsb\\d+x' THEN 'plsBERA ' || SUBSTRING(reason FROM 'plsb(\\d+)x') || 'x' ELSE '' END ||
+                    ')'
+            WHERE reason LIKE 'hourly_%total%'
+            AND reason != 'hourly_earning'
+            AND (category IS NULL OR description IS NULL OR description LIKE 'hourly_%')
+        `);
 
-        for (const row of result.rows) {
-            let newDescription = 'Hourly points earned from holding $AMY';
-
-            // Parse the old reason string like "hourly_plvh3x_plsb3x_total6x"
-            if (row.reason && row.reason !== 'hourly_earning') {
-                const boostParts = [];
-
-                // Extract multipliers from reason string
-                const lpMatch = row.reason.match(/lp(\d+)x/);
-                const sailrMatch = row.reason.match(/sailr(\d+)x/);
-                const plvhMatch = row.reason.match(/plvh(\d+)x/);
-                const plsbMatch = row.reason.match(/plsb(\d+)x/);
-                const totalMatch = row.reason.match(/total(\d+)x/);
-
-                if (lpMatch) boostParts.push(`AMY/HONEY LP ${lpMatch[1]}x`);
-                if (sailrMatch) boostParts.push(`SAIL.r ${sailrMatch[1]}x`);
-                if (plvhMatch) boostParts.push(`plvHEDGE ${plvhMatch[1]}x`);
-                if (plsbMatch) boostParts.push(`plsBERA ${plsbMatch[1]}x`);
-
-                if (boostParts.length > 0 && totalMatch) {
-                    newDescription = `Hourly earning with ${totalMatch[1]}x multiplier (${boostParts.join(' + ')})`;
-                }
-            }
-
-            // Update the entry
-            await client.query(
-                `UPDATE points_history SET category = 'DAILY_EARN', description = $1 WHERE id = $2`,
-                [newDescription, row.id]
-            );
-        }
-
-        console.log(`✅ Fixed ${result.rows.length} points history entries`);
+        console.log(`✅ Points history migration complete`);
     } catch (error) {
         console.error('❌ Error migrating points history descriptions:', error.message);
     }
