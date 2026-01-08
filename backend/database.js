@@ -349,10 +349,67 @@ async function createTables() {
         // Seed customization items if table is empty
         await seedCustomizationItems(client);
 
+        // Fix old points history entries with ugly reason strings
+        await migratePointsHistoryDescriptions(client);
+
     } catch (error) {
         console.error('❌ Error creating tables:', error);
     } finally {
         client.release();
+    }
+}
+
+// Migrate old points_history entries to have proper category and description
+async function migratePointsHistoryDescriptions(client) {
+    try {
+        // Find entries that need fixing (have hourly_ reason but no proper description)
+        const result = await client.query(`
+            SELECT id, reason, category, description
+            FROM points_history
+            WHERE reason LIKE 'hourly%'
+            AND (category IS NULL OR description IS NULL OR description LIKE 'hourly_%')
+        `);
+
+        if (result.rows.length === 0) {
+            return;
+        }
+
+        console.log(`🔄 Fixing ${result.rows.length} old points history entries...`);
+
+        for (const row of result.rows) {
+            let newDescription = 'Hourly points earned from holding $AMY';
+
+            // Parse the old reason string like "hourly_plvh3x_plsb3x_total6x"
+            if (row.reason && row.reason !== 'hourly_earning') {
+                const boostParts = [];
+
+                // Extract multipliers from reason string
+                const lpMatch = row.reason.match(/lp(\d+)x/);
+                const sailrMatch = row.reason.match(/sailr(\d+)x/);
+                const plvhMatch = row.reason.match(/plvh(\d+)x/);
+                const plsbMatch = row.reason.match(/plsb(\d+)x/);
+                const totalMatch = row.reason.match(/total(\d+)x/);
+
+                if (lpMatch) boostParts.push(`AMY/HONEY LP ${lpMatch[1]}x`);
+                if (sailrMatch) boostParts.push(`SAIL.r ${sailrMatch[1]}x`);
+                if (plvhMatch) boostParts.push(`plvHEDGE ${plvhMatch[1]}x`);
+                if (plsbMatch) boostParts.push(`plsBERA ${plsbMatch[1]}x`);
+
+                if (boostParts.length > 0 && totalMatch) {
+                    newDescription = `Hourly earning with ${totalMatch[1]}x multiplier (${boostParts.join(' + ')})`;
+                }
+            }
+
+            // Update the entry
+            await client.query(
+                `UPDATE points_history SET category = 'DAILY_EARN', description = $1 WHERE id = $2`,
+                [newDescription, row.id]
+            );
+        }
+
+        console.log(`✅ Fixed ${result.rows.length} points history entries`);
+    } catch (error) {
+        console.error('❌ Error migrating points history descriptions:', error.message);
     }
 }
 
