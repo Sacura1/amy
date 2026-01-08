@@ -234,7 +234,7 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plsbera_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN plsbera_multiplier INTEGER DEFAULT 1;
                 END IF;
-            END $;
+            END $$;
         `);
 
         // Add social connection columns to verified_users
