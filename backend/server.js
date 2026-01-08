@@ -132,7 +132,7 @@ db = {
     },
     getUserByUsername: (username) => {
         const users = db.getUsers();
-        return users.find(u => u.xUsername.toLowerCase() === username.toLowerCase());
+        return users.find(u => u.xUsername && u.xUsername.toLowerCase() === username.toLowerCase());
     },
     getUserByReferralCode: (referralCode) => {
         const users = db.getUsers();
@@ -958,7 +958,7 @@ app.get('/api/user/:username', async (req, res) => {
         // Fallback to searching all users (for JSON)
         if (!user) {
             const users = await db.getUsers();
-            user = users.find(u => u.xUsername.toLowerCase() === username);
+            user = users.find(u => u.xUsername && u.xUsername.toLowerCase() === username);
         }
 
         if (user) {
