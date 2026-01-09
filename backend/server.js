@@ -1589,12 +1589,22 @@ app.get('/api/referral/downlines/:wallet', async (req, res) => {
 // ============================================
 
 // Get points for a wallet (public)
-app.get('/api/points/:wallet', async (req, res) => {
+app.get('/api/points/:wallet', async (req, res, next) => {
     try {
         const wallet = req.params.wallet;
 
         if (!wallet) {
             return res.status(400).json({ success: false, error: 'Wallet address required' });
+        }
+
+        // Skip reserved paths - let more specific routes handle them
+        if (['leaderboard', 'tiers', 'update-balance', 'history', 'add-bonus'].includes(wallet.toLowerCase())) {
+            return next('route');
+        }
+
+        // Validate it's a proper Ethereum address
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
         }
 
         if (!pointsDb) {
