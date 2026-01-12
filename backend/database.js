@@ -524,13 +524,24 @@ async function seedCustomizationItems(client) {
             { id: 'bg_6', type: 'background', name: 'BG 6', previewUrl: '/bg_desktop_6.jpg', costPoints: 150, isDefault: false },
         ];
 
-        // Filters
+        // Filters - Color filters
         const filters = [
             { id: 'filter_none', type: 'filter', name: 'None', previewUrl: null, costPoints: 0, isDefault: true },
             { id: 'filter_grey', type: 'filter', name: 'Grey', previewUrl: null, costPoints: 50, isDefault: false },
             { id: 'filter_blue', type: 'filter', name: 'Blue', previewUrl: null, costPoints: 50, isDefault: false },
             { id: 'filter_pink', type: 'filter', name: 'Pink', previewUrl: null, costPoints: 50, isDefault: false },
             { id: 'filter_yellow', type: 'filter', name: 'Yellow', previewUrl: null, costPoints: 50, isDefault: false },
+            { id: 'filter_green', type: 'filter', name: 'Green', previewUrl: null, costPoints: 50, isDefault: false },
+            // Image-based texture filters
+            { id: 'filter_crack', type: 'filter', name: 'Crack', previewUrl: '/crack.png', costPoints: 250, isDefault: false },
+            { id: 'filter_dust', type: 'filter', name: 'Dust', previewUrl: '/dust.png', costPoints: 250, isDefault: false },
+            { id: 'filter_film_grain', type: 'filter', name: 'Film Grain', previewUrl: '/film_grain.png', costPoints: 250, isDefault: false },
+            { id: 'filter_film', type: 'filter', name: 'Film', previewUrl: '/film.png', costPoints: 250, isDefault: false },
+            { id: 'filter_halftone', type: 'filter', name: 'Halftone', previewUrl: '/halfton.png', costPoints: 250, isDefault: false },
+            { id: 'filter_noise', type: 'filter', name: 'Noise', previewUrl: '/noise_texture.png', costPoints: 250, isDefault: false },
+            { id: 'filter_redacted', type: 'filter', name: 'Redacted', previewUrl: '/redacted.png', costPoints: 250, isDefault: false },
+            { id: 'filter_scanlines', type: 'filter', name: 'Scanlines', previewUrl: '/scanlines.png', costPoints: 250, isDefault: false },
+            { id: 'filter_vhs', type: 'filter', name: 'VHS', previewUrl: '/vhs_effect.png', costPoints: 250, isDefault: false },
         ];
 
         // Animations
