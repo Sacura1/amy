@@ -522,6 +522,7 @@ async function seedCustomizationItems(client) {
             { id: 'bg_4', type: 'background', name: 'BG 4', previewUrl: '/bg_desktop_4.jpg', costPoints: 50, isDefault: false },
             { id: 'bg_5', type: 'background', name: 'BG 5', previewUrl: '/bg_desktop_5.jpg', costPoints: 100, isDefault: false },
             { id: 'bg_6', type: 'background', name: 'BG 6', previewUrl: '/bg_desktop_6.jpg', costPoints: 150, isDefault: false },
+            { id: 'bg_fuzzy', type: 'background', name: 'Fuzzy Hold', previewUrl: '/fuzzy_desktop.png', costPoints: 500, isDefault: false },
         ];
 
         // Filters - Color filters
@@ -537,7 +538,7 @@ async function seedCustomizationItems(client) {
             { id: 'filter_dust', type: 'filter', name: 'Dust', previewUrl: '/dust.png', costPoints: 250, isDefault: false },
             { id: 'filter_film_grain', type: 'filter', name: 'Film Grain', previewUrl: '/film_grain.png', costPoints: 250, isDefault: false },
             { id: 'filter_film', type: 'filter', name: 'Film', previewUrl: '/film.png', costPoints: 250, isDefault: false },
-            { id: 'filter_halftone', type: 'filter', name: 'Halftone', previewUrl: '/halfton.png', costPoints: 250, isDefault: false },
+            { id: 'filter_halftone', type: 'filter', name: 'Halftone', previewUrl: '/halftone.png', costPoints: 250, isDefault: false },
             { id: 'filter_noise', type: 'filter', name: 'Noise', previewUrl: '/noise_texture.png', costPoints: 250, isDefault: false },
             { id: 'filter_redacted', type: 'filter', name: 'Redacted', previewUrl: '/redacted.png', costPoints: 250, isDefault: false },
             { id: 'filter_scanlines', type: 'filter', name: 'Scanlines', previewUrl: '/scanlines.png', costPoints: 250, isDefault: false },
