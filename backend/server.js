@@ -1718,6 +1718,19 @@ app.post('/api/points/update-balance', async (req, res) => {
         // Update balance and recalculate tier
         const result = await pointsDb.updateBalance(wallet, parseFloat(amyBalance), xUsername);
 
+        // Also update holders table for check-in eligibility
+        if (holdersDb) {
+            try {
+                // Get existing holder to preserve xUsername if not provided
+                const existingHolder = await holdersDb.getByWallet(wallet);
+                const holderUsername = xUsername || existingHolder?.xUsername || null;
+                await holdersDb.addOrUpdate(wallet, holderUsername, parseFloat(amyBalance));
+            } catch (holderErr) {
+                console.error('Error updating holder status:', holderErr);
+                // Don't fail the request if holder update fails
+            }
+        }
+
         // Get updated points data
         const pointsData = await pointsDb.getByWallet(wallet);
 
@@ -3012,9 +3025,20 @@ app.post('/api/checkin/:wallet', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Invalid wallet address' });
         }
 
-        // Check if user is a holder (300+ AMY)
+        // Check if user is a holder (300+ AMY) - check holders table first, then amy_points as fallback
         const holder = await database.holders.getByWallet(wallet);
-        if (!holder || parseFloat(holder.amy_balance || 0) < 300) {
+        const holderBalance = holder ? parseFloat(holder.amy_balance || 0) : 0;
+
+        // If not in holders table or balance too low, check amy_points table
+        let isEligible = holderBalance >= 300;
+        if (!isEligible && pointsDb) {
+            const pointsData = await pointsDb.getByWallet(wallet);
+            if (pointsData && parseFloat(pointsData.lastAmyBalance || 0) >= 300) {
+                isEligible = true;
+            }
+        }
+
+        if (!isEligible) {
             return res.status(403).json({
                 success: false,
                 error: 'Must hold 300+ AMY to check in'

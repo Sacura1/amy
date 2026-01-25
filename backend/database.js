@@ -1743,6 +1743,73 @@ const points = {
         } finally {
             client.release();
         }
+    },
+
+    // Add bonus points by wallet address (for quests, check-ins, etc.)
+    addBonus: async (wallet, pointsToAdd, category = 'BONUS', description = 'Bonus points') => {
+        if (!pool) return { success: false, error: 'Database not available' };
+        if (!wallet || pointsToAdd <= 0) return { success: false, error: 'Invalid parameters' };
+
+        // Get user's current data for history logging
+        let userData = await pool.query(
+            `SELECT wallet, total_points as "totalPoints", last_amy_balance as "lastAmyBalance",
+             current_tier as "currentTier"
+             FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+
+        // If user doesn't exist in amy_points, create entry
+        if (!userData.rows[0]) {
+            await pool.query(
+                `INSERT INTO amy_points (wallet, total_points, current_tier, points_per_hour)
+                 VALUES (LOWER($1), 0, 'none', 0)
+                 ON CONFLICT (wallet) DO NOTHING`,
+                [wallet]
+            );
+            userData = await pool.query(
+                `SELECT wallet, total_points as "totalPoints", last_amy_balance as "lastAmyBalance",
+                 current_tier as "currentTier"
+                 FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+                [wallet]
+            );
+        }
+
+        const user = userData.rows[0];
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Update total points
+            await client.query(
+                `UPDATE amy_points SET
+                 total_points = total_points + $1,
+                 last_points_update = CURRENT_TIMESTAMP
+                 WHERE LOWER(wallet) = LOWER($2)`,
+                [pointsToAdd, wallet]
+            );
+
+            // Log to history
+            await client.query(
+                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
+                 VALUES (LOWER($1), $2, $3, $4, $5, $6, $7)`,
+                [wallet, pointsToAdd, category, user?.lastAmyBalance || 0, user?.currentTier || 'none', category, description]
+            );
+
+            await client.query('COMMIT');
+
+            return {
+                success: true,
+                wallet: wallet.toLowerCase(),
+                pointsAdded: pointsToAdd,
+                category,
+                description
+            };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
     }
 };
 
