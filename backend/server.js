@@ -1645,9 +1645,36 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             console.error('Error fetching token holdings for multiplier:', err.message);
         }
 
+        // Fetch RaidShark and Onchain Conviction multipliers from database
+        let raidsharkMult = 1;
+        let onchainConvictionMult = 1;
+        try {
+            const badgeMultipliers = await database.points.getMultiplierBadges(wallet);
+            raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
+            onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
+        } catch (err) {
+            console.error('Error fetching badge multipliers:', err.message);
+        }
+
+        // Fetch referral multiplier (5+ refs = x3, 10+ refs = x5, 20+ refs = x10)
+        let referralMult = 0;
+        try {
+            if (referralsDb) {
+                const referralEntry = await referralsDb.getByWallet(wallet);
+                if (referralEntry && referralEntry.referralCode) {
+                    const validReferralCount = await referralsDb.getValidReferralCount(referralEntry.referralCode);
+                    if (validReferralCount >= 20) referralMult = 10;
+                    else if (validReferralCount >= 10) referralMult = 5;
+                    else if (validReferralCount >= 5) referralMult = 3;
+                }
+            }
+        } catch (err) {
+            console.error('Error fetching referral multiplier:', err.message);
+        }
+
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0));
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + raidsharkMult + onchainConvictionMult + referralMult);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1662,7 +1689,10 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 effectivePointsPerHour: effectivePointsPerHour,
                 sailrMultiplier: sailrMult > 1 ? sailrMult : 0,
                 plvhedgeMultiplier: plvhedgeMult > 1 ? plvhedgeMult : 0,
-                plsberaMultiplier: plsberaMult > 1 ? plsberaMult : 0
+                plsberaMultiplier: plsberaMult > 1 ? plsberaMult : 0,
+                raidsharkMultiplier: raidsharkMult > 0 ? raidsharkMult : 0,
+                onchainConvictionMultiplier: onchainConvictionMult > 0 ? onchainConvictionMult : 0,
+                referralMultiplier: referralMult > 0 ? referralMult : 0
             }
         });
 
@@ -2744,6 +2774,375 @@ app.post('/api/email/verify', async (req, res) => {
 });
 
 // ============================================
+// MULTIPLIER BADGE ADMIN ENDPOINTS
+// ============================================
+
+// Get multiplier badges for a wallet
+app.get('/api/badges/multipliers/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        const badges = await database.points.getMultiplierBadges(wallet);
+        res.json({ success: true, data: badges });
+    } catch (error) {
+        console.error('Error getting multiplier badges:', error);
+        res.status(500).json({ success: false, error: 'Failed to get multiplier badges' });
+    }
+});
+
+// Update RaidShark multiplier for a single user (admin only)
+app.post('/api/admin/raidshark/update', isAdmin, async (req, res) => {
+    try {
+        const { wallet, multiplier } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!multiplier || ![1, 3, 7, 15].includes(multiplier)) {
+            return res.status(400).json({ success: false, error: 'Invalid multiplier. Must be 1, 3, 7, or 15' });
+        }
+
+        const result = await database.points.updateRaidsharkMultiplier(wallet, multiplier);
+        console.log(`🦈 RaidShark multiplier updated: ${wallet} -> ${multiplier}x`);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Error updating RaidShark multiplier:', error);
+        res.status(500).json({ success: false, error: 'Failed to update multiplier' });
+    }
+});
+
+// Bulk update RaidShark multipliers (admin only) - for monthly CSV updates
+app.post('/api/admin/raidshark/bulk', isAdmin, async (req, res) => {
+    try {
+        const { updates } = req.body;
+        // updates should be array of { wallet, multiplier }
+
+        if (!Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({ success: false, error: 'Updates array required' });
+        }
+
+        // Validate all entries
+        for (const update of updates) {
+            if (!update.wallet || !ethers.utils.isAddress(update.wallet)) {
+                return res.status(400).json({ success: false, error: `Invalid wallet: ${update.wallet}` });
+            }
+            if (!update.multiplier || ![1, 3, 7, 15].includes(update.multiplier)) {
+                return res.status(400).json({ success: false, error: `Invalid multiplier for ${update.wallet}` });
+            }
+        }
+
+        const result = await database.points.bulkUpdateRaidshark(updates);
+        console.log(`🦈 RaidShark bulk update: ${result.updated} users updated`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating RaidShark:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update' });
+    }
+});
+
+// Update Onchain Conviction multiplier for a single user (admin only)
+app.post('/api/admin/conviction/update', isAdmin, async (req, res) => {
+    try {
+        const { wallet, multiplier } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!multiplier || ![1, 3, 5, 10].includes(multiplier)) {
+            return res.status(400).json({ success: false, error: 'Invalid multiplier. Must be 1, 3, 5, or 10' });
+        }
+
+        const result = await database.points.updateOnchainConvictionMultiplier(wallet, multiplier);
+        console.log(`⛓️ Onchain Conviction multiplier updated: ${wallet} -> ${multiplier}x`);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Error updating Onchain Conviction multiplier:', error);
+        res.status(500).json({ success: false, error: 'Failed to update multiplier' });
+    }
+});
+
+// Bulk update Onchain Conviction multipliers (admin only)
+app.post('/api/admin/conviction/bulk', isAdmin, async (req, res) => {
+    try {
+        const { updates } = req.body;
+        // updates should be array of { wallet, multiplier }
+
+        if (!Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({ success: false, error: 'Updates array required' });
+        }
+
+        // Validate all entries
+        for (const update of updates) {
+            if (!update.wallet || !ethers.utils.isAddress(update.wallet)) {
+                return res.status(400).json({ success: false, error: `Invalid wallet: ${update.wallet}` });
+            }
+            if (!update.multiplier || ![1, 3, 5, 10].includes(update.multiplier)) {
+                return res.status(400).json({ success: false, error: `Invalid multiplier for ${update.wallet}` });
+            }
+        }
+
+        const result = await database.points.bulkUpdateOnchainConviction(updates);
+        console.log(`⛓️ Onchain Conviction bulk update: ${result.updated} users updated`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating Onchain Conviction:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update' });
+    }
+});
+
+// Update RaidShark multiplier by X username (admin only) - easier than wallet lookup
+app.post('/api/admin/raidshark/update-by-username', isAdmin, async (req, res) => {
+    try {
+        const { xUsername, multiplier } = req.body;
+
+        if (!xUsername) {
+            return res.status(400).json({ success: false, error: 'X username required' });
+        }
+
+        if (!multiplier || ![1, 3, 7, 15].includes(multiplier)) {
+            return res.status(400).json({ success: false, error: 'Invalid multiplier. Must be 1, 3, 7, or 15' });
+        }
+
+        const result = await database.points.updateRaidsharkByUsername(xUsername, multiplier);
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        console.log(`🦈 RaidShark multiplier updated: @${result.xUsername} (${result.wallet}) -> ${multiplier}x`);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Error updating RaidShark by username:', error);
+        res.status(500).json({ success: false, error: 'Failed to update multiplier' });
+    }
+});
+
+// Bulk update RaidShark by X usernames (admin only) - for monthly CSV updates
+app.post('/api/admin/raidshark/bulk-by-username', isAdmin, async (req, res) => {
+    try {
+        const { updates } = req.body;
+        // updates should be array of { xUsername, multiplier }
+
+        if (!Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({ success: false, error: 'Updates array required with {xUsername, multiplier} entries' });
+        }
+
+        // Validate all entries
+        for (const update of updates) {
+            if (!update.xUsername) {
+                return res.status(400).json({ success: false, error: 'Missing xUsername in update' });
+            }
+            if (!update.multiplier || ![1, 3, 7, 15].includes(update.multiplier)) {
+                return res.status(400).json({ success: false, error: `Invalid multiplier for @${update.xUsername}. Must be 1, 3, 7, or 15` });
+            }
+        }
+
+        const result = await database.points.bulkUpdateRaidsharkByUsername(updates);
+        console.log(`🦈 RaidShark bulk update by username: ${result.updated} success, ${result.failed} failed`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating RaidShark by username:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update' });
+    }
+});
+
+// Get all users with RaidShark badges (admin only) - for viewing current assignments
+app.get('/api/admin/raidshark/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT wallet, x_username as "xUsername", raidshark_multiplier as "multiplier"
+             FROM amy_points
+             WHERE raidshark_multiplier > 1
+             ORDER BY raidshark_multiplier DESC, x_username ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('Error listing RaidShark users:', error);
+        res.status(500).json({ success: false, error: 'Failed to list users' });
+    }
+});
+
+// Get all users with Onchain Conviction badges (admin only)
+app.get('/api/admin/conviction/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT wallet, x_username as "xUsername", onchain_conviction_multiplier as "multiplier"
+             FROM amy_points
+             WHERE onchain_conviction_multiplier > 1
+             ORDER BY onchain_conviction_multiplier DESC, wallet ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('Error listing Onchain Conviction users:', error);
+        res.status(500).json({ success: false, error: 'Failed to list users' });
+    }
+});
+
+// ============================================
+// DAILY CHECK-IN ENDPOINTS
+// ============================================
+
+// Get check-in status for a wallet
+app.get('/api/checkin/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        const data = await database.checkin.getData(wallet);
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('Error getting check-in data:', error);
+        res.status(500).json({ success: false, error: 'Failed to get check-in data' });
+    }
+});
+
+// Perform daily check-in
+app.post('/api/checkin/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        // Check if user is a holder (300+ AMY)
+        const holder = await database.holders.getByWallet(wallet);
+        if (!holder || parseFloat(holder.amy_balance || 0) < 300) {
+            return res.status(403).json({
+                success: false,
+                error: 'Must hold 300+ AMY to check in'
+            });
+        }
+
+        const result = await database.checkin.doCheckIn(wallet);
+
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error('Error performing check-in:', error);
+        res.status(500).json({ success: false, error: 'Failed to check in' });
+    }
+});
+
+// ============================================
+// QUEST ENDPOINTS
+// ============================================
+
+// Get quest status for a wallet
+app.get('/api/quests/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        const data = await database.quests.getData(wallet);
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('Error getting quest data:', error);
+        res.status(500).json({ success: false, error: 'Failed to get quest data' });
+    }
+});
+
+// Complete a quest
+app.post('/api/quests/:wallet/complete', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        const { questId } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!questId) {
+            return res.status(400).json({ success: false, error: 'Quest ID required' });
+        }
+
+        const result = await database.quests.completeQuest(wallet, questId);
+
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error('Error completing quest:', error);
+        res.status(500).json({ success: false, error: 'Failed to complete quest' });
+    }
+});
+
+// ============================================
+// SOCIAL DISCONNECT ENDPOINT
+// ============================================
+
+// Disconnect a social account
+app.post('/api/social/:wallet/disconnect', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        const { platform } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (!platform || !['x', 'discord', 'telegram'].includes(platform)) {
+            return res.status(400).json({ success: false, error: 'Invalid platform' });
+        }
+
+        // Map platform to database column
+        const columnMap = {
+            x: 'x_username',
+            discord: 'discord_username',
+            telegram: 'telegram_username'
+        };
+
+        const column = columnMap[platform];
+
+        // Clear the social connection (but keep points/badges)
+        if (usePostgres) {
+            const { Pool } = require('pg');
+            const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+            await pool.query(
+                `UPDATE verified_users SET ${column} = NULL WHERE LOWER(wallet) = LOWER($1)`,
+                [wallet]
+            );
+            await pool.end();
+        } else {
+            // JSON fallback - update the user in verified-users.json
+            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+            const userIndex = data.users.findIndex(u => u.wallet.toLowerCase() === wallet.toLowerCase());
+            if (userIndex >= 0) {
+                if (platform === 'x') {
+                    data.users[userIndex].xUsername = null;
+                } else if (platform === 'discord') {
+                    data.users[userIndex].discordUsername = null;
+                } else if (platform === 'telegram') {
+                    data.users[userIndex].telegramUsername = null;
+                }
+                fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+            }
+        }
+
+        console.log(`🔌 Disconnected ${platform} for wallet ${wallet}`);
+        res.json({ success: true, message: `${platform} disconnected successfully` });
+    } catch (error) {
+        console.error('Error disconnecting social:', error);
+        res.status(500).json({ success: false, error: 'Failed to disconnect social account' });
+    }
+});
+
+// ============================================
 // PERIODIC JOBS
 // ============================================
 
@@ -3241,9 +3640,36 @@ async function awardHourlyPoints() {
                     // If token query fails, continue with LP only
                 }
 
+                // Fetch RaidShark and Onchain Conviction multipliers from database
+                let raidsharkMult = 0;
+                let onchainConvictionMult = 0;
+                try {
+                    const badgeMultipliers = await database.points.getMultiplierBadges(user.wallet);
+                    raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
+                    onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
+                } catch (err) {
+                    // If badge query fails, continue without these multipliers
+                }
+
+                // Fetch referral multiplier (5+ refs = x3, 10+ refs = x5, 20+ refs = x10)
+                let referralMult = 0;
+                try {
+                    if (referralsDb) {
+                        const referralEntry = await referralsDb.getByWallet(user.wallet);
+                        if (referralEntry && referralEntry.referralCode) {
+                            const validReferralCount = await referralsDb.getValidReferralCount(referralEntry.referralCode);
+                            if (validReferralCount >= 20) referralMult = 10;
+                            else if (validReferralCount >= 10) referralMult = 5;
+                            else if (validReferralCount >= 5) referralMult = 3;
+                        }
+                    }
+                } catch (err) {
+                    // If referral query fails, continue without this multiplier
+                }
+
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + raidsharkMult + onchainConvictionMult + referralMult);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -3256,6 +3682,9 @@ async function awardHourlyPoints() {
                     if (sailrMult > 1) boostParts.push(`SAIL.r ${sailrMult}x`);
                     if (plvhedgeMult > 1) boostParts.push(`plvHEDGE ${plvhedgeMult}x`);
                     if (plsberaMult > 1) boostParts.push(`plsBERA ${plsberaMult}x`);
+                    if (raidsharkMult > 1) boostParts.push(`RaidShark ${raidsharkMult}x`);
+                    if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
+                    if (referralMult > 1) boostParts.push(`Referral ${referralMult}x`);
                     description = `Hourly earning with ${totalMultiplier}x multiplier (${boostParts.join(' + ')})`;
                 }
 

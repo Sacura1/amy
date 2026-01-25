@@ -234,6 +234,12 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plsbera_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN plsbera_multiplier INTEGER DEFAULT 1;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='raidshark_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN raidshark_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='onchain_conviction_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN onchain_conviction_multiplier INTEGER DEFAULT 1;
+                END IF;
             END $$;
         `);
 
@@ -336,6 +342,49 @@ async function createTables() {
                 expires_at TIMESTAMP NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+        `);
+
+        // Create daily_checkins table for streak tracking
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS daily_checkins (
+                wallet VARCHAR(42) PRIMARY KEY,
+                last_checkin_date DATE,
+                current_streak_day INTEGER DEFAULT 0,
+                streak_points_total INTEGER DEFAULT 0,
+                total_checkins INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Create quests table for tracking quest completions
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS user_quests (
+                wallet VARCHAR(42) PRIMARY KEY,
+                follow_amy_x BOOLEAN DEFAULT FALSE,
+                follow_amy_x_at TIMESTAMP,
+                join_amy_discord BOOLEAN DEFAULT FALSE,
+                join_amy_discord_at TIMESTAMP,
+                join_amy_telegram BOOLEAN DEFAULT FALSE,
+                join_amy_telegram_at TIMESTAMP,
+                follow_amy_instagram BOOLEAN DEFAULT FALSE,
+                follow_amy_instagram_at TIMESTAMP,
+                quest_points_earned INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Add Instagram quest columns if they don't exist
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_quests' AND column_name='follow_amy_instagram') THEN
+                    ALTER TABLE user_quests ADD COLUMN follow_amy_instagram BOOLEAN DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_quests' AND column_name='follow_amy_instagram_at') THEN
+                    ALTER TABLE user_quests ADD COLUMN follow_amy_instagram_at TIMESTAMP;
+                END IF;
+            END $$;
         `);
 
         console.log('✅ Database tables created/verified');
@@ -522,7 +571,7 @@ async function seedCustomizationItems(client) {
             { id: 'bg_4', type: 'background', name: 'BG 4', previewUrl: '/bg_desktop_4.jpg', costPoints: 50, isDefault: false },
             { id: 'bg_5', type: 'background', name: 'BG 5', previewUrl: '/bg_desktop_5.jpg', costPoints: 100, isDefault: false },
             { id: 'bg_6', type: 'background', name: 'BG 6', previewUrl: '/bg_desktop_6.jpg', costPoints: 150, isDefault: false },
-            { id: 'bg_fuzzy', type: 'background', name: 'Fuzzy Hold', previewUrl: '/fuzzy_desktop.png', costPoints: 500, isDefault: false },
+            { id: 'bg_fuzzy', type: 'background', name: 'Fuzzy Hold', previewUrl: '/Fuzzy_desktop.png', costPoints: 500, isDefault: false },
         ];
 
         // Filters - Color filters
@@ -1335,6 +1384,244 @@ const points = {
         return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier };
     },
 
+    // Update RaidShark multiplier for a user (admin only)
+    updateRaidsharkMultiplier: async (wallet, multiplier) => {
+        if (!pool) return null;
+        // First ensure the user exists in amy_points
+        await pool.query(
+            `INSERT INTO amy_points (wallet, raidshark_multiplier)
+             VALUES (LOWER($1), $2)
+             ON CONFLICT (wallet) DO UPDATE SET
+             raidshark_multiplier = $2`,
+            [wallet, multiplier]
+        );
+        return { wallet, raidsharkMultiplier: multiplier };
+    },
+
+    // Update Onchain Conviction multiplier for a user (admin only)
+    updateOnchainConvictionMultiplier: async (wallet, multiplier) => {
+        if (!pool) return null;
+        // First ensure the user exists in amy_points
+        await pool.query(
+            `INSERT INTO amy_points (wallet, onchain_conviction_multiplier)
+             VALUES (LOWER($1), $2)
+             ON CONFLICT (wallet) DO UPDATE SET
+             onchain_conviction_multiplier = $2`,
+            [wallet, multiplier]
+        );
+        return { wallet, onchainConvictionMultiplier: multiplier };
+    },
+
+    // Get all multiplier badges for a wallet
+    getMultiplierBadges: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT raidshark_multiplier, onchain_conviction_multiplier
+             FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+        const row = result.rows[0];
+        return {
+            raidsharkMultiplier: row?.raidshark_multiplier || 1,
+            onchainConvictionMultiplier: row?.onchain_conviction_multiplier || 1
+        };
+    },
+
+    // Look up wallet address by X username
+    getWalletByUsername: async (xUsername) => {
+        if (!pool) return null;
+        const cleanUsername = xUsername.replace(/^@/, '').trim();
+
+        // First check amy_points table
+        let result = await pool.query(
+            `SELECT wallet, x_username as "xUsername" FROM amy_points
+             WHERE LOWER(x_username) = LOWER($1)`,
+            [cleanUsername]
+        );
+
+        if (result.rows[0]) {
+            return { wallet: result.rows[0].wallet, xUsername: result.rows[0].xUsername };
+        }
+
+        // Fall back to verified_users table
+        result = await pool.query(
+            `SELECT wallet, x_username as "xUsername" FROM verified_users
+             WHERE LOWER(x_username) = LOWER($1)`,
+            [cleanUsername]
+        );
+
+        if (result.rows[0]) {
+            return { wallet: result.rows[0].wallet, xUsername: result.rows[0].xUsername };
+        }
+
+        return null;
+    },
+
+    // Update RaidShark multiplier by X username
+    updateRaidsharkByUsername: async (xUsername, multiplier) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        const cleanUsername = xUsername.replace(/^@/, '').trim();
+
+        // Look up wallet by username
+        let result = await pool.query(
+            `SELECT wallet, x_username as "xUsername" FROM amy_points
+             WHERE LOWER(x_username) = LOWER($1)`,
+            [cleanUsername]
+        );
+
+        if (!result.rows[0]) {
+            // Check verified_users
+            const verified = await pool.query(
+                `SELECT wallet, x_username as "xUsername" FROM verified_users
+                 WHERE LOWER(x_username) = LOWER($1)`,
+                [cleanUsername]
+            );
+
+            if (!verified.rows[0]) {
+                return { success: false, error: `User @${cleanUsername} not found` };
+            }
+
+            // User exists in verified but not amy_points, create entry
+            const user = verified.rows[0];
+            await pool.query(
+                `INSERT INTO amy_points (wallet, x_username, raidshark_multiplier)
+                 VALUES (LOWER($1), $2, $3)
+                 ON CONFLICT (wallet) DO UPDATE SET
+                 x_username = $2, raidshark_multiplier = $3`,
+                [user.wallet, user.xUsername, multiplier]
+            );
+            return { success: true, wallet: user.wallet, xUsername: user.xUsername, multiplier };
+        }
+
+        const user = result.rows[0];
+        await pool.query(
+            `UPDATE amy_points SET raidshark_multiplier = $1 WHERE LOWER(wallet) = LOWER($2)`,
+            [multiplier, user.wallet]
+        );
+        return { success: true, wallet: user.wallet, xUsername: user.xUsername, multiplier };
+    },
+
+    // Bulk update RaidShark by usernames
+    bulkUpdateRaidsharkByUsername: async (updates) => {
+        if (!pool) return { success: false };
+        const client = await pool.connect();
+        const results = [];
+        let successCount = 0;
+        let failCount = 0;
+
+        try {
+            await client.query('BEGIN');
+            // Reset all raidshark multipliers to 1 first
+            await client.query('UPDATE amy_points SET raidshark_multiplier = 1');
+
+            for (const { xUsername, multiplier } of updates) {
+                const cleanUsername = xUsername.replace(/^@/, '').trim();
+
+                // Look up wallet
+                let result = await client.query(
+                    `SELECT wallet, x_username as "xUsername" FROM amy_points
+                     WHERE LOWER(x_username) = LOWER($1)`,
+                    [cleanUsername]
+                );
+
+                if (!result.rows[0]) {
+                    const verified = await client.query(
+                        `SELECT wallet, x_username as "xUsername" FROM verified_users
+                         WHERE LOWER(x_username) = LOWER($1)`,
+                        [cleanUsername]
+                    );
+
+                    if (!verified.rows[0]) {
+                        results.push({ xUsername: cleanUsername, success: false, error: 'User not found' });
+                        failCount++;
+                        continue;
+                    }
+
+                    const user = verified.rows[0];
+                    await client.query(
+                        `INSERT INTO amy_points (wallet, x_username, raidshark_multiplier)
+                         VALUES (LOWER($1), $2, $3)
+                         ON CONFLICT (wallet) DO UPDATE SET
+                         x_username = $2, raidshark_multiplier = $3`,
+                        [user.wallet, user.xUsername, multiplier]
+                    );
+                    results.push({ xUsername: user.xUsername, wallet: user.wallet, multiplier, success: true });
+                    successCount++;
+                } else {
+                    const user = result.rows[0];
+                    await client.query(
+                        `UPDATE amy_points SET raidshark_multiplier = $1 WHERE LOWER(wallet) = LOWER($2)`,
+                        [multiplier, user.wallet]
+                    );
+                    results.push({ xUsername: user.xUsername, wallet: user.wallet, multiplier, success: true });
+                    successCount++;
+                }
+            }
+
+            await client.query('COMMIT');
+            return { success: true, updated: successCount, failed: failCount, results };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    // Bulk update RaidShark multipliers (for monthly CSV import)
+    bulkUpdateRaidshark: async (updates) => {
+        if (!pool) return { success: false };
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            // First reset all raidshark multipliers to 1
+            await client.query('UPDATE amy_points SET raidshark_multiplier = 1');
+            // Then apply new multipliers
+            for (const { wallet, multiplier } of updates) {
+                await client.query(
+                    `INSERT INTO amy_points (wallet, raidshark_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET
+                     raidshark_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+            }
+            await client.query('COMMIT');
+            return { success: true, updated: updates.length };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    // Bulk update Onchain Conviction multipliers
+    bulkUpdateOnchainConviction: async (updates) => {
+        if (!pool) return { success: false };
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const { wallet, multiplier } of updates) {
+                await client.query(
+                    `INSERT INTO amy_points (wallet, onchain_conviction_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET
+                     onchain_conviction_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+            }
+            await client.query('COMMIT');
+            return { success: true, updated: updates.length };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
     // Get points history for a wallet
     getHistory: async (wallet, limit = 50) => {
         if (!pool) return [];
@@ -1971,6 +2258,193 @@ const emailVerification = {
     }
 };
 
+// Daily check-in helper functions
+const checkin = {
+    // Get check-in data for a user
+    getData: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT last_checkin_date, current_streak_day, streak_points_total, total_checkins
+             FROM daily_checkins WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+
+        const row = result.rows[0];
+        if (!row) {
+            return {
+                lastCheckinDate: null,
+                currentStreakDay: 0,
+                streakPointsTotal: 0,
+                canCheckIn: true,
+                nextCheckInTime: null
+            };
+        }
+
+        // Check if user can check in today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const lastCheckin = row.last_checkin_date ? new Date(row.last_checkin_date) : null;
+        if (lastCheckin) lastCheckin.setHours(0, 0, 0, 0);
+
+        const canCheckIn = !lastCheckin || lastCheckin.getTime() < today.getTime();
+
+        // Calculate next check-in time (next midnight)
+        let nextCheckInTime = null;
+        if (!canCheckIn) {
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            nextCheckInTime = tomorrow.toISOString();
+        }
+
+        return {
+            lastCheckinDate: row.last_checkin_date,
+            currentStreakDay: row.current_streak_day,
+            streakPointsTotal: row.streak_points_total,
+            canCheckIn,
+            nextCheckInTime
+        };
+    },
+
+    // Perform check-in for a user
+    doCheckIn: async (wallet) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        // Get current check-in data
+        const current = await checkin.getData(wallet);
+        if (!current.canCheckIn) {
+            return { success: false, error: 'Already checked in today', data: current };
+        }
+
+        // Calculate new streak
+        let newStreakDay = 1;
+        let streakPointsTotal = 0;
+
+        if (current.lastCheckinDate) {
+            const lastCheckin = new Date(current.lastCheckinDate);
+            lastCheckin.setHours(0, 0, 0, 0);
+
+            // If last check-in was yesterday, continue streak
+            if (lastCheckin.getTime() === yesterday.getTime()) {
+                newStreakDay = (current.currentStreakDay % 7) + 1; // Cycle 1-7
+                streakPointsTotal = current.streakPointsTotal;
+            }
+            // Otherwise streak resets
+        }
+
+        // Calculate points for this day
+        let pointsAwarded = 50; // Days 1-4
+        if (newStreakDay === 5 || newStreakDay === 6) {
+            pointsAwarded = 75;
+        } else if (newStreakDay === 7) {
+            pointsAwarded = 150;
+        }
+
+        streakPointsTotal += pointsAwarded;
+
+        // Update database
+        await pool.query(
+            `INSERT INTO daily_checkins (wallet, last_checkin_date, current_streak_day, streak_points_total, total_checkins)
+             VALUES (LOWER($1), $2, $3, $4, 1)
+             ON CONFLICT (wallet) DO UPDATE SET
+             last_checkin_date = $2,
+             current_streak_day = $3,
+             streak_points_total = $4,
+             total_checkins = daily_checkins.total_checkins + 1,
+             updated_at = CURRENT_TIMESTAMP`,
+            [wallet, today.toISOString().split('T')[0], newStreakDay, streakPointsTotal]
+        );
+
+        // Add points to user's total via the points system
+        await points.addBonus(wallet, pointsAwarded, 'CHECK_IN', `Day ${newStreakDay} check-in bonus`);
+
+        return {
+            success: true,
+            data: {
+                lastCheckinDate: today.toISOString().split('T')[0],
+                currentStreakDay: newStreakDay,
+                streakPointsTotal,
+                canCheckIn: false,
+                nextCheckInTime: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+                pointsAwarded
+            }
+        };
+    }
+};
+
+// Quest helper functions
+const quests = {
+    // Get quest data for a user
+    getData: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT follow_amy_x, join_amy_discord, join_amy_telegram, quest_points_earned
+             FROM user_quests WHERE LOWER(wallet) = LOWER($1)`,
+            [wallet]
+        );
+
+        const row = result.rows[0];
+        return {
+            followAmyX: row?.follow_amy_x || false,
+            joinAmyDiscord: row?.join_amy_discord || false,
+            joinAmyTelegram: row?.join_amy_telegram || false,
+            followAmyInstagram: row?.follow_amy_instagram || false,
+            questPointsEarned: row?.quest_points_earned || 0
+        };
+    },
+
+    // Complete a quest
+    completeQuest: async (wallet, questId) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        const questMap = {
+            followAmyX: { column: 'follow_amy_x', atColumn: 'follow_amy_x_at', points: 150 },
+            joinAmyDiscord: { column: 'join_amy_discord', atColumn: 'join_amy_discord_at', points: 150 },
+            joinAmyTelegram: { column: 'join_amy_telegram', atColumn: 'join_amy_telegram_at', points: 150 },
+            followAmyInstagram: { column: 'follow_amy_instagram', atColumn: 'follow_amy_instagram_at', points: 150 }
+        };
+
+        const quest = questMap[questId];
+        if (!quest) {
+            return { success: false, error: 'Invalid quest ID' };
+        }
+
+        // Check if already completed
+        const current = await quests.getData(wallet);
+        if (current[questId]) {
+            return { success: false, error: 'Quest already completed' };
+        }
+
+        // Ensure row exists
+        await pool.query(
+            `INSERT INTO user_quests (wallet)
+             VALUES (LOWER($1))
+             ON CONFLICT (wallet) DO NOTHING`,
+            [wallet]
+        );
+
+        // Complete quest
+        await pool.query(
+            `UPDATE user_quests SET
+             ${quest.column} = TRUE,
+             ${quest.atColumn} = CURRENT_TIMESTAMP,
+             quest_points_earned = quest_points_earned + $1,
+             updated_at = CURRENT_TIMESTAMP
+             WHERE LOWER(wallet) = LOWER($2)`,
+            [quest.points, wallet]
+        );
+
+        // Add points
+        await points.addBonus(wallet, quest.points, 'QUEST', `Quest completed: ${questId}`);
+
+        return { success: true, pointsAwarded: quest.points };
+    }
+};
+
 // Social connections helper functions (for syncing Thirdweb linked profiles)
 const social = {
     // Update social connections for a user
@@ -2025,6 +2499,8 @@ module.exports = {
     customization,
     social,
     emailVerification,
+    checkin,
+    quests,
     POINTS_TIERS,
     POINTS_CATEGORIES,
     CATEGORY_DESCRIPTIONS,
