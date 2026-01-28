@@ -367,7 +367,7 @@ function generateCodeChallenge(verifier) {
 
 // Middleware to check if wallet is admin
 function isAdmin(req, res, next) {
-    const wallet = req.query.wallet || req.body.wallet;
+    const wallet = req.query.wallet || req.body.wallet || req.headers['x-wallet-address'];
 
     if (!wallet) {
         return res.status(401).json({ error: 'Wallet address required' });
