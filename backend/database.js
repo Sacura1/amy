@@ -1834,7 +1834,19 @@ const BADGE_DEFINITIONS = {
     referrer_5: { id: 'referrer_5', name: 'Referrer', description: '5+ referrals', icon: '👥' },
     referrer_10: { id: 'referrer_10', name: 'Super Referrer', description: '10+ referrals', icon: '👥' },
     points_1k: { id: 'points_1k', name: 'Point Collector', description: '1,000+ points', icon: '⭐' },
-    points_10k: { id: 'points_10k', name: 'Point Master', description: '10,000+ points', icon: '💫' }
+    points_10k: { id: 'points_10k', name: 'Point Master', description: '10,000+ points', icon: '💫' },
+    // RaidShark badges
+    raidshark_x3: { id: 'raidshark_x3', name: 'Raid Enthusiast', description: 'RaidShark x3 multiplier', icon: '🦈' },
+    raidshark_x7: { id: 'raidshark_x7', name: 'Raid Master', description: 'RaidShark x7 multiplier', icon: '🦈' },
+    raidshark_x15: { id: 'raidshark_x15', name: 'Raid Legend', description: 'RaidShark x15 multiplier', icon: '🦈' },
+    // Onchain Conviction badges
+    conviction_x3: { id: 'conviction_x3', name: 'Conviction Level 1', description: 'Onchain Conviction x3', icon: '⛓️' },
+    conviction_x5: { id: 'conviction_x5', name: 'Conviction Level 2', description: 'Onchain Conviction x5', icon: '⛓️' },
+    conviction_x10: { id: 'conviction_x10', name: 'Conviction Level 3', description: 'Onchain Conviction x10', icon: '⛓️' },
+    // Referral badges (new tier system)
+    referral_x3: { id: 'referral_x3', name: 'Dawn Referrer', description: '1 referral', icon: '👥' },
+    referral_x5: { id: 'referral_x5', name: 'Dawn Ambassador', description: '2 referrals', icon: '👥' },
+    referral_x10: { id: 'referral_x10', name: 'Dawn Champion', description: '3+ referrals', icon: '👥' }
 };
 
 // User profiles helper functions
@@ -2028,11 +2040,12 @@ const badges = {
 
         const earned = [];
 
-        // Get user data including token holdings
+        // Get user data including token holdings and new badge multipliers
         const userData = await pool.query(
             `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
              p.sailr_multiplier, p.sailr_value_usd, p.plvhedge_multiplier, p.plvhedge_value_usd,
-             p.plsbera_multiplier, p.plsbera_value_usd, r.referral_count
+             p.plsbera_multiplier, p.plsbera_value_usd, p.raidshark_multiplier, p.onchain_conviction_multiplier,
+             r.referral_count
              FROM verified_users v
              LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
              LEFT JOIN referrals r ON LOWER(v.wallet) = LOWER(r.wallet)
@@ -2072,10 +2085,27 @@ const badges = {
             else if (plsberaUsd >= 100) earned.push(BADGE_DEFINITIONS.plsbera_x5);
             else if (plsberaUsd >= 10) earned.push(BADGE_DEFINITIONS.plsbera_x3);
 
-            // Referral badges
+            // RaidShark badges (based on multiplier assigned by admin)
+            const raidsharkMult = parseInt(user.raidshark_multiplier) || 0;
+            if (raidsharkMult >= 15) earned.push(BADGE_DEFINITIONS.raidshark_x15);
+            else if (raidsharkMult >= 7) earned.push(BADGE_DEFINITIONS.raidshark_x7);
+            else if (raidsharkMult >= 3) earned.push(BADGE_DEFINITIONS.raidshark_x3);
+
+            // Onchain Conviction badges (based on multiplier assigned by admin)
+            const convictionMult = parseInt(user.onchain_conviction_multiplier) || 0;
+            if (convictionMult >= 10) earned.push(BADGE_DEFINITIONS.conviction_x10);
+            else if (convictionMult >= 5) earned.push(BADGE_DEFINITIONS.conviction_x5);
+            else if (convictionMult >= 3) earned.push(BADGE_DEFINITIONS.conviction_x3);
+
+            // Referral badges (old system - kept for backwards compatibility)
             const refs = parseInt(user.referral_count) || 0;
             if (refs >= 10) earned.push(BADGE_DEFINITIONS.referrer_10);
             else if (refs >= 5) earned.push(BADGE_DEFINITIONS.referrer_5);
+
+            // Referral badges (new multiplier-based system: 1=x3, 2=x5, 3+=x10)
+            if (refs >= 3) earned.push(BADGE_DEFINITIONS.referral_x10);
+            else if (refs >= 2) earned.push(BADGE_DEFINITIONS.referral_x5);
+            else if (refs >= 1) earned.push(BADGE_DEFINITIONS.referral_x3);
 
             // Points badges
             const pts = parseFloat(user.total_points) || 0;
