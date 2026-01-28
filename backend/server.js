@@ -1656,16 +1656,16 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             console.error('Error fetching badge multipliers:', err.message);
         }
 
-        // Fetch referral multiplier (5+ refs = x3, 10+ refs = x5, 20+ refs = x10)
+        // Fetch referral multiplier (1 ref = x3, 2 refs = x5, 3+ refs = x10)
         let referralMult = 0;
         try {
             if (referralsDb) {
                 const referralEntry = await referralsDb.getByWallet(wallet);
                 if (referralEntry && referralEntry.referralCode) {
                     const validReferralCount = await referralsDb.getValidReferralCount(referralEntry.referralCode);
-                    if (validReferralCount >= 20) referralMult = 10;
-                    else if (validReferralCount >= 10) referralMult = 5;
-                    else if (validReferralCount >= 5) referralMult = 3;
+                    if (validReferralCount >= 3) referralMult = 10;
+                    else if (validReferralCount >= 2) referralMult = 5;
+                    else if (validReferralCount >= 1) referralMult = 3;
                 }
             }
         } catch (err) {
@@ -3675,16 +3675,16 @@ async function awardHourlyPoints() {
                     // If badge query fails, continue without these multipliers
                 }
 
-                // Fetch referral multiplier (5+ refs = x3, 10+ refs = x5, 20+ refs = x10)
+                // Fetch referral multiplier (1 ref = x3, 2 refs = x5, 3+ refs = x10)
                 let referralMult = 0;
                 try {
                     if (referralsDb) {
                         const referralEntry = await referralsDb.getByWallet(user.wallet);
                         if (referralEntry && referralEntry.referralCode) {
                             const validReferralCount = await referralsDb.getValidReferralCount(referralEntry.referralCode);
-                            if (validReferralCount >= 20) referralMult = 10;
-                            else if (validReferralCount >= 10) referralMult = 5;
-                            else if (validReferralCount >= 5) referralMult = 3;
+                            if (validReferralCount >= 3) referralMult = 10;
+                            else if (validReferralCount >= 2) referralMult = 5;
+                            else if (validReferralCount >= 1) referralMult = 3;
                         }
                     }
                 } catch (err) {
