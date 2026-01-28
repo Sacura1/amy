@@ -2045,7 +2045,7 @@ const badges = {
             `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
              p.sailr_multiplier, p.sailr_value_usd, p.plvhedge_multiplier, p.plvhedge_value_usd,
              p.plsbera_multiplier, p.plsbera_value_usd, p.raidshark_multiplier, p.onchain_conviction_multiplier,
-             r.referral_count
+             r.referral_code, r.referral_count
              FROM verified_users v
              LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
              LEFT JOIN referrals r ON LOWER(v.wallet) = LOWER(r.wallet)
@@ -2097,15 +2097,25 @@ const badges = {
             else if (convictionMult >= 5) earned.push(BADGE_DEFINITIONS.conviction_x5);
             else if (convictionMult >= 3) earned.push(BADGE_DEFINITIONS.conviction_x3);
 
+            // Referral badges - calculate valid referral count dynamically
+            let validRefs = 0;
+            if (user.referral_code) {
+                const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+                const refResult = await pool.query(
+                    'SELECT COUNT(*) as count FROM referrals WHERE UPPER(referred_by) = UPPER($1) AND last_known_balance >= $2',
+                    [user.referral_code, MINIMUM_AMY]
+                );
+                validRefs = parseInt(refResult.rows[0].count) || 0;
+            }
+
             // Referral badges (old system - kept for backwards compatibility)
-            const refs = parseInt(user.referral_count) || 0;
-            if (refs >= 10) earned.push(BADGE_DEFINITIONS.referrer_10);
-            else if (refs >= 5) earned.push(BADGE_DEFINITIONS.referrer_5);
+            if (validRefs >= 10) earned.push(BADGE_DEFINITIONS.referrer_10);
+            else if (validRefs >= 5) earned.push(BADGE_DEFINITIONS.referrer_5);
 
             // Referral badges (new multiplier-based system: 1=x3, 2=x5, 3+=x10)
-            if (refs >= 3) earned.push(BADGE_DEFINITIONS.referral_x10);
-            else if (refs >= 2) earned.push(BADGE_DEFINITIONS.referral_x5);
-            else if (refs >= 1) earned.push(BADGE_DEFINITIONS.referral_x3);
+            if (validRefs >= 3) earned.push(BADGE_DEFINITIONS.referral_x10);
+            else if (validRefs >= 2) earned.push(BADGE_DEFINITIONS.referral_x5);
+            else if (validRefs >= 1) earned.push(BADGE_DEFINITIONS.referral_x3);
 
             // Points badges
             const pts = parseFloat(user.total_points) || 0;
