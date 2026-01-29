@@ -422,6 +422,9 @@ async function createTables() {
         // Populate holders table from existing verified users (one-time migration)
         await populateHoldersFromVerifiedUsers(client);
 
+        // Migrate existing social connections to connection quests (one-time migration)
+        await migrateExistingConnectionQuests(client);
+
         // Seed customization items if table is empty
         await seedCustomizationItems(client);
 
@@ -581,6 +584,73 @@ async function populateHoldersFromVerifiedUsers(client) {
 
     } catch (error) {
         console.error('❌ Error populating holders table:', error);
+    }
+}
+
+// Migrate existing social connections to connection quests (one-time migration)
+// This ensures users who already connected socials get credit for the quests
+async function migrateExistingConnectionQuests(client) {
+    try {
+        // Check if migration already happened by looking for any connect_x = true entries
+        const alreadyMigrated = await client.query(
+            `SELECT COUNT(*) FROM user_quests WHERE connect_x = TRUE OR connect_discord = TRUE OR connect_telegram = TRUE`
+        );
+        if (parseInt(alreadyMigrated.rows[0].count) > 0) {
+            console.log('📊 Connection quests already migrated, skipping');
+            return;
+        }
+
+        console.log('🔄 Migrating existing social connections to connection quests...');
+
+        // Get all verified users with their social connections
+        const users = await client.query(`
+            SELECT wallet, x_username, discord_username, telegram_username
+            FROM verified_users
+            WHERE x_username IS NOT NULL OR discord_username IS NOT NULL OR telegram_username IS NOT NULL
+        `);
+
+        if (users.rows.length === 0) {
+            console.log('📊 No users with social connections to migrate');
+            return;
+        }
+
+        let migratedCount = 0;
+        for (const user of users.rows) {
+            // Ensure user_quests row exists
+            await client.query(
+                `INSERT INTO user_quests (wallet) VALUES (LOWER($1)) ON CONFLICT (wallet) DO NOTHING`,
+                [user.wallet]
+            );
+
+            // Update connection quest flags based on existing connections
+            const updates = [];
+            const values = [];
+            let paramIndex = 1;
+
+            if (user.x_username) {
+                updates.push(`connect_x = TRUE, connect_x_at = CURRENT_TIMESTAMP`);
+            }
+            if (user.discord_username) {
+                updates.push(`connect_discord = TRUE, connect_discord_at = CURRENT_TIMESTAMP`);
+            }
+            if (user.telegram_username) {
+                updates.push(`connect_telegram = TRUE, connect_telegram_at = CURRENT_TIMESTAMP`);
+            }
+
+            if (updates.length > 0) {
+                await client.query(
+                    `UPDATE user_quests SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
+                     WHERE LOWER(wallet) = LOWER($1)`,
+                    [user.wallet]
+                );
+                migratedCount++;
+            }
+        }
+
+        console.log(`✅ Migrated ${migratedCount} users' connection quests`);
+
+    } catch (error) {
+        console.error('❌ Error migrating connection quests:', error);
     }
 }
 
