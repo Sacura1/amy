@@ -240,6 +240,9 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='onchain_conviction_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN onchain_conviction_multiplier INTEGER DEFAULT 1;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='swapper_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN swapper_multiplier INTEGER DEFAULT 0;
+                END IF;
             END $$;
         `);
 
@@ -1416,15 +1419,55 @@ const points = {
     getMultiplierBadges: async (wallet) => {
         if (!pool) return null;
         const result = await pool.query(
-            `SELECT raidshark_multiplier, onchain_conviction_multiplier
+            `SELECT raidshark_multiplier, onchain_conviction_multiplier, swapper_multiplier
              FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
         const row = result.rows[0];
         return {
-            raidsharkMultiplier: row?.raidshark_multiplier || 1,
-            onchainConvictionMultiplier: row?.onchain_conviction_multiplier || 1
+            raidsharkMultiplier: row?.raidshark_multiplier || 0,
+            onchainConvictionMultiplier: row?.onchain_conviction_multiplier || 0,
+            swapperMultiplier: row?.swapper_multiplier || 0
         };
+    },
+
+    // Update Swapper multiplier for a user (admin only)
+    updateSwapperMultiplier: async (wallet, multiplier) => {
+        if (!pool) return null;
+        // First ensure the user exists in amy_points
+        await pool.query(
+            `INSERT INTO amy_points (wallet, swapper_multiplier)
+             VALUES (LOWER($1), $2)
+             ON CONFLICT (wallet) DO UPDATE SET
+             swapper_multiplier = $2`,
+            [wallet, multiplier]
+        );
+        return { wallet, swapperMultiplier: multiplier };
+    },
+
+    // Batch update Swapper multipliers (admin only)
+    batchUpdateSwapperMultipliers: async (updates) => {
+        if (!pool || updates.length === 0) return { success: true, updated: 0 };
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const { wallet, multiplier } of updates) {
+                await client.query(
+                    `INSERT INTO amy_points (wallet, swapper_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET
+                     swapper_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+            }
+            await client.query('COMMIT');
+            return { success: true, updated: updates.length };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
     },
 
     // Look up wallet address by X username
@@ -1846,7 +1889,11 @@ const BADGE_DEFINITIONS = {
     // Referral badges (new tier system)
     referral_x3: { id: 'referral_x3', name: 'Dawn Referrer', description: '1 referral', icon: '👥' },
     referral_x5: { id: 'referral_x5', name: 'Dawn Ambassador', description: '2 referrals', icon: '👥' },
-    referral_x10: { id: 'referral_x10', name: 'Dawn Champion', description: '3+ referrals', icon: '👥' }
+    referral_x10: { id: 'referral_x10', name: 'Dawn Champion', description: '3+ referrals', icon: '👥' },
+    // Seasoned Swapper badges
+    swapper_x3: { id: 'swapper_x3', name: 'Engaged Swapper', description: '$250+ monthly swap volume', icon: '🔄' },
+    swapper_x5: { id: 'swapper_x5', name: 'Committed Swapper', description: '$1,000+ monthly swap volume', icon: '🔄' },
+    swapper_x10: { id: 'swapper_x10', name: 'Elite Swapper', description: '$3,000+ monthly swap volume', icon: '🔄' }
 };
 
 // User profiles helper functions
@@ -2045,7 +2092,7 @@ const badges = {
             `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
              p.sailr_multiplier, p.sailr_value_usd, p.plvhedge_multiplier, p.plvhedge_value_usd,
              p.plsbera_multiplier, p.plsbera_value_usd, p.raidshark_multiplier, p.onchain_conviction_multiplier,
-             r.referral_code, r.referral_count
+             p.swapper_multiplier, r.referral_code, r.referral_count
              FROM verified_users v
              LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
              LEFT JOIN referrals r ON LOWER(v.wallet) = LOWER(r.wallet)
@@ -2096,6 +2143,12 @@ const badges = {
             if (convictionMult >= 10) earned.push(BADGE_DEFINITIONS.conviction_x10);
             else if (convictionMult >= 5) earned.push(BADGE_DEFINITIONS.conviction_x5);
             else if (convictionMult >= 3) earned.push(BADGE_DEFINITIONS.conviction_x3);
+
+            // Seasoned Swapper badges (based on multiplier assigned by admin)
+            const swapperMult = parseInt(user.swapper_multiplier) || 0;
+            if (swapperMult >= 10) earned.push(BADGE_DEFINITIONS.swapper_x10);
+            else if (swapperMult >= 5) earned.push(BADGE_DEFINITIONS.swapper_x5);
+            else if (swapperMult >= 3) earned.push(BADGE_DEFINITIONS.swapper_x3);
 
             // Referral badges - calculate valid referral count dynamically
             let validRefs = 0;
@@ -2489,7 +2542,7 @@ const quests = {
     getData: async (wallet) => {
         if (!pool) return null;
         const result = await pool.query(
-            `SELECT follow_amy_x, join_amy_discord, join_amy_telegram, quest_points_earned
+            `SELECT follow_amy_x, join_amy_discord, join_amy_telegram, follow_amy_instagram, quest_points_earned
              FROM user_quests WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );

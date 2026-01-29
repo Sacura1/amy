@@ -1646,13 +1646,15 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             console.error('Error fetching token holdings for multiplier:', err.message);
         }
 
-        // Fetch RaidShark and Onchain Conviction multipliers from database
-        let raidsharkMult = 1;
-        let onchainConvictionMult = 1;
+        // Fetch RaidShark, Onchain Conviction, and Swapper multipliers from database
+        let raidsharkMult = 0;
+        let onchainConvictionMult = 0;
+        let swapperMult = 0;
         try {
             const badgeMultipliers = await database.points.getMultiplierBadges(wallet);
-            raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
-            onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
+            raidsharkMult = badgeMultipliers.raidsharkMultiplier > 0 ? badgeMultipliers.raidsharkMultiplier : 0;
+            onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 0 ? badgeMultipliers.onchainConvictionMultiplier : 0;
+            swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
         } catch (err) {
             console.error('Error fetching badge multipliers:', err.message);
         }
@@ -1675,7 +1677,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
 
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + raidsharkMult + onchainConvictionMult + referralMult);
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1693,7 +1695,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 plsberaMultiplier: plsberaMult > 1 ? plsberaMult : 0,
                 raidsharkMultiplier: raidsharkMult > 0 ? raidsharkMult : 0,
                 onchainConvictionMultiplier: onchainConvictionMult > 0 ? onchainConvictionMult : 0,
-                referralMultiplier: referralMult > 0 ? referralMult : 0
+                referralMultiplier: referralMult > 0 ? referralMult : 0,
+                swapperMultiplier: swapperMult > 0 ? swapperMult : 0
             }
         });
 
@@ -2997,6 +3000,78 @@ app.get('/api/admin/conviction/list', isAdmin, async (req, res) => {
 });
 
 // ============================================
+// SEASONED SWAPPER BADGE ENDPOINTS (Admin)
+// ============================================
+
+// Update Swapper multiplier for a single user (admin only)
+app.post('/api/admin/swapper/update', isAdmin, async (req, res) => {
+    try {
+        const { wallet, multiplier } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (multiplier === undefined || ![0, 3, 5, 10].includes(multiplier)) {
+            return res.status(400).json({ success: false, error: 'Invalid multiplier. Must be 0, 3, 5, or 10' });
+        }
+
+        const result = await database.points.updateSwapperMultiplier(wallet, multiplier);
+        console.log(`🔄 Swapper multiplier updated: ${wallet} -> ${multiplier}x`);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Error updating Swapper multiplier:', error);
+        res.status(500).json({ success: false, error: 'Failed to update multiplier' });
+    }
+});
+
+// Bulk update Swapper multipliers (admin only)
+app.post('/api/admin/swapper/bulk', isAdmin, async (req, res) => {
+    try {
+        const { updates } = req.body;
+        // updates should be array of { wallet, multiplier }
+
+        if (!Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({ success: false, error: 'Updates array required' });
+        }
+
+        // Validate all entries
+        for (const update of updates) {
+            if (!update.wallet || !ethers.utils.isAddress(update.wallet)) {
+                return res.status(400).json({ success: false, error: `Invalid wallet: ${update.wallet}` });
+            }
+            if (update.multiplier === undefined || ![0, 3, 5, 10].includes(update.multiplier)) {
+                return res.status(400).json({ success: false, error: `Invalid multiplier for ${update.wallet}` });
+            }
+        }
+
+        const result = await database.points.batchUpdateSwapperMultipliers(updates);
+        console.log(`🔄 Swapper bulk update: ${result.updated} users updated`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating Swapper:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update' });
+    }
+});
+
+// Get all users with Swapper badges (admin only)
+app.get('/api/admin/swapper/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT p.wallet, v.x_username as "xUsername", p.swapper_multiplier as "multiplier"
+             FROM amy_points p
+             LEFT JOIN verified_users v ON LOWER(p.wallet) = LOWER(v.wallet)
+             WHERE p.swapper_multiplier > 0
+             ORDER BY p.swapper_multiplier DESC, p.wallet ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('Error listing Swapper users:', error);
+        res.status(500).json({ success: false, error: 'Failed to list users' });
+    }
+});
+
+// ============================================
 // DAILY CHECK-IN ENDPOINTS
 // ============================================
 
@@ -3665,13 +3740,15 @@ async function awardHourlyPoints() {
                     // If token query fails, continue with LP only
                 }
 
-                // Fetch RaidShark and Onchain Conviction multipliers from database
+                // Fetch RaidShark, Onchain Conviction, and Swapper multipliers from database
                 let raidsharkMult = 0;
                 let onchainConvictionMult = 0;
+                let swapperMult = 0;
                 try {
                     const badgeMultipliers = await database.points.getMultiplierBadges(user.wallet);
-                    raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
-                    onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
+                    raidsharkMult = badgeMultipliers.raidsharkMultiplier > 0 ? badgeMultipliers.raidsharkMultiplier : 0;
+                    onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 0 ? badgeMultipliers.onchainConvictionMultiplier : 0;
+                    swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
                 } catch (err) {
                     // If badge query fails, continue without these multipliers
                 }
@@ -3694,7 +3771,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + raidsharkMult + onchainConvictionMult + referralMult);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -3709,6 +3786,7 @@ async function awardHourlyPoints() {
                     if (plsberaMult > 1) boostParts.push(`plsBERA ${plsberaMult}x`);
                     if (raidsharkMult > 1) boostParts.push(`RaidShark ${raidsharkMult}x`);
                     if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
+                    if (swapperMult > 1) boostParts.push(`Swapper ${swapperMult}x`);
                     if (referralMult > 1) boostParts.push(`Referral ${referralMult}x`);
                     description = `Hourly earning with ${totalMultiplier}x multiplier (${boostParts.join(' + ')})`;
                 }
