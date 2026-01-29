@@ -625,6 +625,16 @@ app.get('/auth/discord/callback', async (req, res) => {
                 discord: discordUser.username
             });
             console.log('✅ Discord username saved to database for wallet:', wallet);
+
+            // Complete connectDiscord quest (one-time 100 pts reward)
+            try {
+                const questResult = await database.quests.completeQuest(wallet, 'connectDiscord');
+                if (questResult.success) {
+                    console.log('✅ connectDiscord quest completed for wallet:', wallet);
+                }
+            } catch (err) {
+                console.log('connectDiscord quest already completed or error:', err.message);
+            }
         }
 
         // Redirect back to profile page with success
@@ -712,6 +722,16 @@ app.post('/auth/telegram/callback', async (req, res) => {
             telegram: telegramUsername
         });
         console.log('✅ Telegram username saved to database for wallet:', wallet);
+
+        // Complete connectTelegram quest (one-time 100 pts reward)
+        try {
+            const questResult = await database.quests.completeQuest(wallet, 'connectTelegram');
+            if (questResult.success) {
+                console.log('✅ connectTelegram quest completed for wallet:', wallet);
+            }
+        } catch (err) {
+            console.log('connectTelegram quest already completed or error:', err.message);
+        }
 
         res.json({
             success: true,
@@ -844,6 +864,16 @@ app.post('/api/verify', async (req, res) => {
         if (holdersDb && parseFloat(amyBalance) >= MINIMUM_AMY_BALANCE) {
             await holdersDb.addOrUpdate(userData.wallet, userData.xUsername, userData.amyBalance);
             console.log('💎 User added to holders:', userData.wallet, '@' + userData.xUsername);
+        }
+
+        // Complete connectX quest (one-time 100 pts reward)
+        try {
+            const questResult = await database.quests.completeQuest(userData.wallet, 'connectX');
+            if (questResult.success) {
+                console.log('✅ connectX quest completed for wallet:', userData.wallet);
+            }
+        } catch (err) {
+            console.log('connectX quest already completed or error:', err.message);
         }
 
         console.log('✅ User verified and saved:', userData.wallet, '@' + userData.xUsername);
@@ -1647,13 +1677,14 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         }
 
         // Fetch RaidShark, Onchain Conviction, and Swapper multipliers from database
+        // Note: raidshark and conviction default to 1 in DB, so check > 1 to treat default as "no badge"
         let raidsharkMult = 0;
         let onchainConvictionMult = 0;
         let swapperMult = 0;
         try {
             const badgeMultipliers = await database.points.getMultiplierBadges(wallet);
-            raidsharkMult = badgeMultipliers.raidsharkMultiplier > 0 ? badgeMultipliers.raidsharkMultiplier : 0;
-            onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 0 ? badgeMultipliers.onchainConvictionMultiplier : 0;
+            raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
+            onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
             swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
         } catch (err) {
             console.error('Error fetching badge multipliers:', err.message);
@@ -1693,8 +1724,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 sailrMultiplier: sailrMult > 1 ? sailrMult : 0,
                 plvhedgeMultiplier: plvhedgeMult > 1 ? plvhedgeMult : 0,
                 plsberaMultiplier: plsberaMult > 1 ? plsberaMult : 0,
-                raidsharkMultiplier: raidsharkMult > 0 ? raidsharkMult : 0,
-                onchainConvictionMultiplier: onchainConvictionMult > 0 ? onchainConvictionMult : 0,
+                raidsharkMultiplier: raidsharkMult,
+                onchainConvictionMultiplier: onchainConvictionMult,
                 referralMultiplier: referralMult > 0 ? referralMult : 0,
                 swapperMultiplier: swapperMult > 0 ? swapperMult : 0
             }
@@ -3741,13 +3772,14 @@ async function awardHourlyPoints() {
                 }
 
                 // Fetch RaidShark, Onchain Conviction, and Swapper multipliers from database
+                // Note: raidshark and conviction default to 1 in DB, so check > 1 to treat default as "no badge"
                 let raidsharkMult = 0;
                 let onchainConvictionMult = 0;
                 let swapperMult = 0;
                 try {
                     const badgeMultipliers = await database.points.getMultiplierBadges(user.wallet);
-                    raidsharkMult = badgeMultipliers.raidsharkMultiplier > 0 ? badgeMultipliers.raidsharkMultiplier : 0;
-                    onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 0 ? badgeMultipliers.onchainConvictionMultiplier : 0;
+                    raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
+                    onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
                     swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
                 } catch (err) {
                     // If badge query fails, continue without these multipliers

@@ -390,6 +390,30 @@ async function createTables() {
             END $$;
         `);
 
+        // Add connection quest columns (one-time rewards for connecting socials)
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_quests' AND column_name='connect_x') THEN
+                    ALTER TABLE user_quests ADD COLUMN connect_x BOOLEAN DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_quests' AND column_name='connect_x_at') THEN
+                    ALTER TABLE user_quests ADD COLUMN connect_x_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_quests' AND column_name='connect_discord') THEN
+                    ALTER TABLE user_quests ADD COLUMN connect_discord BOOLEAN DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_quests' AND column_name='connect_discord_at') THEN
+                    ALTER TABLE user_quests ADD COLUMN connect_discord_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_quests' AND column_name='connect_telegram') THEN
+                    ALTER TABLE user_quests ADD COLUMN connect_telegram BOOLEAN DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_quests' AND column_name='connect_telegram_at') THEN
+                    ALTER TABLE user_quests ADD COLUMN connect_telegram_at TIMESTAMP;
+                END IF;
+            END $$;
+        `);
+
         console.log('✅ Database tables created/verified');
 
         // Migrate from JSON files if tables are empty
@@ -1091,6 +1115,25 @@ const holders = {
                 'DELETE FROM holders WHERE LOWER(wallet) = LOWER($1)',
                 [wallet]
             );
+            return null;
+        }
+
+        // If xUsername is null, check if holder already exists
+        // If they exist, update only the balance; if not, we can't insert without a username
+        if (!xUsername) {
+            const existingHolder = await holders.getByWallet(wallet);
+            if (existingHolder) {
+                // Update only the balance for existing holder
+                await pool.query(
+                    `UPDATE holders SET
+                     amy_balance = $1,
+                     last_updated_at = CURRENT_TIMESTAMP
+                     WHERE LOWER(wallet) = LOWER($2)`,
+                    [amyBalance, wallet]
+                );
+                return { wallet: wallet.toLowerCase(), xUsername: existingHolder.xUsername, amyBalance };
+            }
+            // Can't insert new holder without xUsername (required field)
             return null;
         }
 
@@ -2542,7 +2585,8 @@ const quests = {
     getData: async (wallet) => {
         if (!pool) return null;
         const result = await pool.query(
-            `SELECT follow_amy_x, join_amy_discord, join_amy_telegram, follow_amy_instagram, quest_points_earned
+            `SELECT follow_amy_x, join_amy_discord, join_amy_telegram, follow_amy_instagram,
+                    connect_x, connect_discord, connect_telegram, quest_points_earned
              FROM user_quests WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
@@ -2553,6 +2597,9 @@ const quests = {
             joinAmyDiscord: row?.join_amy_discord || false,
             joinAmyTelegram: row?.join_amy_telegram || false,
             followAmyInstagram: row?.follow_amy_instagram || false,
+            connectX: row?.connect_x || false,
+            connectDiscord: row?.connect_discord || false,
+            connectTelegram: row?.connect_telegram || false,
             questPointsEarned: row?.quest_points_earned || 0
         };
     },
@@ -2565,7 +2612,10 @@ const quests = {
             followAmyX: { column: 'follow_amy_x', atColumn: 'follow_amy_x_at', points: 150 },
             joinAmyDiscord: { column: 'join_amy_discord', atColumn: 'join_amy_discord_at', points: 150 },
             joinAmyTelegram: { column: 'join_amy_telegram', atColumn: 'join_amy_telegram_at', points: 150 },
-            followAmyInstagram: { column: 'follow_amy_instagram', atColumn: 'follow_amy_instagram_at', points: 150 }
+            followAmyInstagram: { column: 'follow_amy_instagram', atColumn: 'follow_amy_instagram_at', points: 150 },
+            connectX: { column: 'connect_x', atColumn: 'connect_x_at', points: 100 },
+            connectDiscord: { column: 'connect_discord', atColumn: 'connect_discord_at', points: 100 },
+            connectTelegram: { column: 'connect_telegram', atColumn: 'connect_telegram_at', points: 100 }
         };
 
         const quest = questMap[questId];
@@ -2648,6 +2698,7 @@ const social = {
 
 module.exports = {
     initDatabase,
+    get pool() { return pool; },
     db,
     leaderboard,
     nonces,
