@@ -1686,16 +1686,20 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             console.error('Error fetching token holdings for multiplier:', err.message);
         }
 
-        // Fetch RaidShark, Onchain Conviction, and Swapper multipliers from database
+        // Fetch RaidShark, Onchain Conviction, Swapper, and Mod multipliers from database
         // Note: raidshark and conviction default to 1 in DB, so check > 1 to treat default as "no badge"
         let raidsharkMult = 0;
         let onchainConvictionMult = 0;
         let swapperMult = 0;
+        let telegramModMult = 0;
+        let discordModMult = 0;
         try {
             const badgeMultipliers = await database.points.getMultiplierBadges(wallet);
             raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
             onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
             swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
+            telegramModMult = badgeMultipliers.telegramModMultiplier > 0 ? badgeMultipliers.telegramModMultiplier : 0;
+            discordModMult = badgeMultipliers.discordModMultiplier > 0 ? badgeMultipliers.discordModMultiplier : 0;
         } catch (err) {
             console.error('Error fetching badge multipliers:', err.message);
         }
@@ -1729,7 +1733,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
         // Note: dawnReferralMultiplier is NOT included - it's historical only
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult);
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1754,6 +1758,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 onchainConvictionMultiplier: onchainConvictionMult,
                 referralMultiplier: referralMult > 0 ? referralMult : 0,
                 swapperMultiplier: swapperMult > 0 ? swapperMult : 0,
+                telegramModMultiplier: telegramModMult > 0 ? telegramModMult : 0,
+                discordModMultiplier: discordModMult > 0 ? discordModMult : 0,
                 // Dawn season (historical - badge display only, no active bonus)
                 dawnReferralCount: dawnReferralCount,
                 dawnReferralMultiplier: dawnReferralMultiplier
@@ -3229,6 +3235,106 @@ app.get('/api/admin/swapper/list', isAdmin, async (req, res) => {
 });
 
 // ============================================
+// TELEGRAM MOD BADGE MANAGEMENT (Admin)
+// ============================================
+
+// Bulk update Telegram Mod multipliers by Telegram username (admin only) - resets all first
+app.post('/api/admin/telegram-mod/bulk', isAdmin, async (req, res) => {
+    try {
+        const { updates } = req.body;
+        // updates should be array of { telegramUsername, multiplier }
+
+        if (!Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({ success: false, error: 'Updates array required with {telegramUsername, multiplier} entries' });
+        }
+
+        // Validate all entries
+        for (const update of updates) {
+            if (!update.telegramUsername) {
+                return res.status(400).json({ success: false, error: 'Missing telegramUsername in update' });
+            }
+            if (!update.multiplier || ![0, 3, 7, 15].includes(update.multiplier)) {
+                return res.status(400).json({ success: false, error: `Invalid multiplier for @${update.telegramUsername}. Must be 0, 3, 7, or 15` });
+            }
+        }
+
+        const result = await database.points.bulkUpdateTelegramModByUsername(updates);
+        console.log(`📱 Telegram Mod bulk update: ${result.updated} success, ${result.failed} failed`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating Telegram Mod:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update' });
+    }
+});
+
+// Get all users with Telegram Mod badges (admin only)
+app.get('/api/admin/telegram-mod/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT p.wallet, v.x_username as "xUsername", v.telegram_username as "telegramUsername", p.telegram_mod_multiplier as "multiplier"
+             FROM amy_points p
+             LEFT JOIN verified_users v ON LOWER(p.wallet) = LOWER(v.wallet)
+             WHERE p.telegram_mod_multiplier > 0
+             ORDER BY p.telegram_mod_multiplier DESC, v.telegram_username ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('Error listing Telegram Mod users:', error);
+        res.status(500).json({ success: false, error: 'Failed to list users' });
+    }
+});
+
+// ============================================
+// DISCORD MOD BADGE MANAGEMENT (Admin)
+// ============================================
+
+// Bulk update Discord Mod multipliers by Discord username (admin only) - resets all first
+app.post('/api/admin/discord-mod/bulk', isAdmin, async (req, res) => {
+    try {
+        const { updates } = req.body;
+        // updates should be array of { discordUsername, multiplier }
+
+        if (!Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({ success: false, error: 'Updates array required with {discordUsername, multiplier} entries' });
+        }
+
+        // Validate all entries
+        for (const update of updates) {
+            if (!update.discordUsername) {
+                return res.status(400).json({ success: false, error: 'Missing discordUsername in update' });
+            }
+            if (!update.multiplier || ![0, 3, 7, 15].includes(update.multiplier)) {
+                return res.status(400).json({ success: false, error: `Invalid multiplier for @${update.discordUsername}. Must be 0, 3, 7, or 15` });
+            }
+        }
+
+        const result = await database.points.bulkUpdateDiscordModByUsername(updates);
+        console.log(`💬 Discord Mod bulk update: ${result.updated} success, ${result.failed} failed`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating Discord Mod:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update' });
+    }
+});
+
+// Get all users with Discord Mod badges (admin only)
+app.get('/api/admin/discord-mod/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT p.wallet, v.x_username as "xUsername", v.discord_username as "discordUsername", p.discord_mod_multiplier as "multiplier"
+             FROM amy_points p
+             LEFT JOIN verified_users v ON LOWER(p.wallet) = LOWER(v.wallet)
+             WHERE p.discord_mod_multiplier > 0
+             ORDER BY p.discord_mod_multiplier DESC, v.discord_username ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('Error listing Discord Mod users:', error);
+        res.status(500).json({ success: false, error: 'Failed to list users' });
+    }
+});
+
+// ============================================
 // REFERRAL SEASON MANAGEMENT (Admin)
 // ============================================
 
@@ -3413,6 +3519,40 @@ app.post('/api/social/:wallet/disconnect', async (req, res) => {
             discord: 'discord_username',
             telegram: 'telegram_username'
         };
+});
+
+// Check if a telegram username exists in the system (public endpoint for verification)
+app.get('/api/lookup/telegram/:username', async (req, res) => {
+    try {
+        const username = req.params.username.replace(/^@/, '').trim();
+
+        if (!username) {
+            return res.status(400).json({ success: false, error: 'Username required' });
+        }
+
+        if (usePostgres && database.pool) {
+            const result = await database.pool.query(
+                `SELECT wallet, x_username as "xUsername", telegram_username as "telegramUsername"
+                 FROM verified_users
+                 WHERE LOWER(telegram_username) = LOWER($1)`,
+                [username]
+            );
+
+            if (result.rows.length > 0) {
+                const user = result.rows[0];
+                return res.json({
+                    success: true,
+                    found: true,
+                    data: {
+                        wallet: user.wallet.slice(0, 6) + '...' + user.wallet.slice(-4),
+                        xUsername: user.xUsername,
+                        telegramUsername: user.telegramUsername
+                    }
+                });
+            }
+        }
+
+        res.json({ success: true, found: false, message: 'Telegram username not linked to any account' });
 
         const column = columnMap[platform];
 
@@ -3957,16 +4097,20 @@ async function awardHourlyPoints() {
                     // If token query fails, continue with LP only
                 }
 
-                // Fetch RaidShark, Onchain Conviction, and Swapper multipliers from database
+                // Fetch RaidShark, Onchain Conviction, Swapper, and Mod multipliers from database
                 // Note: raidshark and conviction default to 1 in DB, so check > 1 to treat default as "no badge"
                 let raidsharkMult = 0;
                 let onchainConvictionMult = 0;
                 let swapperMult = 0;
+                let telegramModMult = 0;
+                let discordModMult = 0;
                 try {
                     const badgeMultipliers = await database.points.getMultiplierBadges(user.wallet);
                     raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
                     onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
                     swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
+                    telegramModMult = badgeMultipliers.telegramModMultiplier > 0 ? badgeMultipliers.telegramModMultiplier : 0;
+                    discordModMult = badgeMultipliers.discordModMultiplier > 0 ? badgeMultipliers.discordModMultiplier : 0;
                 } catch (err) {
                     // If badge query fails, continue without these multipliers
                 }
@@ -3989,7 +4133,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -4011,6 +4155,8 @@ async function awardHourlyPoints() {
                     if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
                     if (swapperMult > 1) boostParts.push(`Swapper ${swapperMult}x`);
                     if (referralMult > 1) boostParts.push(`Referral ${referralMult}x`);
+                    if (telegramModMult > 1) boostParts.push(`TG Mod ${telegramModMult}x`);
+                    if (discordModMult > 1) boostParts.push(`Discord Mod ${discordModMult}x`);
                     description = `Hourly earning with ${totalMultiplier}x multiplier (${boostParts.join(' + ')})`;
                 }
 

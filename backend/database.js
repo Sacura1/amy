@@ -256,6 +256,12 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='swapper_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN swapper_multiplier INTEGER DEFAULT 0;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='telegram_mod_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN telegram_mod_multiplier INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='discord_mod_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN discord_mod_multiplier INTEGER DEFAULT 0;
+                END IF;
             END $$;
         `);
 
@@ -1619,7 +1625,7 @@ const points = {
     getMultiplierBadges: async (wallet) => {
         if (!pool) return null;
         const result = await pool.query(
-            `SELECT raidshark_multiplier, onchain_conviction_multiplier, swapper_multiplier
+            `SELECT raidshark_multiplier, onchain_conviction_multiplier, swapper_multiplier, telegram_mod_multiplier, discord_mod_multiplier
              FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
@@ -1627,7 +1633,9 @@ const points = {
         return {
             raidsharkMultiplier: row?.raidshark_multiplier || 0,
             onchainConvictionMultiplier: row?.onchain_conviction_multiplier || 0,
-            swapperMultiplier: row?.swapper_multiplier || 0
+            swapperMultiplier: row?.swapper_multiplier || 0,
+            telegramModMultiplier: row?.telegram_mod_multiplier || 0,
+            discordModMultiplier: row?.discord_mod_multiplier || 0
         };
     },
 
@@ -1914,6 +1922,108 @@ const points = {
             }
             await client.query('COMMIT');
             return { success: true, updated: updates.length };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    // Bulk update Telegram Mod multipliers by username (resets all first)
+    bulkUpdateTelegramModByUsername: async (updates) => {
+        if (!pool) return { success: false };
+        const client = await pool.connect();
+        const results = [];
+        let successCount = 0;
+        let failCount = 0;
+
+        try {
+            await client.query('BEGIN');
+            // Reset all telegram mod multipliers to 0 first
+            await client.query('UPDATE amy_points SET telegram_mod_multiplier = 0');
+
+            for (const { telegramUsername, multiplier } of updates) {
+                const cleanUsername = telegramUsername.replace(/^@/, '').trim();
+
+                // Look up wallet by telegram_username in verified_users
+                const verified = await client.query(
+                    `SELECT wallet, telegram_username as "telegramUsername", x_username as "xUsername" FROM verified_users
+                     WHERE LOWER(telegram_username) = LOWER($1)`,
+                    [cleanUsername]
+                );
+
+                if (!verified.rows[0]) {
+                    results.push({ telegramUsername: cleanUsername, success: false, error: 'User not found' });
+                    failCount++;
+                    continue;
+                }
+
+                const user = verified.rows[0];
+                await client.query(
+                    `INSERT INTO amy_points (wallet, x_username, telegram_mod_multiplier)
+                     VALUES (LOWER($1), $2, $3)
+                     ON CONFLICT (wallet) DO UPDATE SET
+                     telegram_mod_multiplier = $3`,
+                    [user.wallet, user.xUsername, multiplier]
+                );
+                results.push({ telegramUsername: user.telegramUsername, wallet: user.wallet, multiplier, success: true });
+                successCount++;
+            }
+
+            await client.query('COMMIT');
+            return { success: true, updated: successCount, failed: failCount, results };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    // Bulk update Discord Mod multipliers by username (resets all first)
+    bulkUpdateDiscordModByUsername: async (updates) => {
+        if (!pool) return { success: false };
+        const client = await pool.connect();
+        const results = [];
+        let successCount = 0;
+        let failCount = 0;
+
+        try {
+            await client.query('BEGIN');
+            // Reset all discord mod multipliers to 0 first
+            await client.query('UPDATE amy_points SET discord_mod_multiplier = 0');
+
+            for (const { discordUsername, multiplier } of updates) {
+                const cleanUsername = discordUsername.replace(/^@/, '').trim();
+
+                // Look up wallet by discord_username in verified_users
+                const verified = await client.query(
+                    `SELECT wallet, discord_username as "discordUsername", x_username as "xUsername" FROM verified_users
+                     WHERE LOWER(discord_username) = LOWER($1)`,
+                    [cleanUsername]
+                );
+
+                if (!verified.rows[0]) {
+                    results.push({ discordUsername: cleanUsername, success: false, error: 'User not found' });
+                    failCount++;
+                    continue;
+                }
+
+                const user = verified.rows[0];
+                await client.query(
+                    `INSERT INTO amy_points (wallet, x_username, discord_mod_multiplier)
+                     VALUES (LOWER($1), $2, $3)
+                     ON CONFLICT (wallet) DO UPDATE SET
+                     discord_mod_multiplier = $3`,
+                    [user.wallet, user.xUsername, multiplier]
+                );
+                results.push({ discordUsername: user.discordUsername, wallet: user.wallet, multiplier, success: true });
+                successCount++;
+            }
+
+            await client.query('COMMIT');
+            return { success: true, updated: successCount, failed: failCount, results };
         } catch (error) {
             await client.query('ROLLBACK');
             throw error;
