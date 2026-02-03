@@ -147,6 +147,19 @@ async function createTables() {
             END $$;
         `);
 
+        // Add Dawn season referral archive columns
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='dawn_referral_count') THEN
+                    ALTER TABLE referrals ADD COLUMN dawn_referral_count INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='dawn_referral_multiplier') THEN
+                    ALTER TABLE referrals ADD COLUMN dawn_referral_multiplier INTEGER DEFAULT 0;
+                END IF;
+            END $$;
+        `);
+
         // Create holders table (tracks users with 300+ AMY who connected wallet + X)
         await client.query(`
             CREATE TABLE IF NOT EXISTS holders (
@@ -1168,6 +1181,80 @@ const referrals = {
         } finally {
             client.release();
         }
+    },
+
+    // Archive Dawn season referral data and reset for new season
+    archiveDawnSeason: async () => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Get all referrals with their valid counts before archiving
+            const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+
+            // Update dawn_referral_count with current valid referral counts
+            // and calculate the multiplier earned
+            await client.query(`
+                UPDATE referrals r
+                SET dawn_referral_count = COALESCE((
+                    SELECT COUNT(*) FROM referrals ref
+                    WHERE UPPER(ref.referred_by) = UPPER(r.referral_code)
+                    AND ref.last_known_balance >= $1
+                ), 0)
+                WHERE r.referral_code IS NOT NULL
+            `, [MINIMUM_AMY]);
+
+            // Set dawn_referral_multiplier based on the count
+            await client.query(`
+                UPDATE referrals
+                SET dawn_referral_multiplier = CASE
+                    WHEN dawn_referral_count >= 3 THEN 10
+                    WHEN dawn_referral_count >= 2 THEN 5
+                    WHEN dawn_referral_count >= 1 THEN 3
+                    ELSE 0
+                END
+            `);
+
+            // Reset referral_count to 0 for Season 2 (but keep the referral links)
+            await client.query('UPDATE referrals SET referral_count = 0');
+
+            await client.query('COMMIT');
+
+            // Get summary of archived data
+            const summary = await pool.query(`
+                SELECT
+                    COUNT(*) FILTER (WHERE dawn_referral_count > 0) as users_with_referrals,
+                    COUNT(*) FILTER (WHERE dawn_referral_multiplier = 3) as tier1_users,
+                    COUNT(*) FILTER (WHERE dawn_referral_multiplier = 5) as tier2_users,
+                    COUNT(*) FILTER (WHERE dawn_referral_multiplier = 10) as tier3_users,
+                    SUM(dawn_referral_count) as total_referrals
+                FROM referrals
+            `);
+
+            return {
+                success: true,
+                message: 'Dawn season archived successfully',
+                summary: summary.rows[0]
+            };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            console.error('Error archiving Dawn season:', error);
+            return { success: false, error: error.message };
+        } finally {
+            client.release();
+        }
+    },
+
+    // Get Dawn season referral data for a wallet
+    getDawnReferralData: async (wallet) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            'SELECT dawn_referral_count as "dawnReferralCount", dawn_referral_multiplier as "dawnReferralMultiplier" FROM referrals WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+        return result.rows[0] || { dawnReferralCount: 0, dawnReferralMultiplier: 0 };
     }
 };
 
@@ -1558,12 +1645,15 @@ const points = {
         return { wallet, swapperMultiplier: multiplier };
     },
 
-    // Batch update Swapper multipliers (admin only)
+    // Batch update Swapper multipliers (admin only) - resets all first, then applies new list
     batchUpdateSwapperMultipliers: async (updates) => {
         if (!pool || updates.length === 0) return { success: true, updated: 0 };
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
+            // First reset all swapper multipliers to 0
+            await client.query('UPDATE amy_points SET swapper_multiplier = 0');
+            // Then apply new multipliers
             for (const { wallet, multiplier } of updates) {
                 await client.query(
                     `INSERT INTO amy_points (wallet, swapper_multiplier)
@@ -1753,12 +1843,15 @@ const points = {
         }
     },
 
-    // Bulk update Onchain Conviction multipliers
+    // Bulk update Onchain Conviction multipliers (resets all first, then applies new list)
     bulkUpdateOnchainConviction: async (updates) => {
         if (!pool) return { success: false };
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
+            // First reset all onchain conviction multipliers to 1
+            await client.query('UPDATE amy_points SET onchain_conviction_multiplier = 1');
+            // Then apply new multipliers
             for (const { wallet, multiplier } of updates) {
                 await client.query(
                     `INSERT INTO amy_points (wallet, onchain_conviction_multiplier)

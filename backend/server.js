@@ -1667,11 +1667,21 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         let sailrMult = 1;
         let plvhedgeMult = 1;
         let plsberaMult = 1;
+        let honeybendMult = 1;
+        let stakedberaMult = 1;
+        let bgtMult = 1;
+        let snrusdMult = 1;
+        let jnrusdMult = 1;
         try {
             const tokenHoldings = await queryAllTokenHoldings(wallet);
             sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 1;
             plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 1;
             plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 1;
+            honeybendMult = tokenHoldings.honeybend.multiplier > 1 ? tokenHoldings.honeybend.multiplier : 1;
+            stakedberaMult = tokenHoldings.stakedbera.multiplier > 1 ? tokenHoldings.stakedbera.multiplier : 1;
+            bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 1;
+            snrusdMult = tokenHoldings.snrusd.multiplier > 1 ? tokenHoldings.snrusd.multiplier : 1;
+            jnrusdMult = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 1;
         } catch (err) {
             console.error('Error fetching token holdings for multiplier:', err.message);
         }
@@ -1690,16 +1700,26 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             console.error('Error fetching badge multipliers:', err.message);
         }
 
-        // Fetch referral multiplier (1 ref = x3, 2 refs = x5, 3+ refs = x10)
+        // Fetch referral multiplier for Season 2 (active season)
+        // And Dawn season archived data (historical, no longer gives bonus)
         let referralMult = 0;
+        let dawnReferralCount = 0;
+        let dawnReferralMultiplier = 0;
         try {
             if (referralsDb) {
                 const referralEntry = await referralsDb.getByWallet(wallet);
                 if (referralEntry && referralEntry.referralCode) {
+                    // Season 2 (active) referral count
                     const validReferralCount = await referralsDb.getValidReferralCount(referralEntry.referralCode);
                     if (validReferralCount >= 3) referralMult = 10;
                     else if (validReferralCount >= 2) referralMult = 5;
                     else if (validReferralCount >= 1) referralMult = 3;
+                }
+                // Dawn season archived data (for badge display only)
+                const dawnData = await referralsDb.getDawnReferralData(wallet);
+                if (dawnData) {
+                    dawnReferralCount = dawnData.dawnReferralCount || 0;
+                    dawnReferralMultiplier = dawnData.dawnReferralMultiplier || 0;
                 }
             }
         } catch (err) {
@@ -1708,7 +1728,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
 
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult);
+        // Note: dawnReferralMultiplier is NOT included - it's historical only
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1724,10 +1745,18 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 sailrMultiplier: sailrMult > 1 ? sailrMult : 0,
                 plvhedgeMultiplier: plvhedgeMult > 1 ? plvhedgeMult : 0,
                 plsberaMultiplier: plsberaMult > 1 ? plsberaMult : 0,
+                honeybendMultiplier: honeybendMult > 1 ? honeybendMult : 0,
+                stakedberaMultiplier: stakedberaMult > 1 ? stakedberaMult : 0,
+                bgtMultiplier: bgtMult > 1 ? bgtMult : 0,
+                snrusdMultiplier: snrusdMult > 1 ? snrusdMult : 0,
+                jnrusdMultiplier: jnrusdMult > 1 ? jnrusdMult : 0,
                 raidsharkMultiplier: raidsharkMult,
                 onchainConvictionMultiplier: onchainConvictionMult,
                 referralMultiplier: referralMult > 0 ? referralMult : 0,
-                swapperMultiplier: swapperMult > 0 ? swapperMult : 0
+                swapperMultiplier: swapperMult > 0 ? swapperMult : 0,
+                // Dawn season (historical - badge display only, no active bonus)
+                dawnReferralCount: dawnReferralCount,
+                dawnReferralMultiplier: dawnReferralMultiplier
             }
         });
 
@@ -2129,6 +2158,39 @@ const BADGE_TOKENS = {
         symbol: 'plsBERA',
         decimals: 18,
         geckoPoolAddress: '0x225915329b032b3385ac28b0dc53d989e8446fd1' // GeckoTerminal plsBERA/WBERA pool
+    },
+    HONEYBEND: {
+        address: '0x30BbA9CD9Eb8c95824aa42Faa1Bb397b07545bc1', // aHONEY receipt token from Bend
+        symbol: 'HONEY-Bend',
+        decimals: 18,
+        // HONEY is ~$1 stablecoin, so price is 1:1
+        isStablecoin: true
+    },
+    STAKEDBERA: {
+        address: '0x118D2cEeE9785eaf70C15Cd74CD84c9f8c3EeC9a', // Staked BERA contract
+        symbol: 'stBERA',
+        decimals: 18,
+        // Use BERA price for valuation
+        geckoPoolAddress: '0x7507c1dc16935b82698e4c63f2746a2fcf994df8' // BERA pool for price
+    },
+    BGT: {
+        address: '0x656b95e550c07a9ffe548bd4085c72418ceb1dba', // BGT token
+        symbol: 'BGT',
+        decimals: 18,
+        // BGT price from DeFiLlama or pool
+        geckoPoolAddress: null // Will use token price API
+    },
+    SNRUSD: {
+        address: '0x49298F4314eb127041b814A2616c25687Db6b650', // snrUSD vault token
+        symbol: 'snrUSD',
+        decimals: 18,
+        isStablecoin: true // Pegged to $1
+    },
+    JNRUSD: {
+        address: '0x3a0A97DcA5e6CaCC258490d5ece453412f8E1883', // jnrUSD vault token
+        symbol: 'jnrUSD',
+        decimals: 18,
+        isStablecoin: true // Pegged to $1
     }
 };
 
@@ -2144,7 +2206,12 @@ const TOKEN_MULTIPLIER_TIERS = [
 let tokenPriceCache = {
     sailr: { price: 0, timestamp: 0 },
     plvhedge: { price: 0, timestamp: 0 },
-    plsbera: { price: 0, timestamp: 0 }
+    plsbera: { price: 0, timestamp: 0 },
+    honeybend: { price: 1, timestamp: 0 }, // HONEY is ~$1 stablecoin
+    stakedbera: { price: 0, timestamp: 0 },
+    bgt: { price: 0, timestamp: 0 },
+    snrusd: { price: 1, timestamp: 0 }, // Pegged to $1
+    jnrusd: { price: 1, timestamp: 0 }  // Pegged to $1
 };
 const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -2162,7 +2229,14 @@ async function fetchTokenPrice(tokenKey) {
     try {
         let price = 0;
 
-        // For plsBERA, use pool API to get price
+        // HONEY-Bend is a stablecoin receipt token (~$1)
+        if (token.isStablecoin) {
+            price = 1;
+            tokenPriceCache[cacheKey] = { price, timestamp: now };
+            return price;
+        }
+
+        // For tokens with geckoPoolAddress, use pool API to get price
         if (token.geckoPoolAddress) {
             const response = await fetch(
                 `https://api.geckoterminal.com/api/v2/networks/berachain/pools/${token.geckoPoolAddress}`,
@@ -2170,7 +2244,7 @@ async function fetchTokenPrice(tokenKey) {
             );
             if (response.ok) {
                 const data = await response.json();
-                // Get base token price (plsBERA is the base token in plsBERA/WBERA pool)
+                // Get base token price
                 price = parseFloat(data?.data?.attributes?.base_token_price_usd || 0);
             }
         } else {
@@ -2210,6 +2284,14 @@ function getTokenMultiplier(usdValue) {
     return 1;
 }
 
+// Get BGT multiplier based on balance thresholds (not USD value)
+function getBgtMultiplier(balance) {
+    if (balance >= 1) return 10;
+    if (balance >= 0.1) return 5;
+    if (balance >= 0.01) return 3;
+    return 1;
+}
+
 // Query token balance for a wallet
 async function queryTokenBalance(wallet, tokenKey) {
     const token = BADGE_TOKENS[tokenKey];
@@ -2225,7 +2307,11 @@ async function queryTokenBalance(wallet, tokenKey) {
         // Get price and calculate USD value
         const price = await fetchTokenPrice(tokenKey);
         const usdValue = balanceFormatted * price;
-        const multiplier = getTokenMultiplier(usdValue);
+
+        // BGT uses balance thresholds instead of USD value for multiplier
+        const multiplier = tokenKey === 'BGT'
+            ? getBgtMultiplier(balanceFormatted)
+            : getTokenMultiplier(usdValue);
 
         return {
             token: token.symbol,
@@ -2252,16 +2338,26 @@ async function queryTokenBalance(wallet, tokenKey) {
 
 // Query all badge token holdings for a wallet
 async function queryAllTokenHoldings(wallet) {
-    const [sailr, plvhedge, plsbera] = await Promise.all([
+    const [sailr, plvhedge, plsbera, honeybend, stakedbera, bgt, snrusd, jnrusd] = await Promise.all([
         queryTokenBalance(wallet, 'SAILR'),
         queryTokenBalance(wallet, 'PLVHEDGE'),
-        queryTokenBalance(wallet, 'PLSBERA')
+        queryTokenBalance(wallet, 'PLSBERA'),
+        queryTokenBalance(wallet, 'HONEYBEND'),
+        queryTokenBalance(wallet, 'STAKEDBERA'),
+        queryTokenBalance(wallet, 'BGT'),
+        queryTokenBalance(wallet, 'SNRUSD'),
+        queryTokenBalance(wallet, 'JNRUSD')
     ]);
 
     return {
         sailr,
         plvhedge,
         plsbera,
+        honeybend,
+        stakedbera,
+        bgt,
+        snrusd,
+        jnrusd,
         tiers: TOKEN_MULTIPLIER_TIERS
     };
 }
@@ -3103,6 +3199,56 @@ app.get('/api/admin/swapper/list', isAdmin, async (req, res) => {
 });
 
 // ============================================
+// REFERRAL SEASON MANAGEMENT (Admin)
+// ============================================
+
+// Archive Dawn season referrals and reset for Season 2 (admin only)
+app.post('/api/admin/referrals/archive-dawn', isAdmin, async (req, res) => {
+    try {
+        console.log('📦 Archiving Dawn referral season...');
+
+        if (!referralsDb) {
+            return res.status(500).json({ success: false, error: 'Referrals system not available' });
+        }
+
+        const result = await referralsDb.archiveDawnSeason();
+
+        if (result.success) {
+            console.log('✅ Dawn season archived:', result.summary);
+            res.json({
+                success: true,
+                message: result.message,
+                summary: result.summary
+            });
+        } else {
+            res.status(500).json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('❌ Error archiving Dawn season:', error);
+        res.status(500).json({ success: false, error: 'Failed to archive Dawn season' });
+    }
+});
+
+// Get Dawn season referral stats (admin only)
+app.get('/api/admin/referrals/dawn-stats', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(`
+            SELECT
+                COUNT(*) FILTER (WHERE dawn_referral_count > 0) as users_with_referrals,
+                COUNT(*) FILTER (WHERE dawn_referral_multiplier = 3) as tier1_users,
+                COUNT(*) FILTER (WHERE dawn_referral_multiplier = 5) as tier2_users,
+                COUNT(*) FILTER (WHERE dawn_referral_multiplier = 10) as tier3_users,
+                SUM(dawn_referral_count) as total_referrals
+            FROM referrals
+        `);
+        res.json({ success: true, data: result.rows[0] });
+    } catch (error) {
+        console.error('Error getting Dawn stats:', error);
+        res.status(500).json({ success: false, error: 'Failed to get Dawn stats' });
+    }
+});
+
+// ============================================
 // DAILY CHECK-IN ENDPOINTS
 // ============================================
 
@@ -3301,7 +3447,7 @@ const TOKENS = {
 const LP_MULTIPLIER_TIERS = [
     { minUsd: 500, multiplier: 100 },
     { minUsd: 100, multiplier: 10 },
-    { minUsd: 10, multiplier: 3 },
+    { minUsd: 10, multiplier: 5 },
     { minUsd: 0, multiplier: 1 }
 ];
 
@@ -3749,11 +3895,21 @@ async function awardHourlyPoints() {
                 let sailrMult = 0;
                 let plvhedgeMult = 0;
                 let plsberaMult = 0;
+                let honeybendMult = 0;
+                let stakedberaMult = 0;
+                let bgtMult = 0;
+                let snrusdMult = 0;
+                let jnrusdMult = 0;
                 try {
                     const tokenHoldings = await queryAllTokenHoldings(user.wallet);
                     sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
                     plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 0;
                     plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 0;
+                    honeybendMult = tokenHoldings.honeybend.multiplier > 1 ? tokenHoldings.honeybend.multiplier : 0;
+                    stakedberaMult = tokenHoldings.stakedbera.multiplier > 1 ? tokenHoldings.stakedbera.multiplier : 0;
+                    bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 0;
+                    snrusdMult = tokenHoldings.snrusd.multiplier > 1 ? tokenHoldings.snrusd.multiplier : 0;
+                    jnrusdMult = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 0;
 
                     // Save updated token data to database (handles stake/unstake changes)
                     if (pointsDb) {
@@ -3803,7 +3959,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -3816,6 +3972,11 @@ async function awardHourlyPoints() {
                     if (sailrMult > 1) boostParts.push(`SAIL.r ${sailrMult}x`);
                     if (plvhedgeMult > 1) boostParts.push(`plvHEDGE ${plvhedgeMult}x`);
                     if (plsberaMult > 1) boostParts.push(`plsBERA ${plsberaMult}x`);
+                    if (honeybendMult > 1) boostParts.push(`HONEY-Bend ${honeybendMult}x`);
+                    if (stakedberaMult > 1) boostParts.push(`stBERA ${stakedberaMult}x`);
+                    if (bgtMult > 1) boostParts.push(`BGT ${bgtMult}x`);
+                    if (snrusdMult > 1) boostParts.push(`snrUSD ${snrusdMult}x`);
+                    if (jnrusdMult > 1) boostParts.push(`jnrUSD ${jnrusdMult}x`);
                     if (raidsharkMult > 1) boostParts.push(`RaidShark ${raidsharkMult}x`);
                     if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
                     if (swapperMult > 1) boostParts.push(`Swapper ${swapperMult}x`);

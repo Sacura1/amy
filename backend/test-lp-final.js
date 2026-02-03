@@ -16,7 +16,7 @@ const TOKENS = {
 const LP_MULTIPLIER_TIERS = [
     { minUsd: 500, multiplier: 100 },
     { minUsd: 100, multiplier: 10 },
-    { minUsd: 10, multiplier: 3 },
+    { minUsd: 10, multiplier: 5 },
     { minUsd: 0, multiplier: 1 }
 ];
 
