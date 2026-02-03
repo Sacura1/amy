@@ -3094,14 +3094,44 @@ app.post('/api/admin/raidshark/bulk-by-username', isAdmin, async (req, res) => {
     }
 });
 
+// Bulk update RaidShark multipliers by Telegram username (admin only) - resets all first
+app.post('/api/admin/raidshark/bulk-by-telegram', isAdmin, async (req, res) => {
+    try {
+        const { updates } = req.body;
+        // updates should be array of { telegramUsername, multiplier }
+
+        if (!Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({ success: false, error: 'Updates array required with {telegramUsername, multiplier} entries' });
+        }
+
+        // Validate all entries
+        for (const update of updates) {
+            if (!update.telegramUsername) {
+                return res.status(400).json({ success: false, error: 'Missing telegramUsername in update' });
+            }
+            if (!update.multiplier || ![1, 3, 7, 15].includes(update.multiplier)) {
+                return res.status(400).json({ success: false, error: `Invalid multiplier for @${update.telegramUsername}. Must be 1, 3, 7, or 15` });
+            }
+        }
+
+        const result = await database.points.bulkUpdateRaidsharkByTelegram(updates);
+        console.log(`🦈 RaidShark bulk update by Telegram: ${result.updated} success, ${result.failed} failed`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating RaidShark by Telegram:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update' });
+    }
+});
+
 // Get all users with RaidShark badges (admin only) - for viewing current assignments
 app.get('/api/admin/raidshark/list', isAdmin, async (req, res) => {
     try {
         const result = await database.pool.query(
-            `SELECT wallet, x_username as "xUsername", raidshark_multiplier as "multiplier"
-             FROM amy_points
-             WHERE raidshark_multiplier > 1
-             ORDER BY raidshark_multiplier DESC, x_username ASC`
+            `SELECT p.wallet, p.x_username as "xUsername", v.telegram_username as "telegramUsername", p.raidshark_multiplier as "multiplier"
+             FROM amy_points p
+             LEFT JOIN verified_users v ON LOWER(p.wallet) = LOWER(v.wallet)
+             WHERE p.raidshark_multiplier > 1
+             ORDER BY p.raidshark_multiplier DESC, p.x_username ASC`
         );
         res.json({ success: true, data: result.rows });
     } catch (error) {

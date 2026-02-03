@@ -1815,6 +1815,57 @@ const points = {
         }
     },
 
+    // Bulk update RaidShark multipliers by Telegram username (resets all first)
+    bulkUpdateRaidsharkByTelegram: async (updates) => {
+        if (!pool) return { success: false };
+        const client = await pool.connect();
+        const results = [];
+        let successCount = 0;
+        let failCount = 0;
+
+        try {
+            await client.query('BEGIN');
+            // Reset all raidshark multipliers to 1 first
+            await client.query('UPDATE amy_points SET raidshark_multiplier = 1');
+
+            for (const { telegramUsername, multiplier } of updates) {
+                const cleanUsername = telegramUsername.replace(/^@/, '').trim();
+
+                // Look up wallet by telegram_username in verified_users
+                const verified = await client.query(
+                    `SELECT wallet, telegram_username as "telegramUsername", x_username as "xUsername" FROM verified_users
+                     WHERE LOWER(telegram_username) = LOWER($1)`,
+                    [cleanUsername]
+                );
+
+                if (!verified.rows[0]) {
+                    results.push({ telegramUsername: cleanUsername, success: false, error: 'User not found' });
+                    failCount++;
+                    continue;
+                }
+
+                const user = verified.rows[0];
+                await client.query(
+                    `INSERT INTO amy_points (wallet, x_username, raidshark_multiplier)
+                     VALUES (LOWER($1), $2, $3)
+                     ON CONFLICT (wallet) DO UPDATE SET
+                     raidshark_multiplier = $3`,
+                    [user.wallet, user.xUsername, multiplier]
+                );
+                results.push({ telegramUsername: user.telegramUsername, wallet: user.wallet, multiplier, success: true });
+                successCount++;
+            }
+
+            await client.query('COMMIT');
+            return { success: true, updated: successCount, failed: failCount, results };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
     // Bulk update RaidShark multipliers (for monthly CSV import)
     bulkUpdateRaidshark: async (updates) => {
         if (!pool) return { success: false };
