@@ -2173,8 +2173,8 @@ const BADGE_TOKENS = {
         isStablecoin: true
     },
     STAKEDBERA: {
-        address: '0x118D2cEeE9785eaf70C15Cd74CD84c9f8c3EeC9a', // Staked BERA contract
-        symbol: 'stBERA',
+        address: '0x118D2cEeE9785eaf70C15Cd74CD84c9f8c3EeC9a', // sWBERA (staked BERA)
+        symbol: 'sWBERA',
         decimals: 18,
         // Use BERA price for valuation
         geckoPoolAddress: '0x7507c1dc16935b82698e4c63f2746a2fcf994df8' // BERA pool for price
@@ -2305,19 +2305,37 @@ async function queryTokenBalance(wallet, tokenKey) {
     try {
         const { ethers } = require('ethers');
         const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
-        const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
 
-        const balance = await contract.balanceOf(wallet);
-        const balanceFormatted = parseFloat(ethers.utils.formatUnits(balance, token.decimals));
+        let balanceFormatted = 0;
+
+        // For plsBERA, check both staking contract AND token address
+        if (tokenKey === 'PLSBERA' && token.tokenAddress) {
+            // Check staking contract balance
+            const stakingContract = new ethers.Contract(token.address, ERC20_ABI, provider);
+            const stakedBalance = await stakingContract.balanceOf(wallet);
+            const stakedFormatted = parseFloat(ethers.utils.formatUnits(stakedBalance, token.decimals));
+
+            // Check token balance (unstaked plsBERA in wallet)
+            const tokenContract = new ethers.Contract(token.tokenAddress, ERC20_ABI, provider);
+            const tokenBalance = await tokenContract.balanceOf(wallet);
+            const tokenFormatted = parseFloat(ethers.utils.formatUnits(tokenBalance, token.decimals));
+
+            // Sum both balances
+            balanceFormatted = stakedFormatted + tokenFormatted;
+            console.log(`💰 plsBERA: staked=${stakedFormatted.toFixed(4)}, token=${tokenFormatted.toFixed(4)}, total=${balanceFormatted.toFixed(4)}`);
+        } else {
+            // Standard single-address query
+            const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
+            const balance = await contract.balanceOf(wallet);
+            balanceFormatted = parseFloat(ethers.utils.formatUnits(balance, token.decimals));
+        }
 
         // Get price and calculate USD value
         const price = await fetchTokenPrice(tokenKey);
         const usdValue = balanceFormatted * price;
 
-        // BGT uses balance thresholds instead of USD value for multiplier
-        const multiplier = tokenKey === 'BGT'
-            ? getBgtMultiplier(balanceFormatted)
-            : getTokenMultiplier(usdValue);
+        // All tokens use USD value for multiplier (including BGT)
+        const multiplier = getTokenMultiplier(usdValue);
 
         return {
             token: token.symbol,

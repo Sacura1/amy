@@ -157,6 +157,9 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='dawn_referral_multiplier') THEN
                     ALTER TABLE referrals ADD COLUMN dawn_referral_multiplier INTEGER DEFAULT 0;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='referral_season') THEN
+                    ALTER TABLE referrals ADD COLUMN referral_season VARCHAR(20) DEFAULT 'season2';
+                END IF;
             END $$;
         `);
 
@@ -1125,8 +1128,9 @@ const referrals = {
         }
 
         // Save the referral link (referred_by) - counts are calculated dynamically
+        // Also set referral_season to current season (season2)
         await pool.query(
-            'UPDATE referrals SET referred_by = $1 WHERE LOWER(wallet) = LOWER($2)',
+            `UPDATE referrals SET referred_by = $1, referral_season = 'season2' WHERE LOWER(wallet) = LOWER($2)`,
             [referralCode.toUpperCase(), wallet]
         );
 
@@ -1151,8 +1155,12 @@ const referrals = {
     getValidReferralCount: async (referralCode) => {
         if (!pool || !referralCode) return 0;
         const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+        // Only count referrals from the current season (season2)
         const result = await pool.query(
-            'SELECT COUNT(*) as count FROM referrals WHERE UPPER(referred_by) = UPPER($1) AND last_known_balance >= $2',
+            `SELECT COUNT(*) as count FROM referrals
+             WHERE UPPER(referred_by) = UPPER($1)
+             AND last_known_balance >= $2
+             AND (referral_season = 'season2' OR referral_season IS NULL)`,
             [referralCode, MINIMUM_AMY]
         );
         return parseInt(result.rows[0].count) || 0;
@@ -1225,6 +1233,9 @@ const referrals = {
 
             // Reset referral_count to 0 for Season 2 (but keep the referral links)
             await client.query('UPDATE referrals SET referral_count = 0');
+
+            // Mark all existing referrals as 'dawn' season so they won't count for Season 2
+            await client.query(`UPDATE referrals SET referral_season = 'dawn' WHERE referred_by IS NOT NULL`);
 
             await client.query('COMMIT');
 
