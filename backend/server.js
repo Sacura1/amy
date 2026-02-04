@@ -2166,7 +2166,8 @@ const BADGE_TOKENS = {
         geckoPoolAddress: '0x225915329b032b3385ac28b0dc53d989e8446fd1' // GeckoTerminal plsBERA/WBERA pool
     },
     HONEYBEND: {
-        address: '0x30BbA9CD9Eb8c95824aa42Faa1Bb397b07545bc1', // aHONEY receipt token from Bend
+        address: '0xDb6e93Cd7BddC45EbC411619792fc5f977316c38', // Re7HONEY staking/reward vault (balanceOf)
+        tokenAddress: '0x30BbA9CD9Eb8c95824aa42Faa1Bb397b07545bc1', // Re7HONEY token
         symbol: 'HONEY-Bend',
         decimals: 18,
         // HONEY is ~$1 stablecoin, so price is 1:1
@@ -2334,29 +2335,29 @@ async function queryTokenBalance(wallet, tokenKey) {
 
         let balanceFormatted = 0;
 
-        // For plsBERA, check both staking contract AND token address
-        if (tokenKey === 'PLSBERA' && token.tokenAddress) {
+        // For tokens with both staking contract AND token address (plsBERA, HONEYBEND)
+        if (token.tokenAddress) {
             // Check staking contract balance
             const stakingContract = new ethers.Contract(token.address, ERC20_ABI, provider);
             const stakedBalance = await stakingContract.balanceOf(wallet);
             const stakedFormatted = parseFloat(ethers.utils.formatUnits(stakedBalance, token.decimals));
 
-            // Check token balance (unstaked plsBERA in wallet)
+            // Check token balance (unstaked tokens in wallet)
             const tokenContract = new ethers.Contract(token.tokenAddress, ERC20_ABI, provider);
             const tokenBalance = await tokenContract.balanceOf(wallet);
             const tokenFormatted = parseFloat(ethers.utils.formatUnits(tokenBalance, token.decimals));
 
             // Sum both balances
             balanceFormatted = stakedFormatted + tokenFormatted;
-            console.log(`💰 plsBERA: staked=${stakedFormatted.toFixed(4)}, token=${tokenFormatted.toFixed(4)}, total=${balanceFormatted.toFixed(4)}`);
+            console.log(`💰 ${tokenKey}: staked=${stakedFormatted.toFixed(4)}, token=${tokenFormatted.toFixed(4)}, total=${balanceFormatted.toFixed(4)}`);
         } else {
             // Standard single-address query
             const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
             const balance = await contract.balanceOf(wallet);
             balanceFormatted = parseFloat(ethers.utils.formatUnits(balance, token.decimals));
 
-            // Debug logging for HONEYBEND and STAKEDBERA
-            if (tokenKey === 'HONEYBEND' || tokenKey === 'STAKEDBERA') {
+            // Debug logging for STAKEDBERA
+            if (tokenKey === 'STAKEDBERA') {
                 console.log(`🔍 ${tokenKey}: wallet=${wallet}, balance=${balanceFormatted.toFixed(6)}`);
             }
         }
@@ -2365,8 +2366,8 @@ async function queryTokenBalance(wallet, tokenKey) {
         const price = await fetchTokenPrice(tokenKey);
         const usdValue = balanceFormatted * price;
 
-        // Debug logging for HONEYBEND and STAKEDBERA
-        if (tokenKey === 'HONEYBEND' || tokenKey === 'STAKEDBERA') {
+        // Debug logging for STAKEDBERA
+        if (tokenKey === 'STAKEDBERA') {
             console.log(`💰 ${tokenKey}: balance=${balanceFormatted.toFixed(6)}, price=$${price.toFixed(4)}, usdValue=$${usdValue.toFixed(2)}`);
         }
 
