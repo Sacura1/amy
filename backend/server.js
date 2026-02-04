@@ -3519,6 +3519,40 @@ app.post('/api/social/:wallet/disconnect', async (req, res) => {
             discord: 'discord_username',
             telegram: 'telegram_username'
         };
+
+        const column = columnMap[platform];
+
+        // Clear the social connection (but keep points/badges)
+        if (usePostgres) {
+            const { Pool } = require('pg');
+            const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+            await pool.query(
+                `UPDATE verified_users SET ${column} = NULL WHERE LOWER(wallet) = LOWER($1)`,
+                [wallet]
+            );
+            await pool.end();
+        } else {
+            // JSON fallback - update the user in verified-users.json
+            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+            const userIndex = data.users.findIndex(u => u.wallet.toLowerCase() === wallet.toLowerCase());
+            if (userIndex >= 0) {
+                if (platform === 'x') {
+                    data.users[userIndex].xUsername = null;
+                } else if (platform === 'discord') {
+                    data.users[userIndex].discordUsername = null;
+                } else if (platform === 'telegram') {
+                    data.users[userIndex].telegramUsername = null;
+                }
+                fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+            }
+        }
+
+        console.log(`🔌 Disconnected ${platform} for wallet ${wallet}`);
+        res.json({ success: true, message: `${platform} disconnected successfully` });
+    } catch (error) {
+        console.error('Error disconnecting social:', error);
+        res.status(500).json({ success: false, error: 'Failed to disconnect social account' });
+    }
 });
 
 // Check if a telegram username exists in the system (public endpoint for verification)
@@ -3553,39 +3587,9 @@ app.get('/api/lookup/telegram/:username', async (req, res) => {
         }
 
         res.json({ success: true, found: false, message: 'Telegram username not linked to any account' });
-
-        const column = columnMap[platform];
-
-        // Clear the social connection (but keep points/badges)
-        if (usePostgres) {
-            const { Pool } = require('pg');
-            const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-            await pool.query(
-                `UPDATE verified_users SET ${column} = NULL WHERE LOWER(wallet) = LOWER($1)`,
-                [wallet]
-            );
-            await pool.end();
-        } else {
-            // JSON fallback - update the user in verified-users.json
-            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-            const userIndex = data.users.findIndex(u => u.wallet.toLowerCase() === wallet.toLowerCase());
-            if (userIndex >= 0) {
-                if (platform === 'x') {
-                    data.users[userIndex].xUsername = null;
-                } else if (platform === 'discord') {
-                    data.users[userIndex].discordUsername = null;
-                } else if (platform === 'telegram') {
-                    data.users[userIndex].telegramUsername = null;
-                }
-                fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-            }
-        }
-
-        console.log(`🔌 Disconnected ${platform} for wallet ${wallet}`);
-        res.json({ success: true, message: `${platform} disconnected successfully` });
     } catch (error) {
-        console.error('Error disconnecting social:', error);
-        res.status(500).json({ success: false, error: 'Failed to disconnect social account' });
+        console.error('Error looking up telegram user:', error);
+        res.status(500).json({ success: false, error: 'Failed to lookup user' });
     }
 });
 
