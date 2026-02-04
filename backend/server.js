@@ -2244,14 +2244,40 @@ async function fetchTokenPrice(tokenKey) {
 
         // For tokens with geckoPoolAddress, use pool API to get price
         if (token.geckoPoolAddress) {
-            const response = await fetch(
-                `https://api.geckoterminal.com/api/v2/networks/berachain/pools/${token.geckoPoolAddress}`,
-                { headers: { 'Accept': 'application/json' } }
-            );
-            if (response.ok) {
-                const data = await response.json();
-                // Get base token price
-                price = parseFloat(data?.data?.attributes?.base_token_price_usd || 0);
+            try {
+                const response = await fetch(
+                    `https://api.geckoterminal.com/api/v2/networks/berachain/pools/${token.geckoPoolAddress}`,
+                    { headers: { 'Accept': 'application/json' } }
+                );
+                if (response.ok) {
+                    const data = await response.json();
+                    // Get base token price
+                    price = parseFloat(data?.data?.attributes?.base_token_price_usd || 0);
+                    if (tokenKey === 'STAKEDBERA') {
+                        console.log(`🔍 sWBERA pool price response: base_token_price_usd=${price}`);
+                    }
+                }
+            } catch (poolError) {
+                console.error(`❌ Error fetching ${tokenKey} pool price:`, poolError.message);
+            }
+
+            // Fallback for sWBERA: use BERA token price directly if pool price not found
+            if (price === 0 && tokenKey === 'STAKEDBERA') {
+                console.log(`🔄 sWBERA: Trying BERA token price fallback...`);
+                try {
+                    // BERA/WBERA price via token lookup (WBERA address)
+                    const beraResponse = await fetch(
+                        `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/0x6969696969696969696969696969696969696969`,
+                        { headers: { 'Accept': 'application/json' } }
+                    );
+                    if (beraResponse.ok) {
+                        const beraData = await beraResponse.json();
+                        price = parseFloat(beraData?.data?.attributes?.token_prices?.['0x6969696969696969696969696969696969696969'] || 0);
+                        console.log(`✅ sWBERA: Using BERA price as fallback: $${price.toFixed(4)}`);
+                    }
+                } catch (fallbackError) {
+                    console.error(`❌ Error fetching BERA fallback price:`, fallbackError.message);
+                }
             }
         } else {
             // Standard token price lookup
@@ -2328,11 +2354,21 @@ async function queryTokenBalance(wallet, tokenKey) {
             const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
             const balance = await contract.balanceOf(wallet);
             balanceFormatted = parseFloat(ethers.utils.formatUnits(balance, token.decimals));
+
+            // Debug logging for HONEYBEND and STAKEDBERA
+            if (tokenKey === 'HONEYBEND' || tokenKey === 'STAKEDBERA') {
+                console.log(`🔍 ${tokenKey}: wallet=${wallet}, balance=${balanceFormatted.toFixed(6)}`);
+            }
         }
 
         // Get price and calculate USD value
         const price = await fetchTokenPrice(tokenKey);
         const usdValue = balanceFormatted * price;
+
+        // Debug logging for HONEYBEND and STAKEDBERA
+        if (tokenKey === 'HONEYBEND' || tokenKey === 'STAKEDBERA') {
+            console.log(`💰 ${tokenKey}: balance=${balanceFormatted.toFixed(6)}, price=$${price.toFixed(4)}, usdValue=$${usdValue.toFixed(2)}`);
+        }
 
         // All tokens use USD value for multiplier (including BGT)
         const multiplier = getTokenMultiplier(usdValue);
