@@ -250,6 +250,18 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plsbera_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN plsbera_multiplier INTEGER DEFAULT 1;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='honeybend_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN honeybend_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='honeybend_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN honeybend_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='stakedbera_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN stakedbera_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='stakedbera_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN stakedbera_multiplier INTEGER DEFAULT 1;
+                END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='raidshark_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN raidshark_multiplier INTEGER DEFAULT 1;
                 END IF;
@@ -1587,8 +1599,8 @@ const points = {
         return { lpValueUsd, lpMultiplier };
     },
 
-    // Update token holdings data for a user (SAIL.r, plvHEDGE, and plsBERA)
-    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier) => {
+    // Update token holdings data for a user (SAIL.r, plvHEDGE, plsBERA, HONEY-Bend, Staked BERA)
+    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1) => {
         if (!pool) return null;
         await pool.query(
             `UPDATE amy_points SET
@@ -1597,11 +1609,15 @@ const points = {
              plvhedge_value_usd = $3,
              plvhedge_multiplier = $4,
              plsbera_value_usd = $5,
-             plsbera_multiplier = $6
-             WHERE LOWER(wallet) = LOWER($7)`,
-            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, wallet]
+             plsbera_multiplier = $6,
+             honeybend_value_usd = $7,
+             honeybend_multiplier = $8,
+             stakedbera_value_usd = $9,
+             stakedbera_multiplier = $10
+             WHERE LOWER(wallet) = LOWER($11)`,
+            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, wallet]
         );
-        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier };
+        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier };
     },
 
     // Update RaidShark multiplier for a user (admin only)
@@ -2271,7 +2287,15 @@ const BADGE_DEFINITIONS = {
     // Seasoned Swapper badges
     swapper_x3: { id: 'swapper_x3', name: 'Engaged Swapper', description: '$250+ monthly swap volume', icon: '🔄' },
     swapper_x5: { id: 'swapper_x5', name: 'Committed Swapper', description: '$1,000+ monthly swap volume', icon: '🔄' },
-    swapper_x10: { id: 'swapper_x10', name: 'Elite Swapper', description: '$3,000+ monthly swap volume', icon: '🔄' }
+    swapper_x10: { id: 'swapper_x10', name: 'Elite Swapper', description: '$3,000+ monthly swap volume', icon: '🔄' },
+    // HONEY Bend badges
+    honeybend_x3: { id: 'honeybend_x3', name: 'HONEY Bend Bronze', description: '$10+ HONEY deposited', icon: '🍯' },
+    honeybend_x5: { id: 'honeybend_x5', name: 'HONEY Bend Silver', description: '$100+ HONEY deposited', icon: '🍯' },
+    honeybend_x10: { id: 'honeybend_x10', name: 'HONEY Bend Gold', description: '$500+ HONEY deposited', icon: '🍯' },
+    // Staked BERA badges
+    stakedbera_x3: { id: 'stakedbera_x3', name: 'Staked BERA Bronze', description: '$10+ sWBERA', icon: '🐻' },
+    stakedbera_x5: { id: 'stakedbera_x5', name: 'Staked BERA Silver', description: '$100+ sWBERA', icon: '🐻' },
+    stakedbera_x10: { id: 'stakedbera_x10', name: 'Staked BERA Gold', description: '$500+ sWBERA', icon: '🐻' }
 };
 
 // User profiles helper functions
@@ -2469,7 +2493,8 @@ const badges = {
         const userData = await pool.query(
             `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
              p.sailr_multiplier, p.sailr_value_usd, p.plvhedge_multiplier, p.plvhedge_value_usd,
-             p.plsbera_multiplier, p.plsbera_value_usd, p.raidshark_multiplier, p.onchain_conviction_multiplier,
+             p.plsbera_multiplier, p.plsbera_value_usd, p.honeybend_value_usd, p.honeybend_multiplier,
+             p.stakedbera_value_usd, p.stakedbera_multiplier, p.raidshark_multiplier, p.onchain_conviction_multiplier,
              p.swapper_multiplier, r.referral_code, r.referral_count
              FROM verified_users v
              LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
@@ -2509,6 +2534,18 @@ const badges = {
             if (plsberaUsd >= 500) earned.push(BADGE_DEFINITIONS.plsbera_x10);
             else if (plsberaUsd >= 100) earned.push(BADGE_DEFINITIONS.plsbera_x5);
             else if (plsberaUsd >= 10) earned.push(BADGE_DEFINITIONS.plsbera_x3);
+
+            // HONEY Bend badges
+            const honeybendUsd = parseFloat(user.honeybend_value_usd) || 0;
+            if (honeybendUsd >= 500) earned.push(BADGE_DEFINITIONS.honeybend_x10);
+            else if (honeybendUsd >= 100) earned.push(BADGE_DEFINITIONS.honeybend_x5);
+            else if (honeybendUsd >= 10) earned.push(BADGE_DEFINITIONS.honeybend_x3);
+
+            // Staked BERA badges
+            const stakedberaUsd = parseFloat(user.stakedbera_value_usd) || 0;
+            if (stakedberaUsd >= 500) earned.push(BADGE_DEFINITIONS.stakedbera_x10);
+            else if (stakedberaUsd >= 100) earned.push(BADGE_DEFINITIONS.stakedbera_x5);
+            else if (stakedberaUsd >= 10) earned.push(BADGE_DEFINITIONS.stakedbera_x3);
 
             // RaidShark badges (based on multiplier assigned by admin)
             const raidsharkMult = parseInt(user.raidshark_multiplier) || 0;

@@ -2444,7 +2444,11 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                     holdings.plvhedge.valueUsd || 0,
                     holdings.plvhedge.multiplier || 1,
                     holdings.plsbera.valueUsd || 0,
-                    holdings.plsbera.multiplier || 1
+                    holdings.plsbera.multiplier || 1,
+                    holdings.honeybend.valueUsd || 0,
+                    holdings.honeybend.multiplier || 1,
+                    holdings.stakedbera.valueUsd || 0,
+                    holdings.stakedbera.multiplier || 1
                 );
             }
         } catch (err) {
@@ -4149,7 +4153,11 @@ async function awardHourlyPoints() {
                             tokenHoldings.plvhedge.valueUsd || 0,
                             tokenHoldings.plvhedge.multiplier || 1,
                             tokenHoldings.plsbera.valueUsd || 0,
-                            tokenHoldings.plsbera.multiplier || 1
+                            tokenHoldings.plsbera.multiplier || 1,
+                            tokenHoldings.honeybend.valueUsd || 0,
+                            tokenHoldings.honeybend.multiplier || 1,
+                            tokenHoldings.stakedbera.valueUsd || 0,
+                            tokenHoldings.stakedbera.multiplier || 1
                         );
                     }
                 } catch (err) {
