@@ -277,6 +277,42 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='discord_mod_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN discord_mod_multiplier INTEGER DEFAULT 0;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='surfusd_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN surfusd_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='surfusd_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN surfusd_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='surfcbbtc_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN surfcbbtc_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='surfcbbtc_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN surfcbbtc_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='surfweth_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN surfweth_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='surfweth_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN surfweth_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='bgt_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN bgt_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='bgt_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN bgt_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='snrusd_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN snrusd_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='snrusd_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN snrusd_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='jnrusd_value_usd') THEN
+                    ALTER TABLE amy_points ADD COLUMN jnrusd_value_usd DECIMAL(20, 2) DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='jnrusd_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN jnrusd_multiplier INTEGER DEFAULT 1;
+                END IF;
             END $$;
         `);
 
@@ -1600,7 +1636,7 @@ const points = {
     },
 
     // Update token holdings data for a user (SAIL.r, plvHEDGE, plsBERA, HONEY-Bend, Staked BERA)
-    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1) => {
+    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1, surfusdValueUsd = 0, surfusdMultiplier = 1, surfcbbtcValueUsd = 0, surfcbbtcMultiplier = 1, surfwethValueUsd = 0, surfwethMultiplier = 1, bgtValueUsd = 0, bgtMultiplier = 1, snrusdValueUsd = 0, snrusdMultiplier = 1, jnrusdValueUsd = 0, jnrusdMultiplier = 1) => {
         if (!pool) return null;
         await pool.query(
             `UPDATE amy_points SET
@@ -1613,11 +1649,23 @@ const points = {
              honeybend_value_usd = $7,
              honeybend_multiplier = $8,
              stakedbera_value_usd = $9,
-             stakedbera_multiplier = $10
-             WHERE LOWER(wallet) = LOWER($11)`,
-            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, wallet]
+             stakedbera_multiplier = $10,
+             surfusd_value_usd = $11,
+             surfusd_multiplier = $12,
+             surfcbbtc_value_usd = $13,
+             surfcbbtc_multiplier = $14,
+             surfweth_value_usd = $15,
+             surfweth_multiplier = $16,
+             bgt_value_usd = $17,
+             bgt_multiplier = $18,
+             snrusd_value_usd = $19,
+             snrusd_multiplier = $20,
+             jnrusd_value_usd = $21,
+             jnrusd_multiplier = $22
+             WHERE LOWER(wallet) = LOWER($23)`,
+            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, wallet]
         );
-        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier };
+        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier };
     },
 
     // Update RaidShark multiplier for a user (admin only)
@@ -2295,7 +2343,29 @@ const BADGE_DEFINITIONS = {
     // Staked BERA badges
     stakedbera_x3: { id: 'stakedbera_x3', name: 'Staked BERA Bronze', description: '$10+ sWBERA', icon: '🐻' },
     stakedbera_x5: { id: 'stakedbera_x5', name: 'Staked BERA Silver', description: '$100+ sWBERA', icon: '🐻' },
-    stakedbera_x10: { id: 'stakedbera_x10', name: 'Staked BERA Gold', description: '$500+ sWBERA', icon: '🐻' }
+    stakedbera_x10: { id: 'stakedbera_x10', name: 'Staked BERA Gold', description: '$500+ sWBERA', icon: '🐻' },
+    // SurfLiquid badges
+    surfusd_x3: { id: 'surfusd_x3', name: 'SurfUSD Bronze', description: '$10+ surfUSD', icon: '🏄' },
+    surfusd_x5: { id: 'surfusd_x5', name: 'SurfUSD Silver', description: '$100+ surfUSD', icon: '🏄' },
+    surfusd_x10: { id: 'surfusd_x10', name: 'SurfUSD Gold', description: '$500+ surfUSD', icon: '🏄' },
+    surfcbbtc_x3: { id: 'surfcbbtc_x3', name: 'SurfcbBTC Bronze', description: '$10+ surfcbBTC', icon: '🌊' },
+    surfcbbtc_x5: { id: 'surfcbbtc_x5', name: 'SurfcbBTC Silver', description: '$100+ surfcbBTC', icon: '🌊' },
+    surfcbbtc_x10: { id: 'surfcbbtc_x10', name: 'SurfcbBTC Gold', description: '$500+ surfcbBTC', icon: '🌊' },
+    surfweth_x3: { id: 'surfweth_x3', name: 'SurfWETH Bronze', description: '$10+ surfWETH', icon: '🏄‍♂️' },
+    surfweth_x5: { id: 'surfweth_x5', name: 'SurfWETH Silver', description: '$100+ surfWETH', icon: '🏄‍♂️' },
+    surfweth_x10: { id: 'surfweth_x10', name: 'SurfWETH Gold', description: '$500+ surfWETH', icon: '🏄‍♂️' },
+    // BGT badges
+    bgt_x3: { id: 'bgt_x3', name: 'BGT Bronze', description: '$10+ BGT held', icon: '🐻' },
+    bgt_x5: { id: 'bgt_x5', name: 'BGT Silver', description: '$100+ BGT held', icon: '🐻' },
+    bgt_x10: { id: 'bgt_x10', name: 'BGT Gold', description: '$500+ BGT held', icon: '🐻' },
+    // snrUSD badges
+    snrusd_x3: { id: 'snrusd_x3', name: 'snrUSD Bronze', description: '$10+ snrUSD held', icon: '💵' },
+    snrusd_x5: { id: 'snrusd_x5', name: 'snrUSD Silver', description: '$100+ snrUSD held', icon: '💵' },
+    snrusd_x10: { id: 'snrusd_x10', name: 'snrUSD Gold', description: '$500+ snrUSD held', icon: '💵' },
+    // jnrUSD badges
+    jnrusd_x3: { id: 'jnrusd_x3', name: 'jnrUSD Bronze', description: '$10+ jnrUSD held', icon: '💸' },
+    jnrusd_x5: { id: 'jnrusd_x5', name: 'jnrUSD Silver', description: '$100+ jnrUSD held', icon: '💸' },
+    jnrusd_x10: { id: 'jnrusd_x10', name: 'jnrUSD Gold', description: '$500+ jnrUSD held', icon: '💸' }
 };
 
 // User profiles helper functions
@@ -2494,7 +2564,9 @@ const badges = {
             `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
              p.sailr_multiplier, p.sailr_value_usd, p.plvhedge_multiplier, p.plvhedge_value_usd,
              p.plsbera_multiplier, p.plsbera_value_usd, p.honeybend_value_usd, p.honeybend_multiplier,
-             p.stakedbera_value_usd, p.stakedbera_multiplier, p.raidshark_multiplier, p.onchain_conviction_multiplier,
+             p.stakedbera_value_usd, p.stakedbera_multiplier, p.surfusd_value_usd, p.surfusd_multiplier,
+             p.surfcbbtc_value_usd, p.surfcbbtc_multiplier, p.surfweth_value_usd, p.surfweth_multiplier,
+             p.raidshark_multiplier, p.onchain_conviction_multiplier,
              p.swapper_multiplier, r.referral_code, r.referral_count
              FROM verified_users v
              LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
@@ -2546,6 +2618,42 @@ const badges = {
             if (stakedberaUsd >= 500) earned.push(BADGE_DEFINITIONS.stakedbera_x10);
             else if (stakedberaUsd >= 100) earned.push(BADGE_DEFINITIONS.stakedbera_x5);
             else if (stakedberaUsd >= 10) earned.push(BADGE_DEFINITIONS.stakedbera_x3);
+
+            // SurfUSD badges
+            const surfusdUsd = parseFloat(user.surfusd_value_usd) || 0;
+            if (surfusdUsd >= 500) earned.push(BADGE_DEFINITIONS.surfusd_x10);
+            else if (surfusdUsd >= 100) earned.push(BADGE_DEFINITIONS.surfusd_x5);
+            else if (surfusdUsd >= 10) earned.push(BADGE_DEFINITIONS.surfusd_x3);
+
+            // SurfcbBTC badges
+            const surfcbbtcUsd = parseFloat(user.surfcbbtc_value_usd) || 0;
+            if (surfcbbtcUsd >= 500) earned.push(BADGE_DEFINITIONS.surfcbbtc_x10);
+            else if (surfcbbtcUsd >= 100) earned.push(BADGE_DEFINITIONS.surfcbbtc_x5);
+            else if (surfcbbtcUsd >= 10) earned.push(BADGE_DEFINITIONS.surfcbbtc_x3);
+
+            // SurfWETH badges
+            const surfwethUsd = parseFloat(user.surfweth_value_usd) || 0;
+            if (surfwethUsd >= 500) earned.push(BADGE_DEFINITIONS.surfweth_x10);
+            else if (surfwethUsd >= 100) earned.push(BADGE_DEFINITIONS.surfweth_x5);
+            else if (surfwethUsd >= 10) earned.push(BADGE_DEFINITIONS.surfweth_x3);
+
+            // BGT badges
+            const bgtUsd = parseFloat(user.bgt_value_usd) || 0;
+            if (bgtUsd >= 500) earned.push(BADGE_DEFINITIONS.bgt_x10);
+            else if (bgtUsd >= 100) earned.push(BADGE_DEFINITIONS.bgt_x5);
+            else if (bgtUsd >= 10) earned.push(BADGE_DEFINITIONS.bgt_x3);
+
+            // snrUSD badges
+            const snrusdUsd = parseFloat(user.snrusd_value_usd) || 0;
+            if (snrusdUsd >= 500) earned.push(BADGE_DEFINITIONS.snrusd_x10);
+            else if (snrusdUsd >= 100) earned.push(BADGE_DEFINITIONS.snrusd_x5);
+            else if (snrusdUsd >= 10) earned.push(BADGE_DEFINITIONS.snrusd_x3);
+
+            // jnrUSD badges
+            const jnrusdUsd = parseFloat(user.jnrusd_value_usd) || 0;
+            if (jnrusdUsd >= 500) earned.push(BADGE_DEFINITIONS.jnrusd_x10);
+            else if (jnrusdUsd >= 100) earned.push(BADGE_DEFINITIONS.jnrusd_x5);
+            else if (jnrusdUsd >= 10) earned.push(BADGE_DEFINITIONS.jnrusd_x3);
 
             // RaidShark badges (based on multiplier assigned by admin)
             const raidsharkMult = parseInt(user.raidshark_multiplier) || 0;

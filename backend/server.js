@@ -1672,6 +1672,9 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         let bgtMult = 1;
         let snrusdMult = 1;
         let jnrusdMult = 1;
+        let surfusdMult = 1;
+        let surfcbbtcMult = 1;
+        let surfwethMult = 1;
         try {
             const tokenHoldings = await queryAllTokenHoldings(wallet);
             sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 1;
@@ -1682,6 +1685,9 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 1;
             snrusdMult = tokenHoldings.snrusd.multiplier > 1 ? tokenHoldings.snrusd.multiplier : 1;
             jnrusdMult = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 1;
+            surfusdMult = tokenHoldings.surfusd.multiplier > 1 ? tokenHoldings.surfusd.multiplier : 1;
+            surfcbbtcMult = tokenHoldings.surfcbbtc.multiplier > 1 ? tokenHoldings.surfcbbtc.multiplier : 1;
+            surfwethMult = tokenHoldings.surfweth.multiplier > 1 ? tokenHoldings.surfweth.multiplier : 1;
         } catch (err) {
             console.error('Error fetching token holdings for multiplier:', err.message);
         }
@@ -1733,7 +1739,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
         // Note: dawnReferralMultiplier is NOT included - it's historical only
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult);
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1754,6 +1760,9 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 bgtMultiplier: bgtMult > 1 ? bgtMult : 0,
                 snrusdMultiplier: snrusdMult > 1 ? snrusdMult : 0,
                 jnrusdMultiplier: jnrusdMult > 1 ? jnrusdMult : 0,
+                surfusdMultiplier: surfusdMult > 1 ? surfusdMult : 0,
+                surfcbbtcMultiplier: surfcbbtcMult > 1 ? surfcbbtcMult : 0,
+                surfwethMultiplier: surfwethMult > 1 ? surfwethMult : 0,
                 raidsharkMultiplier: raidsharkMult,
                 onchainConvictionMultiplier: onchainConvictionMult,
                 referralMultiplier: referralMult > 0 ? referralMult : 0,
@@ -2198,6 +2207,24 @@ const BADGE_TOKENS = {
         symbol: 'jnrUSD',
         decimals: 18,
         isStablecoin: true // Pegged to $1
+    },
+    SURFUSD: {
+        address: '0x0000000000000000000000000000000000000000', // TODO: Add surfUSD contract address
+        symbol: 'surfUSD',
+        decimals: 18,
+        isStablecoin: true // Pegged to $1
+    },
+    SURFCBBTC: {
+        address: '0x0000000000000000000000000000000000000000', // TODO: Add surfcbBTC contract address
+        symbol: 'surfcbBTC',
+        decimals: 8, // Bitcoin decimals
+        geckoPoolAddress: null // TODO: Add GeckoTerminal pool address for price
+    },
+    SURFWETH: {
+        address: '0x0000000000000000000000000000000000000000', // TODO: Add surfWETH contract address
+        symbol: 'surfWETH',
+        decimals: 18,
+        geckoPoolAddress: null // TODO: Add GeckoTerminal pool address for price
     }
 };
 
@@ -2218,7 +2245,10 @@ let tokenPriceCache = {
     stakedbera: { price: 0, timestamp: 0 },
     bgt: { price: 0, timestamp: 0 },
     snrusd: { price: 1, timestamp: 0 }, // Pegged to $1
-    jnrusd: { price: 1, timestamp: 0 }  // Pegged to $1
+    jnrusd: { price: 1, timestamp: 0 },  // Pegged to $1
+    surfusd: { price: 1, timestamp: 0 }, // Pegged to $1
+    surfcbbtc: { price: 0, timestamp: 0 },
+    surfweth: { price: 0, timestamp: 0 }
 };
 const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -2399,7 +2429,7 @@ async function queryTokenBalance(wallet, tokenKey) {
 
 // Query all badge token holdings for a wallet
 async function queryAllTokenHoldings(wallet) {
-    const [sailr, plvhedge, plsbera, honeybend, stakedbera, bgt, snrusd, jnrusd] = await Promise.all([
+    const [sailr, plvhedge, plsbera, honeybend, stakedbera, bgt, snrusd, jnrusd, surfusd, surfcbbtc, surfweth] = await Promise.all([
         queryTokenBalance(wallet, 'SAILR'),
         queryTokenBalance(wallet, 'PLVHEDGE'),
         queryTokenBalance(wallet, 'PLSBERA'),
@@ -2407,7 +2437,10 @@ async function queryAllTokenHoldings(wallet) {
         queryTokenBalance(wallet, 'STAKEDBERA'),
         queryTokenBalance(wallet, 'BGT'),
         queryTokenBalance(wallet, 'SNRUSD'),
-        queryTokenBalance(wallet, 'JNRUSD')
+        queryTokenBalance(wallet, 'JNRUSD'),
+        queryTokenBalance(wallet, 'SURFUSD'),
+        queryTokenBalance(wallet, 'SURFCBBTC'),
+        queryTokenBalance(wallet, 'SURFWETH')
     ]);
 
     return {
@@ -2419,6 +2452,9 @@ async function queryAllTokenHoldings(wallet) {
         bgt,
         snrusd,
         jnrusd,
+        surfusd,
+        surfcbbtc,
+        surfweth,
         tiers: TOKEN_MULTIPLIER_TIERS
     };
 }
@@ -2448,7 +2484,19 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                     holdings.honeybend.valueUsd || 0,
                     holdings.honeybend.multiplier || 1,
                     holdings.stakedbera.valueUsd || 0,
-                    holdings.stakedbera.multiplier || 1
+                    holdings.stakedbera.multiplier || 1,
+                    holdings.surfusd.valueUsd || 0,
+                    holdings.surfusd.multiplier || 1,
+                    holdings.surfcbbtc.valueUsd || 0,
+                    holdings.surfcbbtc.multiplier || 1,
+                    holdings.surfweth.valueUsd || 0,
+                    holdings.surfweth.multiplier || 1,
+                    holdings.bgt.valueUsd || 0,
+                    holdings.bgt.multiplier || 1,
+                    holdings.snrusd.valueUsd || 0,
+                    holdings.snrusd.multiplier || 1,
+                    holdings.jnrusd.valueUsd || 0,
+                    holdings.jnrusd.multiplier || 1
                 );
             }
         } catch (err) {
@@ -4133,6 +4181,9 @@ async function awardHourlyPoints() {
                 let bgtMult = 0;
                 let snrusdMult = 0;
                 let jnrusdMult = 0;
+                let surfusdMult = 0;
+                let surfcbbtcMult = 0;
+                let surfwethMult = 0;
                 try {
                     const tokenHoldings = await queryAllTokenHoldings(user.wallet);
                     sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
@@ -4143,6 +4194,9 @@ async function awardHourlyPoints() {
                     bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 0;
                     snrusdMult = tokenHoldings.snrusd.multiplier > 1 ? tokenHoldings.snrusd.multiplier : 0;
                     jnrusdMult = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 0;
+                    surfusdMult = tokenHoldings.surfusd.multiplier > 1 ? tokenHoldings.surfusd.multiplier : 0;
+                    surfcbbtcMult = tokenHoldings.surfcbbtc.multiplier > 1 ? tokenHoldings.surfcbbtc.multiplier : 0;
+                    surfwethMult = tokenHoldings.surfweth.multiplier > 1 ? tokenHoldings.surfweth.multiplier : 0;
 
                     // Save updated token data to database (handles stake/unstake changes)
                     if (pointsDb) {
@@ -4157,7 +4211,19 @@ async function awardHourlyPoints() {
                             tokenHoldings.honeybend.valueUsd || 0,
                             tokenHoldings.honeybend.multiplier || 1,
                             tokenHoldings.stakedbera.valueUsd || 0,
-                            tokenHoldings.stakedbera.multiplier || 1
+                            tokenHoldings.stakedbera.multiplier || 1,
+                            tokenHoldings.surfusd.valueUsd || 0,
+                            tokenHoldings.surfusd.multiplier || 1,
+                            tokenHoldings.surfcbbtc.valueUsd || 0,
+                            tokenHoldings.surfcbbtc.multiplier || 1,
+                            tokenHoldings.surfweth.valueUsd || 0,
+                            tokenHoldings.surfweth.multiplier || 1,
+                            tokenHoldings.bgt.valueUsd || 0,
+                            tokenHoldings.bgt.multiplier || 1,
+                            tokenHoldings.snrusd.valueUsd || 0,
+                            tokenHoldings.snrusd.multiplier || 1,
+                            tokenHoldings.jnrusd.valueUsd || 0,
+                            tokenHoldings.jnrusd.multiplier || 1
                         );
                     }
                 } catch (err) {
@@ -4200,7 +4266,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -4218,6 +4284,9 @@ async function awardHourlyPoints() {
                     if (bgtMult > 1) boostParts.push(`BGT ${bgtMult}x`);
                     if (snrusdMult > 1) boostParts.push(`snrUSD ${snrusdMult}x`);
                     if (jnrusdMult > 1) boostParts.push(`jnrUSD ${jnrusdMult}x`);
+                    if (surfusdMult > 1) boostParts.push(`surfUSD ${surfusdMult}x`);
+                    if (surfcbbtcMult > 1) boostParts.push(`surfcbBTC ${surfcbbtcMult}x`);
+                    if (surfwethMult > 1) boostParts.push(`surfWETH ${surfwethMult}x`);
                     if (raidsharkMult > 1) boostParts.push(`RaidShark ${raidsharkMult}x`);
                     if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
                     if (swapperMult > 1) boostParts.push(`Swapper ${swapperMult}x`);
