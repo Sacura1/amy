@@ -1772,8 +1772,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
 
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
-        // Note: dawnReferralMultiplier is NOT included - it's historical only
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult);
+        // Note: dawnReferralMultiplier IS included - active for existing holders (registration closed for new users)
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + dawnReferralMultiplier);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1803,7 +1803,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 swapperMultiplier: swapperMult > 0 ? swapperMult : 0,
                 telegramModMultiplier: telegramModMult > 0 ? telegramModMult : 0,
                 discordModMultiplier: discordModMult > 0 ? discordModMult : 0,
-                // Dawn season (historical - badge display only, no active bonus)
+                // Dawn season (active for existing holders, registration closed for new users)
                 dawnReferralCount: dawnReferralCount,
                 dawnReferralMultiplier: dawnReferralMultiplier
             }
@@ -4284,6 +4284,7 @@ async function awardHourlyPoints() {
 
                 // Fetch referral multiplier (1 ref = x3, 2 refs = x5, 3+ refs = x10)
                 let referralMult = 0;
+                let dawnReferralMultiplier = 0;
                 try {
                     if (referralsDb) {
                         const referralEntry = await referralsDb.getByWallet(user.wallet);
@@ -4293,6 +4294,11 @@ async function awardHourlyPoints() {
                             else if (validReferralCount >= 2) referralMult = 5;
                             else if (validReferralCount >= 1) referralMult = 3;
                         }
+                        // Fetch Dawn season referral multiplier (active for existing holders)
+                        const dawnData = await referralsDb.getDawnReferralData(user.wallet);
+                        if (dawnData) {
+                            dawnReferralMultiplier = dawnData.dawnReferralMultiplier || 0;
+                        }
                     }
                 } catch (err) {
                     // If referral query fails, continue without this multiplier
@@ -4300,7 +4306,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + dawnReferralMultiplier);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -4325,6 +4331,7 @@ async function awardHourlyPoints() {
                     if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
                     if (swapperMult > 1) boostParts.push(`Swapper ${swapperMult}x`);
                     if (referralMult > 1) boostParts.push(`Referral ${referralMult}x`);
+                    if (dawnReferralMultiplier > 1) boostParts.push(`Dawn Referral ${dawnReferralMultiplier}x`);
                     if (telegramModMult > 1) boostParts.push(`TG Mod ${telegramModMult}x`);
                     if (discordModMult > 1) boostParts.push(`Discord Mod ${discordModMult}x`);
                     description = `Hourly earning with ${totalMultiplier}x multiplier (${boostParts.join(' + ')})`;
