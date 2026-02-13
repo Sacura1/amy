@@ -8,6 +8,8 @@ const path = require('path');
 const ethers = require('ethers');
 const multer = require('multer');
 const sgMail = require('@sendgrid/mail');
+const cron = require('node-cron');
+const googleSheetsService = require('./googleSheetsService');
 require('dotenv').config();
 
 // Configure SendGrid
@@ -1061,6 +1063,38 @@ app.post('/api/leaderboard', isAdmin, async (req, res) => {
     } catch (error) {
         console.error('❌ Error updating leaderboard:', error);
         res.status(500).json({ error: 'Failed to update leaderboard' });
+    }
+});
+
+// Sync leaderboard from Google Sheets (admin only - manual trigger)
+app.post('/api/leaderboard/sync-from-sheets', isAdmin, async (req, res) => {
+    try {
+        console.log('📊 Manual Google Sheets sync triggered by admin:', req.body.wallet || req.query.wallet);
+
+        const success = await googleSheetsService.updateLeaderboardFile(LEADERBOARD_PATH);
+
+        if (success) {
+            // Reload the leaderboard data
+            const data = await leaderboard.getAll();
+
+            res.json({
+                success: true,
+                message: 'Leaderboard synced from Google Sheets successfully',
+                data: data
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: 'Failed to sync from Google Sheets - no data fetched'
+            });
+        }
+    } catch (error) {
+        console.error('❌ Error syncing from Google Sheets:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to sync from Google Sheets',
+            details: error.message
+        });
     }
 });
 
@@ -4379,6 +4413,23 @@ app.listen(PORT, () => {
             console.error('Hourly points error:', err);
         }
     }, 60 * 60 * 1000); // Run every hour
+
+    // Schedule daily leaderboard update from Google Sheets at 6:00 AM
+    // Cron format: minute hour day month weekday
+    // '0 6 * * *' means: At 6:00 AM every day
+    cron.schedule('0 6 * * *', async () => {
+        try {
+            console.log('\n⏰ Scheduled leaderboard update triggered at 6:00 AM');
+            await googleSheetsService.updateLeaderboardFile(LEADERBOARD_PATH);
+            console.log('✅ Scheduled leaderboard update completed\n');
+        } catch (err) {
+            console.error('❌ Scheduled leaderboard update error:', err);
+        }
+    }, {
+        timezone: process.env.CRON_TIMEZONE || 'UTC' // Default to UTC, can be changed via env var
+    });
+
+    console.log(`⏰ Leaderboard auto-update scheduled for 6:00 AM daily (${process.env.CRON_TIMEZONE || 'UTC'})`);
 
     // Run initial balance update after 1 minute (give time for DB to initialize)
     setTimeout(async () => {
