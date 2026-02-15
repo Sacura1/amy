@@ -3525,6 +3525,68 @@ app.get('/api/admin/referrals/dawn-stats', isAdmin, async (req, res) => {
     }
 });
 
+// Manually set Dawn multiplier for a user (admin only)
+app.post('/api/admin/referrals/set-dawn-multiplier', isAdmin, async (req, res) => {
+    try {
+        const { targetWallet, multiplier, referralCount } = req.body;
+
+        if (!targetWallet) {
+            return res.status(400).json({ success: false, error: 'targetWallet is required' });
+        }
+
+        if (![0, 3, 5, 10].includes(multiplier)) {
+            return res.status(400).json({ success: false, error: 'multiplier must be 0, 3, 5, or 10' });
+        }
+
+        const count = referralCount || (multiplier === 10 ? 3 : multiplier === 5 ? 2 : multiplier === 3 ? 1 : 0);
+
+        console.log(`📝 Admin setting Dawn multiplier for ${targetWallet}: x${multiplier} (${count} referrals)`);
+
+        if (!database.pool) {
+            return res.status(500).json({ success: false, error: 'Database not available' });
+        }
+
+        // Check if user exists in referrals table
+        const userCheck = await database.pool.query(
+            'SELECT wallet FROM referrals WHERE LOWER(wallet) = LOWER($1)',
+            [targetWallet]
+        );
+
+        if (userCheck.rows.length === 0) {
+            // User doesn't exist in referrals table, create entry
+            await database.pool.query(
+                `INSERT INTO referrals (wallet, dawn_referral_count, dawn_referral_multiplier)
+                 VALUES ($1, $2, $3)`,
+                [targetWallet, count, multiplier]
+            );
+        } else {
+            // Update existing user
+            await database.pool.query(
+                `UPDATE referrals
+                 SET dawn_referral_count = $2, dawn_referral_multiplier = $3
+                 WHERE LOWER(wallet) = LOWER($1)`,
+                [targetWallet, count, multiplier]
+            );
+        }
+
+        console.log(`✅ Dawn multiplier set successfully for ${targetWallet}`);
+
+        res.json({
+            success: true,
+            message: `Dawn multiplier set to x${multiplier} for wallet ${targetWallet}`,
+            data: {
+                wallet: targetWallet,
+                dawnReferralCount: count,
+                dawnReferralMultiplier: multiplier
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error setting Dawn multiplier:', error);
+        res.status(500).json({ success: false, error: 'Failed to set Dawn multiplier' });
+    }
+});
+
 // ============================================
 // DAILY CHECK-IN ENDPOINTS
 // ============================================
