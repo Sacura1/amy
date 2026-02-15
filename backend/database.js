@@ -1000,7 +1000,7 @@ const leaderboard = {
                  ON CONFLICT (id) DO UPDATE SET
                  last_updated = EXCLUDED.last_updated,
                  minimum_amy = EXCLUDED.minimum_amy`,
-                [new Date().toISOString(), data.minimumAMY || 300]
+                [data.lastUpdated || new Date().toISOString(), data.minimumAMY || 300]
             );
 
             await client.query('COMMIT');

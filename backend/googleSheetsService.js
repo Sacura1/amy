@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
+const database = require('./database');
 
 /**
  * Google Sheets Service for Leaderboard Data
@@ -195,10 +196,24 @@ class GoogleSheetsService {
         console.log(`💾 Backup created: ${path.basename(backupPath)}`);
       }
 
-      // Write updated data
+      // Write updated data to JSON file
       fs.writeFileSync(leaderboardPath, JSON.stringify(currentData, null, 2));
+      console.log(`✅ JSON file updated successfully!`);
 
-      console.log(`✅ Leaderboard updated successfully!`);
+      // Also update PostgreSQL database if available
+      try {
+        if (database.leaderboard) {
+          await database.leaderboard.update(currentData);
+          console.log(`✅ PostgreSQL database updated successfully!`);
+        } else {
+          console.log(`ℹ️  PostgreSQL not available, using JSON file only`);
+        }
+      } catch (dbError) {
+        console.error('⚠️  Failed to update PostgreSQL database:', dbError.message);
+        console.log('✅ JSON file updated, but database update failed');
+        // Don't throw - JSON file is still updated
+      }
+
       console.log(`📊 Total entries: ${leaderboardData.length}`);
       console.log(`🕒 Last updated: ${currentData.lastUpdated}`);
 
