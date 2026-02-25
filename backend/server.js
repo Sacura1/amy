@@ -2435,8 +2435,10 @@ async function queryTokenBalance(wallet, tokenKey) {
             console.log(`💰 ${tokenKey}: balance=${balanceFormatted.toFixed(6)}, price=$${price.toFixed(4)}, usdValue=$${usdValue.toFixed(2)}`);
         }
 
-        // All tokens use USD value for multiplier (including BGT)
-        const multiplier = getTokenMultiplier(usdValue);
+        // BGT has no reliable price feed — use raw balance thresholds instead of USD
+        const multiplier = tokenKey === 'BGT'
+            ? getBgtMultiplier(balanceFormatted)
+            : getTokenMultiplier(usdValue);
 
         return {
             token: token.symbol,
