@@ -313,6 +313,24 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='jnrusd_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN jnrusd_multiplier INTEGER DEFAULT 1;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='bullas_count') THEN
+                    ALTER TABLE amy_points ADD COLUMN bullas_count INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='bullas_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN bullas_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='booga_bullas_count') THEN
+                    ALTER TABLE amy_points ADD COLUMN booga_bullas_count INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='booga_bullas_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN booga_bullas_multiplier INTEGER DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='ember_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN ember_multiplier INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='genesis_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN genesis_multiplier INTEGER DEFAULT 0;
+                END IF;
             END $$;
         `);
 
@@ -1636,7 +1654,7 @@ const points = {
     },
 
     // Update token holdings data for a user (SAIL.r, plvHEDGE, plsBERA, HONEY-Bend, Staked BERA)
-    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1, surfusdValueUsd = 0, surfusdMultiplier = 1, surfcbbtcValueUsd = 0, surfcbbtcMultiplier = 1, surfwethValueUsd = 0, surfwethMultiplier = 1, bgtValueUsd = 0, bgtMultiplier = 1, snrusdValueUsd = 0, snrusdMultiplier = 1, jnrusdValueUsd = 0, jnrusdMultiplier = 1) => {
+    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1, surfusdValueUsd = 0, surfusdMultiplier = 1, surfcbbtcValueUsd = 0, surfcbbtcMultiplier = 1, surfwethValueUsd = 0, surfwethMultiplier = 1, bgtValueUsd = 0, bgtMultiplier = 1, snrusdValueUsd = 0, snrusdMultiplier = 1, jnrusdValueUsd = 0, jnrusdMultiplier = 1, bullasCount = 0, bullasMultiplier = 1, boogaBullasCount = 0, boogaBullasMultiplier = 1) => {
         if (!pool) return null;
         await pool.query(
             `UPDATE amy_points SET
@@ -1661,11 +1679,15 @@ const points = {
              snrusd_value_usd = $19,
              snrusd_multiplier = $20,
              jnrusd_value_usd = $21,
-             jnrusd_multiplier = $22
-             WHERE LOWER(wallet) = LOWER($23)`,
-            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, wallet]
+             jnrusd_multiplier = $22,
+             bullas_count = $23,
+             bullas_multiplier = $24,
+             booga_bullas_count = $25,
+             booga_bullas_multiplier = $26
+             WHERE LOWER(wallet) = LOWER($27)`,
+            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, bullasCount, bullasMultiplier, boogaBullasCount, boogaBullasMultiplier, wallet]
         );
-        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier };
+        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, bullasCount, bullasMultiplier, boogaBullasCount, boogaBullasMultiplier };
     },
 
     // Update RaidShark multiplier for a user (admin only)
@@ -1700,7 +1722,7 @@ const points = {
     getMultiplierBadges: async (wallet) => {
         if (!pool) return null;
         const result = await pool.query(
-            `SELECT raidshark_multiplier, onchain_conviction_multiplier, swapper_multiplier, telegram_mod_multiplier, discord_mod_multiplier
+            `SELECT raidshark_multiplier, onchain_conviction_multiplier, swapper_multiplier, telegram_mod_multiplier, discord_mod_multiplier, ember_multiplier, genesis_multiplier
              FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
@@ -1710,7 +1732,9 @@ const points = {
             onchainConvictionMultiplier: row?.onchain_conviction_multiplier || 0,
             swapperMultiplier: row?.swapper_multiplier || 0,
             telegramModMultiplier: row?.telegram_mod_multiplier || 0,
-            discordModMultiplier: row?.discord_mod_multiplier || 0
+            discordModMultiplier: row?.discord_mod_multiplier || 0,
+            emberMultiplier: row?.ember_multiplier || 0,
+            genesisMultiplier: row?.genesis_multiplier || 0
         };
     },
 
@@ -1754,6 +1778,32 @@ const points = {
         } finally {
             client.release();
         }
+    },
+
+    // Update Ember multiplier for a user (admin only)
+    updateEmberMultiplier: async (wallet, multiplier) => {
+        if (!pool) return null;
+        await pool.query(
+            `INSERT INTO amy_points (wallet, ember_multiplier)
+             VALUES (LOWER($1), $2)
+             ON CONFLICT (wallet) DO UPDATE SET
+             ember_multiplier = $2`,
+            [wallet, multiplier]
+        );
+        return { wallet, emberMultiplier: multiplier };
+    },
+
+    // Update Genesis multiplier for a user (admin only)
+    updateGenesisMultiplier: async (wallet, multiplier) => {
+        if (!pool) return null;
+        await pool.query(
+            `INSERT INTO amy_points (wallet, genesis_multiplier)
+             VALUES (LOWER($1), $2)
+             ON CONFLICT (wallet) DO UPDATE SET
+             genesis_multiplier = $2`,
+            [wallet, multiplier]
+        );
+        return { wallet, genesisMultiplier: multiplier };
     },
 
     // Look up wallet address by X username
@@ -2365,7 +2415,23 @@ const BADGE_DEFINITIONS = {
     // jnrUSD badges
     jnrusd_x3: { id: 'jnrusd_x3', name: 'jnrUSD Bronze', description: '$10+ jnrUSD held', icon: '💸' },
     jnrusd_x5: { id: 'jnrusd_x5', name: 'jnrUSD Silver', description: '$100+ jnrUSD held', icon: '💸' },
-    jnrusd_x10: { id: 'jnrusd_x10', name: 'jnrUSD Gold', description: '$500+ jnrUSD held', icon: '💸' }
+    jnrusd_x10: { id: 'jnrusd_x10', name: 'jnrUSD Gold', description: '$500+ jnrUSD held', icon: '💸' },
+    // Bullas NFT badges
+    bullas_x3: { id: 'bullas_x3', name: 'Bullas Bronze', description: '2+ Bullas NFTs held', icon: '🐂' },
+    bullas_x5: { id: 'bullas_x5', name: 'Bullas Silver', description: '8+ Bullas NFTs held', icon: '🐂' },
+    bullas_x15: { id: 'bullas_x15', name: 'Bullas Gold', description: '28+ Bullas NFTs held', icon: '🐂' },
+    // Booga Bullas NFT badges
+    booga_bullas_x3: { id: 'booga_bullas_x3', name: 'Booga Bullas Bronze', description: '3+ Booga Bullas NFTs held', icon: '🐂' },
+    booga_bullas_x5: { id: 'booga_bullas_x5', name: 'Booga Bullas Silver', description: '13+ Booga Bullas NFTs held', icon: '🐂' },
+    booga_bullas_x15: { id: 'booga_bullas_x15', name: 'Booga Bullas Gold', description: '42+ Booga Bullas NFTs held', icon: '🐂' },
+    // Ember badges (admin-assigned, referral season)
+    ember_x3: { id: 'ember_x3', name: 'Ember Level 1', description: 'Ember referral season x3', icon: '🔥' },
+    ember_x5: { id: 'ember_x5', name: 'Ember Level 2', description: 'Ember referral season x5', icon: '🔥' },
+    ember_x10: { id: 'ember_x10', name: 'Ember Level 3', description: 'Ember referral season x10', icon: '🔥' },
+    // Genesis badges (admin-assigned, OGs)
+    genesis_x3: { id: 'genesis_x3', name: 'Genesis Level 1', description: 'Genesis OG Top 50 x3', icon: '⭐' },
+    genesis_x5: { id: 'genesis_x5', name: 'Genesis Level 2', description: 'Genesis OG Top 20 x5', icon: '⭐' },
+    genesis_x10: { id: 'genesis_x10', name: 'Genesis Level 3', description: 'Genesis OG Top 10 x10', icon: '⭐' }
 };
 
 // User profiles helper functions
@@ -2567,7 +2633,9 @@ const badges = {
              p.stakedbera_value_usd, p.stakedbera_multiplier, p.surfusd_value_usd, p.surfusd_multiplier,
              p.surfcbbtc_value_usd, p.surfcbbtc_multiplier, p.surfweth_value_usd, p.surfweth_multiplier,
              p.raidshark_multiplier, p.onchain_conviction_multiplier,
-             p.swapper_multiplier, r.referral_code, r.referral_count
+             p.swapper_multiplier, p.ember_multiplier, p.genesis_multiplier,
+             r.referral_code, r.referral_count,
+             p.bullas_count, p.bullas_multiplier, p.booga_bullas_count, p.booga_bullas_multiplier
              FROM verified_users v
              LEFT JOIN amy_points p ON LOWER(v.wallet) = LOWER(p.wallet)
              LEFT JOIN referrals r ON LOWER(v.wallet) = LOWER(r.wallet)
@@ -2655,6 +2723,18 @@ const badges = {
             else if (jnrusdUsd >= 100) earned.push(BADGE_DEFINITIONS.jnrusd_x5);
             else if (jnrusdUsd >= 10) earned.push(BADGE_DEFINITIONS.jnrusd_x3);
 
+            // Bullas NFT badges (count-based)
+            const bullasCount = parseInt(user.bullas_count) || 0;
+            if (bullasCount >= 28) earned.push(BADGE_DEFINITIONS.bullas_x15);
+            else if (bullasCount >= 8) earned.push(BADGE_DEFINITIONS.bullas_x5);
+            else if (bullasCount >= 2) earned.push(BADGE_DEFINITIONS.bullas_x3);
+
+            // Booga Bullas NFT badges (count-based)
+            const boogaBullasCount = parseInt(user.booga_bullas_count) || 0;
+            if (boogaBullasCount >= 42) earned.push(BADGE_DEFINITIONS.booga_bullas_x15);
+            else if (boogaBullasCount >= 13) earned.push(BADGE_DEFINITIONS.booga_bullas_x5);
+            else if (boogaBullasCount >= 3) earned.push(BADGE_DEFINITIONS.booga_bullas_x3);
+
             // RaidShark badges (based on multiplier assigned by admin)
             const raidsharkMult = parseInt(user.raidshark_multiplier) || 0;
             if (raidsharkMult >= 15) earned.push(BADGE_DEFINITIONS.raidshark_x15);
@@ -2666,6 +2746,18 @@ const badges = {
             if (convictionMult >= 10) earned.push(BADGE_DEFINITIONS.conviction_x10);
             else if (convictionMult >= 5) earned.push(BADGE_DEFINITIONS.conviction_x5);
             else if (convictionMult >= 3) earned.push(BADGE_DEFINITIONS.conviction_x3);
+
+            // Ember badges (admin-assigned)
+            const emberMult = parseInt(user.ember_multiplier) || 0;
+            if (emberMult >= 10) earned.push(BADGE_DEFINITIONS.ember_x10);
+            else if (emberMult >= 5) earned.push(BADGE_DEFINITIONS.ember_x5);
+            else if (emberMult >= 3) earned.push(BADGE_DEFINITIONS.ember_x3);
+
+            // Genesis badges (admin-assigned)
+            const genesisMult = parseInt(user.genesis_multiplier) || 0;
+            if (genesisMult >= 10) earned.push(BADGE_DEFINITIONS.genesis_x10);
+            else if (genesisMult >= 5) earned.push(BADGE_DEFINITIONS.genesis_x5);
+            else if (genesisMult >= 3) earned.push(BADGE_DEFINITIONS.genesis_x3);
 
             // Seasoned Swapper badges (based on multiplier assigned by admin)
             const swapperMult = parseInt(user.swapper_multiplier) || 0;

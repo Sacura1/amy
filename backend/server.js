@@ -1709,6 +1709,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         let surfusdMult = 1;
         let surfcbbtcMult = 1;
         let surfwethMult = 1;
+        let bullasMult = 1;
+        let boogaBullasMult = 1;
         try {
             const tokenHoldings = await queryAllTokenHoldings(wallet);
             sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 1;
@@ -1722,6 +1724,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             surfusdMult = tokenHoldings.surfusd.multiplier > 1 ? tokenHoldings.surfusd.multiplier : 1;
             surfcbbtcMult = tokenHoldings.surfcbbtc.multiplier > 1 ? tokenHoldings.surfcbbtc.multiplier : 1;
             surfwethMult = tokenHoldings.surfweth.multiplier > 1 ? tokenHoldings.surfweth.multiplier : 1;
+            bullasMult = tokenHoldings.bullas.multiplier > 1 ? tokenHoldings.bullas.multiplier : 1;
+            boogaBullasMult = tokenHoldings.boogaBullas.multiplier > 1 ? tokenHoldings.boogaBullas.multiplier : 1;
         } catch (err) {
             console.error('Error fetching token holdings for multiplier:', err.message);
         }
@@ -1733,6 +1737,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         let swapperMult = 0;
         let telegramModMult = 0;
         let discordModMult = 0;
+        let emberMult = 0;
+        let genesisMult = 0;
         try {
             const badgeMultipliers = await database.points.getMultiplierBadges(wallet);
             raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
@@ -1740,6 +1746,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
             telegramModMult = badgeMultipliers.telegramModMultiplier > 0 ? badgeMultipliers.telegramModMultiplier : 0;
             discordModMult = badgeMultipliers.discordModMultiplier > 0 ? badgeMultipliers.discordModMultiplier : 0;
+            emberMult = badgeMultipliers.emberMultiplier > 0 ? badgeMultipliers.emberMultiplier : 0;
+            genesisMult = badgeMultipliers.genesisMultiplier > 0 ? badgeMultipliers.genesisMultiplier : 0;
         } catch (err) {
             console.error('Error fetching badge multipliers:', err.message);
         }
@@ -1773,7 +1781,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
         // Note: dawnReferralMultiplier IS included - active for existing holders (registration closed for new users)
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + dawnReferralMultiplier);
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1797,6 +1805,10 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 surfusdMultiplier: surfusdMult > 1 ? surfusdMult : 0,
                 surfcbbtcMultiplier: surfcbbtcMult > 1 ? surfcbbtcMult : 0,
                 surfwethMultiplier: surfwethMult > 1 ? surfwethMult : 0,
+                bullasMultiplier: bullasMult > 1 ? bullasMult : 0,
+                boogaBullasMultiplier: boogaBullasMult > 1 ? boogaBullasMult : 0,
+                emberMultiplier: emberMult > 0 ? emberMult : 0,
+                genesisMultiplier: genesisMult > 0 ? genesisMult : 0,
                 raidsharkMultiplier: raidsharkMult,
                 onchainConvictionMultiplier: onchainConvictionMult,
                 referralMultiplier: referralMult > 0 ? referralMult : 0,
@@ -2407,6 +2419,72 @@ function getBgtMultiplier(balance) {
     return 1;
 }
 
+// NFT badge contracts (ERC721 - multiplier based on count held)
+const NFT_BADGES = {
+    BULLAS: {
+        address: '0x333814f5e16eee61d0c0b03a5b6abbd424b381c2',
+        name: 'Bullas'
+    },
+    BOOGA_BULLAS: {
+        address: '0x5a30c392714a9a9a8177c7998d9d59c3dd120917',
+        name: 'Booga Bullas'
+    }
+};
+
+// Get Bullas multiplier based on NFT count
+function getBullasMultiplier(count) {
+    if (count >= 28) return 15;
+    if (count >= 8) return 5;
+    if (count >= 2) return 3;
+    return 1;
+}
+
+// Get Booga Bullas multiplier based on NFT count
+function getBoogaBullasMultiplier(count) {
+    if (count >= 42) return 15;
+    if (count >= 13) return 5;
+    if (count >= 3) return 3;
+    return 1;
+}
+
+// Query ERC721 NFT balance (count) for a wallet
+async function queryNftCount(wallet, contractAddress) {
+    try {
+        const { ethers } = require('ethers');
+        const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+        const contract = new ethers.Contract(contractAddress, ERC20_ABI, provider);
+        const balance = await contract.balanceOf(wallet);
+        return parseInt(balance.toString());
+    } catch (error) {
+        console.error(`❌ Error querying NFT balance for ${contractAddress}:`, error.message);
+        return 0;
+    }
+}
+
+// Query all NFT holdings for a wallet
+async function queryAllNftHoldings(wallet) {
+    const [bullasCount, boogaBullasCount] = await Promise.all([
+        queryNftCount(wallet, NFT_BADGES.BULLAS.address),
+        queryNftCount(wallet, NFT_BADGES.BOOGA_BULLAS.address)
+    ]);
+
+    const bullasMultiplier = getBullasMultiplier(bullasCount);
+    const boogaBullasMultiplier = getBoogaBullasMultiplier(boogaBullasCount);
+
+    return {
+        bullas: {
+            count: bullasCount,
+            multiplier: bullasMultiplier,
+            isActive: bullasMultiplier > 1
+        },
+        boogaBullas: {
+            count: boogaBullasCount,
+            multiplier: boogaBullasMultiplier,
+            isActive: boogaBullasMultiplier > 1
+        }
+    };
+}
+
 // Query token balance for a wallet
 async function queryTokenBalance(wallet, tokenKey) {
     const token = BADGE_TOKENS[tokenKey];
@@ -2480,7 +2558,7 @@ async function queryTokenBalance(wallet, tokenKey) {
 
 // Query all badge token holdings for a wallet
 async function queryAllTokenHoldings(wallet) {
-    const [sailr, plvhedge, plsbera, honeybend, stakedbera, bgt, snrusd, jnrusd, surfusd, surfcbbtc, surfweth] = await Promise.all([
+    const [sailr, plvhedge, plsbera, honeybend, stakedbera, bgt, snrusd, jnrusd, surfusd, surfcbbtc, surfweth, nfts] = await Promise.all([
         queryTokenBalance(wallet, 'SAILR'),
         queryTokenBalance(wallet, 'PLVHEDGE'),
         queryTokenBalance(wallet, 'PLSBERA'),
@@ -2491,7 +2569,8 @@ async function queryAllTokenHoldings(wallet) {
         queryTokenBalance(wallet, 'JNRUSD'),
         queryTokenBalance(wallet, 'SURFUSD'),
         queryTokenBalance(wallet, 'SURFCBBTC'),
-        queryTokenBalance(wallet, 'SURFWETH')
+        queryTokenBalance(wallet, 'SURFWETH'),
+        queryAllNftHoldings(wallet)
     ]);
 
     return {
@@ -2506,6 +2585,8 @@ async function queryAllTokenHoldings(wallet) {
         surfusd,
         surfcbbtc,
         surfweth,
+        bullas: nfts.bullas,
+        boogaBullas: nfts.boogaBullas,
         tiers: TOKEN_MULTIPLIER_TIERS
     };
 }
@@ -2547,7 +2628,11 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                     holdings.snrusd.valueUsd || 0,
                     holdings.snrusd.multiplier || 1,
                     holdings.jnrusd.valueUsd || 0,
-                    holdings.jnrusd.multiplier || 1
+                    holdings.jnrusd.multiplier || 1,
+                    holdings.bullas.count || 0,
+                    holdings.bullas.multiplier || 1,
+                    holdings.boogaBullas.count || 0,
+                    holdings.boogaBullas.multiplier || 1
                 );
             }
         } catch (err) {
@@ -3388,6 +3473,92 @@ app.get('/api/admin/swapper/list', isAdmin, async (req, res) => {
         res.json({ success: true, data: result.rows });
     } catch (error) {
         console.error('Error listing Swapper users:', error);
+        res.status(500).json({ success: false, error: 'Failed to list users' });
+    }
+});
+
+// ============================================
+// EMBER BADGE MANAGEMENT (Admin)
+// ============================================
+
+// Update Ember multiplier for a single user (admin only)
+app.post('/api/admin/ember/update', isAdmin, async (req, res) => {
+    try {
+        const { wallet, multiplier } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (multiplier === undefined || ![0, 3, 5, 10].includes(multiplier)) {
+            return res.status(400).json({ success: false, error: 'Invalid multiplier. Must be 0, 3, 5, or 10' });
+        }
+
+        const result = await database.points.updateEmberMultiplier(wallet, multiplier);
+        console.log(`🔥 Ember multiplier updated: ${wallet} -> ${multiplier}x`);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Error updating Ember multiplier:', error);
+        res.status(500).json({ success: false, error: 'Failed to update multiplier' });
+    }
+});
+
+// Get all users with Ember badges (admin only)
+app.get('/api/admin/ember/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT p.wallet, v.x_username as "xUsername", p.ember_multiplier as "multiplier"
+             FROM amy_points p
+             LEFT JOIN verified_users v ON LOWER(p.wallet) = LOWER(v.wallet)
+             WHERE p.ember_multiplier > 0
+             ORDER BY p.ember_multiplier DESC, p.wallet ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('Error listing Ember users:', error);
+        res.status(500).json({ success: false, error: 'Failed to list users' });
+    }
+});
+
+// ============================================
+// GENESIS BADGE MANAGEMENT (Admin)
+// ============================================
+
+// Update Genesis multiplier for a single user (admin only)
+app.post('/api/admin/genesis/update', isAdmin, async (req, res) => {
+    try {
+        const { wallet, multiplier } = req.body;
+
+        if (!wallet || !ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+
+        if (multiplier === undefined || ![0, 3, 5, 10].includes(multiplier)) {
+            return res.status(400).json({ success: false, error: 'Invalid multiplier. Must be 0, 3, 5, or 10' });
+        }
+
+        const result = await database.points.updateGenesisMultiplier(wallet, multiplier);
+        console.log(`⭐ Genesis multiplier updated: ${wallet} -> ${multiplier}x`);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Error updating Genesis multiplier:', error);
+        res.status(500).json({ success: false, error: 'Failed to update multiplier' });
+    }
+});
+
+// Get all users with Genesis badges (admin only)
+app.get('/api/admin/genesis/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT p.wallet, v.x_username as "xUsername", p.genesis_multiplier as "multiplier"
+             FROM amy_points p
+             LEFT JOIN verified_users v ON LOWER(p.wallet) = LOWER(v.wallet)
+             WHERE p.genesis_multiplier > 0
+             ORDER BY p.genesis_multiplier DESC, p.wallet ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('Error listing Genesis users:', error);
         res.status(500).json({ success: false, error: 'Failed to list users' });
     }
 });
@@ -4297,6 +4468,8 @@ async function awardHourlyPoints() {
                 let surfusdMult = 0;
                 let surfcbbtcMult = 0;
                 let surfwethMult = 0;
+                let bullasMult = 0;
+                let boogaBullasMult = 0;
                 try {
                     const tokenHoldings = await queryAllTokenHoldings(user.wallet);
                     sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
@@ -4310,6 +4483,8 @@ async function awardHourlyPoints() {
                     surfusdMult = tokenHoldings.surfusd.multiplier > 1 ? tokenHoldings.surfusd.multiplier : 0;
                     surfcbbtcMult = tokenHoldings.surfcbbtc.multiplier > 1 ? tokenHoldings.surfcbbtc.multiplier : 0;
                     surfwethMult = tokenHoldings.surfweth.multiplier > 1 ? tokenHoldings.surfweth.multiplier : 0;
+                    bullasMult = tokenHoldings.bullas.multiplier > 1 ? tokenHoldings.bullas.multiplier : 0;
+                    boogaBullasMult = tokenHoldings.boogaBullas.multiplier > 1 ? tokenHoldings.boogaBullas.multiplier : 0;
 
                     // Save updated token data to database (handles stake/unstake changes)
                     if (pointsDb) {
@@ -4336,7 +4511,11 @@ async function awardHourlyPoints() {
                             tokenHoldings.snrusd.valueUsd || 0,
                             tokenHoldings.snrusd.multiplier || 1,
                             tokenHoldings.jnrusd.valueUsd || 0,
-                            tokenHoldings.jnrusd.multiplier || 1
+                            tokenHoldings.jnrusd.multiplier || 1,
+                            tokenHoldings.bullas.count || 0,
+                            tokenHoldings.bullas.multiplier || 1,
+                            tokenHoldings.boogaBullas.count || 0,
+                            tokenHoldings.boogaBullas.multiplier || 1
                         );
                     }
                 } catch (err) {
@@ -4350,6 +4529,8 @@ async function awardHourlyPoints() {
                 let swapperMult = 0;
                 let telegramModMult = 0;
                 let discordModMult = 0;
+                let emberMult = 0;
+                let genesisMult = 0;
                 try {
                     const badgeMultipliers = await database.points.getMultiplierBadges(user.wallet);
                     raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
@@ -4357,6 +4538,8 @@ async function awardHourlyPoints() {
                     swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
                     telegramModMult = badgeMultipliers.telegramModMultiplier > 0 ? badgeMultipliers.telegramModMultiplier : 0;
                     discordModMult = badgeMultipliers.discordModMultiplier > 0 ? badgeMultipliers.discordModMultiplier : 0;
+                    emberMult = badgeMultipliers.emberMultiplier > 0 ? badgeMultipliers.emberMultiplier : 0;
+                    genesisMult = badgeMultipliers.genesisMultiplier > 0 ? badgeMultipliers.genesisMultiplier : 0;
                 } catch (err) {
                     // If badge query fails, continue without these multipliers
                 }
@@ -4385,7 +4568,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + dawnReferralMultiplier);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + bullasMult + boogaBullasMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -4406,6 +4589,8 @@ async function awardHourlyPoints() {
                     if (surfusdMult > 1) boostParts.push(`surfUSD ${surfusdMult}x`);
                     if (surfcbbtcMult > 1) boostParts.push(`surfcbBTC ${surfcbbtcMult}x`);
                     if (surfwethMult > 1) boostParts.push(`surfWETH ${surfwethMult}x`);
+                    if (bullasMult > 1) boostParts.push(`Bullas ${bullasMult}x`);
+                    if (boogaBullasMult > 1) boostParts.push(`Booga Bullas ${boogaBullasMult}x`);
                     if (raidsharkMult > 1) boostParts.push(`RaidShark ${raidsharkMult}x`);
                     if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
                     if (swapperMult > 1) boostParts.push(`Swapper ${swapperMult}x`);
@@ -4413,6 +4598,8 @@ async function awardHourlyPoints() {
                     if (dawnReferralMultiplier > 1) boostParts.push(`Dawn Referral ${dawnReferralMultiplier}x`);
                     if (telegramModMult > 1) boostParts.push(`TG Mod ${telegramModMult}x`);
                     if (discordModMult > 1) boostParts.push(`Discord Mod ${discordModMult}x`);
+                    if (emberMult > 1) boostParts.push(`Ember ${emberMult}x`);
+                    if (genesisMult > 1) boostParts.push(`Genesis ${genesisMult}x`);
                     description = `Hourly earning with ${totalMultiplier}x multiplier (${boostParts.join(' + ')})`;
                 }
 
