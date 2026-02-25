@@ -2355,6 +2355,24 @@ async function fetchTokenPrice(tokenKey) {
                 const data = await response.json();
                 price = parseFloat(data?.data?.attributes?.token_prices?.[token.address.toLowerCase()] || 0);
             }
+
+            // BGT has no tradeable price — fall back to BERA price (1 BGT = 1 BERA)
+            if (price === 0 && tokenKey === 'BGT') {
+                try {
+                    const WBERA = '0x6969696969696969696969696969696969696969';
+                    const beraResp = await fetch(
+                        `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${WBERA}`,
+                        { headers: { 'Accept': 'application/json' } }
+                    );
+                    if (beraResp.ok) {
+                        const beraData = await beraResp.json();
+                        price = parseFloat(beraData?.data?.attributes?.token_prices?.[WBERA] || 0);
+                        if (price > 0) console.log(`💰 BGT: using BERA price fallback $${price.toFixed(4)}`);
+                    }
+                } catch (beraErr) {
+                    console.error('❌ BGT BERA price fallback failed:', beraErr.message);
+                }
+            }
         }
 
         if (price > 0) {
@@ -2435,10 +2453,7 @@ async function queryTokenBalance(wallet, tokenKey) {
             console.log(`💰 ${tokenKey}: balance=${balanceFormatted.toFixed(6)}, price=$${price.toFixed(4)}, usdValue=$${usdValue.toFixed(2)}`);
         }
 
-        // BGT has no reliable price feed — use raw balance thresholds instead of USD
-        const multiplier = tokenKey === 'BGT'
-            ? getBgtMultiplier(balanceFormatted)
-            : getTokenMultiplier(usdValue);
+        const multiplier = getTokenMultiplier(usdValue);
 
         return {
             token: token.symbol,
