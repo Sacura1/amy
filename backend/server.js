@@ -61,6 +61,7 @@ const database = require('./database');
 let referralsDb = null; // Will be set after PostgreSQL init
 let holdersDb = null; // Will be set after PostgreSQL init
 let pointsDb = null; // Will be set after PostgreSQL init
+let rafflesDb = null; // Will be set after PostgreSQL init
 let POINTS_TIERS = null; // Will be set after PostgreSQL init
 
 const app = express();
@@ -284,6 +285,7 @@ nonces = {
         referralsDb = database.referrals;
         holdersDb = database.holders;
         pointsDb = database.points;
+        rafflesDb = database.raffles;
         POINTS_TIERS = database.POINTS_TIERS;
         console.log('✅ PostgreSQL database ready');
 
@@ -4634,6 +4636,107 @@ async function awardHourlyPoints() {
 }
 
 // ============================================
+// RAFFLE ENDPOINTS
+// ============================================
+
+// GET /api/raffles — list TNM+LIVE raffles (with optional user entry count)
+app.get('/api/raffles', async (req, res) => {
+    try {
+        if (!rafflesDb) return res.json({ success: true, data: [], userEntries: {} });
+        const raffleList = await rafflesDb.getAll();
+        let userEntries = {};
+        if (req.query.wallet) {
+            const entries = await rafflesDb.getUserEntries(req.query.wallet);
+            for (const e of entries) {
+                userEntries[e.raffle_id] = e.tickets;
+            }
+        }
+        res.json({ success: true, data: raffleList, userEntries });
+    } catch (err) {
+        console.error('GET /api/raffles error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
+// GET /api/raffles/history — list COMPLETED+CANCELLED raffles
+app.get('/api/raffles/history', async (req, res) => {
+    try {
+        if (!rafflesDb) return res.json({ success: true, data: [] });
+        const history = await rafflesDb.getHistory();
+        res.json({ success: true, data: history });
+    } catch (err) {
+        console.error('GET /api/raffles/history error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
+// POST /api/raffles/buy — buy tickets
+app.post('/api/raffles/buy', async (req, res) => {
+    try {
+        if (!rafflesDb) return res.status(503).json({ success: false, error: 'Database not available' });
+        const { wallet, raffleId, quantity } = req.body;
+        if (!wallet || !raffleId || !quantity || quantity < 1) {
+            return res.status(400).json({ success: false, error: 'Missing required fields' });
+        }
+        const TICKET_COST = 50;
+        const totalCost = quantity * TICKET_COST;
+        const result = await rafflesDb.buyTickets(wallet, raffleId, quantity, totalCost);
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+        res.json({ success: true });
+    } catch (err) {
+        console.error('POST /api/raffles/buy error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
+// POST /api/raffles/create — admin only
+app.post('/api/raffles/create', isAdmin, async (req, res) => {
+    try {
+        if (!rafflesDb) return res.status(503).json({ success: false, error: 'Database not available' });
+        const { title, description, imageUrl, countdownHours } = req.body;
+        if (!title || !countdownHours || countdownHours < 1) {
+            return res.status(400).json({ success: false, error: 'Title and countdown hours are required' });
+        }
+        const wallet = req.headers['x-wallet-address'];
+        const raffle = await rafflesDb.create(title, description || '', imageUrl || '', countdownHours, wallet);
+        res.json({ success: true, data: raffle });
+    } catch (err) {
+        console.error('POST /api/raffles/create error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
+// POST /api/raffles/cancel — admin only
+app.post('/api/raffles/cancel', isAdmin, async (req, res) => {
+    try {
+        if (!rafflesDb) return res.status(503).json({ success: false, error: 'Database not available' });
+        const { raffleId, refund } = req.body;
+        if (!raffleId) return res.status(400).json({ success: false, error: 'raffleId required' });
+        const result = await rafflesDb.cancel(raffleId, !!refund);
+        res.json(result);
+    } catch (err) {
+        console.error('POST /api/raffles/cancel error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
+// POST /api/raffles/draw — admin manual early draw
+app.post('/api/raffles/draw', isAdmin, async (req, res) => {
+    try {
+        if (!rafflesDb) return res.status(503).json({ success: false, error: 'Database not available' });
+        const { raffleId } = req.body;
+        if (!raffleId) return res.status(400).json({ success: false, error: 'raffleId required' });
+        const result = await rafflesDb.drawWinner(raffleId);
+        res.json(result);
+    } catch (err) {
+        console.error('POST /api/raffles/draw error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
+// ============================================
 // START SERVER
 // ============================================
 
@@ -4703,6 +4806,17 @@ app.listen(PORT, () => {
     });
 
     console.log(`⏰ Leaderboard auto-update scheduled for 6:00 AM daily (${process.env.CRON_TIMEZONE || 'UTC'})`);
+
+    // Check every minute for expired LIVE raffles and auto-draw winner
+    cron.schedule('* * * * *', async () => {
+        if (rafflesDb) {
+            try {
+                await rafflesDb.checkAndDraw();
+            } catch (err) {
+                console.error('Raffle auto-draw error:', err);
+            }
+        }
+    }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });;
 
     // Run initial balance update after 1 minute (give time for DB to initialize)
     setTimeout(async () => {

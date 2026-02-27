@@ -502,6 +502,42 @@ async function createTables() {
             END $$;
         `);
 
+        // Create raffles table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS raffles (
+                id SERIAL PRIMARY KEY,
+                title VARCHAR(200) NOT NULL,
+                prize_description VARCHAR(500),
+                image_url VARCHAR(500),
+                ticket_cost INTEGER DEFAULT 50,
+                status VARCHAR(20) DEFAULT 'TNM',
+                countdown_hours INTEGER NOT NULL,
+                live_at TIMESTAMP,
+                ends_at TIMESTAMP,
+                winner_wallet VARCHAR(42),
+                total_tickets INTEGER DEFAULT 0,
+                unique_participants INTEGER DEFAULT 0,
+                total_points_committed INTEGER DEFAULT 0,
+                created_by VARCHAR(42),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Create raffle_entries table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS raffle_entries (
+                id SERIAL PRIMARY KEY,
+                raffle_id INTEGER REFERENCES raffles(id) ON DELETE CASCADE,
+                wallet VARCHAR(42) NOT NULL,
+                tickets INTEGER DEFAULT 1,
+                points_spent INTEGER NOT NULL,
+                purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(raffle_id, wallet)
+            );
+            CREATE INDEX IF NOT EXISTS idx_raffle_entries_raffle ON raffle_entries(raffle_id);
+            CREATE INDEX IF NOT EXISTS idx_raffle_entries_wallet ON raffle_entries(wallet);
+        `);
+
         console.log('✅ Database tables created/verified');
 
         // Migrate from JSON files if tables are empty
@@ -3268,6 +3304,237 @@ const social = {
     }
 };
 
+// Raffle helper functions
+const raffles = {
+    getAll: async () => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT * FROM raffles WHERE status IN ('TNM','LIVE') ORDER BY created_at DESC`
+        );
+        return result.rows;
+    },
+
+    getById: async (id) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `SELECT * FROM raffles WHERE id = $1`,
+            [id]
+        );
+        return result.rows[0] || null;
+    },
+
+    getHistory: async () => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT * FROM raffles WHERE status IN ('COMPLETED','CANCELLED') ORDER BY ends_at DESC LIMIT 50`
+        );
+        return result.rows;
+    },
+
+    create: async (title, description, imageUrl, countdownHours, createdBy) => {
+        if (!pool) return null;
+        const result = await pool.query(
+            `INSERT INTO raffles (title, prize_description, image_url, countdown_hours, created_by)
+             VALUES ($1, $2, $3, $4, LOWER($5))
+             RETURNING *`,
+            [title, description, imageUrl, countdownHours, createdBy]
+        );
+        return result.rows[0];
+    },
+
+    getUserEntries: async (wallet) => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT re.raffle_id, re.tickets, re.points_spent, re.purchased_at,
+                    r.title, r.status, r.ends_at, r.winner_wallet, r.image_url
+             FROM raffle_entries re
+             JOIN raffles r ON r.id = re.raffle_id
+             WHERE LOWER(re.wallet) = LOWER($1)
+             ORDER BY re.purchased_at DESC`,
+            [wallet]
+        );
+        return result.rows;
+    },
+
+    buyTickets: async (wallet, raffleId, quantity, pointCost) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Lock raffle row
+            const raffleRes = await client.query(
+                `SELECT * FROM raffles WHERE id = $1 FOR UPDATE`,
+                [raffleId]
+            );
+            const raffle = raffleRes.rows[0];
+            if (!raffle) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Raffle not found' };
+            }
+            if (raffle.status === 'COMPLETED' || raffle.status === 'CANCELLED') {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Raffle is no longer active' };
+            }
+
+            // Check user points
+            const pointsRes = await client.query(
+                `SELECT total_points FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+                [wallet]
+            );
+            const userPoints = pointsRes.rows[0]?.total_points || 0;
+            if (userPoints < pointCost) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Insufficient points' };
+            }
+
+            // Deduct points
+            await client.query(
+                `UPDATE amy_points SET total_points = total_points - $1,
+                 last_points_update = CURRENT_TIMESTAMP
+                 WHERE LOWER(wallet) = LOWER($2)`,
+                [pointCost, wallet]
+            );
+
+            // Log points history
+            await client.query(
+                `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
+                 VALUES (LOWER($1), $2, 'RAFFLE_ENTRY', 0, 'none', 'RAFFLE_ENTRY', $3)`,
+                [wallet, -pointCost, `Bought ${quantity} ticket(s) for raffle: ${raffle.title}`]
+            );
+
+            // Upsert raffle_entries
+            await client.query(
+                `INSERT INTO raffle_entries (raffle_id, wallet, tickets, points_spent)
+                 VALUES ($1, LOWER($2), $3, $4)
+                 ON CONFLICT (raffle_id, wallet) DO UPDATE SET
+                 tickets = raffle_entries.tickets + $3,
+                 points_spent = raffle_entries.points_spent + $4`,
+                [raffleId, wallet, quantity, pointCost]
+            );
+
+            // Update raffle totals
+            await client.query(
+                `UPDATE raffles SET
+                 total_tickets = total_tickets + $1,
+                 total_points_committed = total_points_committed + $2,
+                 unique_participants = (SELECT COUNT(DISTINCT wallet) FROM raffle_entries WHERE raffle_id = $3)
+                 WHERE id = $3`,
+                [quantity, pointCost, raffleId]
+            );
+
+            // Check threshold and potentially go LIVE
+            const updatedRaffle = await client.query(
+                `SELECT * FROM raffles WHERE id = $1`,
+                [raffleId]
+            );
+            const r = updatedRaffle.rows[0];
+            if (r.status === 'TNM' && r.total_points_committed >= 5000 && r.unique_participants >= 10) {
+                await client.query(
+                    `UPDATE raffles SET status = 'LIVE',
+                     live_at = NOW(),
+                     ends_at = NOW() + ($1 || ' hours')::interval
+                     WHERE id = $2`,
+                    [r.countdown_hours, raffleId]
+                );
+            }
+
+            await client.query('COMMIT');
+            return { success: true };
+        } catch (err) {
+            await client.query('ROLLBACK');
+            console.error('buyTickets error:', err);
+            return { success: false, error: err.message };
+        } finally {
+            client.release();
+        }
+    },
+
+    cancel: async (raffleId, refund) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            await client.query(
+                `UPDATE raffles SET status = 'CANCELLED' WHERE id = $1`,
+                [raffleId]
+            );
+
+            if (refund) {
+                const entries = await client.query(
+                    `SELECT wallet, points_spent FROM raffle_entries WHERE raffle_id = $1`,
+                    [raffleId]
+                );
+                for (const entry of entries.rows) {
+                    await client.query(
+                        `UPDATE amy_points SET total_points = total_points + $1,
+                         last_points_update = CURRENT_TIMESTAMP
+                         WHERE LOWER(wallet) = LOWER($2)`,
+                        [entry.points_spent, entry.wallet]
+                    );
+                    await client.query(
+                        `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
+                         VALUES (LOWER($1), $2, 'RAFFLE_REFUND', 0, 'none', 'RAFFLE_ENTRY', 'Raffle cancelled - points refunded')`,
+                        [entry.wallet, entry.points_spent]
+                    );
+                }
+            }
+
+            await client.query('COMMIT');
+            return { success: true };
+        } catch (err) {
+            await client.query('ROLLBACK');
+            console.error('cancel raffle error:', err);
+            return { success: false, error: err.message };
+        } finally {
+            client.release();
+        }
+    },
+
+    drawWinner: async (raffleId) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+        const entries = await pool.query(
+            `SELECT wallet, tickets FROM raffle_entries WHERE raffle_id = $1`,
+            [raffleId]
+        );
+        if (!entries.rows.length) {
+            await pool.query(
+                `UPDATE raffles SET status = 'COMPLETED', ends_at = NOW() WHERE id = $1`,
+                [raffleId]
+            );
+            return { success: true, winner: null };
+        }
+        // Build weighted pool
+        const pool_arr = [];
+        for (const row of entries.rows) {
+            for (let i = 0; i < row.tickets; i++) pool_arr.push(row.wallet);
+        }
+        const winner = pool_arr[Math.floor(Math.random() * pool_arr.length)];
+        await pool.query(
+            `UPDATE raffles SET status = 'COMPLETED', winner_wallet = LOWER($1), ends_at = NOW()
+             WHERE id = $2`,
+            [winner, raffleId]
+        );
+        return { success: true, winner };
+    },
+
+    checkAndDraw: async () => {
+        if (!pool) return;
+        const expired = await pool.query(
+            `SELECT id FROM raffles WHERE status = 'LIVE' AND ends_at <= NOW()`
+        );
+        for (const row of expired.rows) {
+            try {
+                await raffles.drawWinner(row.id);
+                console.log(`🎟️ Winner drawn for raffle ${row.id}`);
+            } catch (err) {
+                console.error(`Error drawing winner for raffle ${row.id}:`, err);
+            }
+        }
+    }
+};
+
 module.exports = {
     initDatabase,
     get pool() { return pool; },
@@ -3284,6 +3551,7 @@ module.exports = {
     emailVerification,
     checkin,
     quests,
+    raffles,
     POINTS_TIERS,
     POINTS_CATEGORIES,
     CATEGORY_DESCRIPTIONS,
