@@ -3532,6 +3532,17 @@ const raffles = {
                 console.error(`Error drawing winner for raffle ${row.id}:`, err);
             }
         }
+    },
+
+    deleteRaffle: async (raffleId) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+        // raffle_entries cascade-deletes due to ON DELETE CASCADE
+        const result = await pool.query(
+            `DELETE FROM raffles WHERE id = $1 RETURNING id, title`,
+            [raffleId]
+        );
+        if (!result.rows[0]) return { success: false, error: 'Raffle not found' };
+        return { success: true, deleted: result.rows[0] };
     }
 };
 

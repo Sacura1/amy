@@ -4722,6 +4722,20 @@ app.post('/api/raffles/cancel', isAdmin, async (req, res) => {
     }
 });
 
+// DELETE /api/raffles/:id — admin only, hard delete a raffle and its entries
+app.delete('/api/raffles/:id', isAdmin, async (req, res) => {
+    try {
+        if (!rafflesDb) return res.status(503).json({ success: false, error: 'Database not available' });
+        const raffleId = parseInt(req.params.id);
+        if (!raffleId) return res.status(400).json({ success: false, error: 'raffleId required' });
+        const result = await rafflesDb.deleteRaffle(raffleId);
+        res.json(result);
+    } catch (err) {
+        console.error('DELETE /api/raffles/:id error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
 // POST /api/raffles/draw — admin manual early draw
 app.post('/api/raffles/draw', isAdmin, async (req, res) => {
     try {
