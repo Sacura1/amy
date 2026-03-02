@@ -523,6 +523,16 @@ async function createTables() {
             );
         `);
 
+        // Ensure raffle IDs start at 7001 (bump sequence if not already there)
+        await client.query(`
+            DO $$
+            BEGIN
+                IF (SELECT last_value FROM raffles_id_seq) < 7000 THEN
+                    PERFORM setval('raffles_id_seq', 7000, true);
+                END IF;
+            END $$;
+        `);
+
         // Create raffle_entries table
         await client.query(`
             CREATE TABLE IF NOT EXISTS raffle_entries (
@@ -536,6 +546,15 @@ async function createTables() {
             );
             CREATE INDEX IF NOT EXISTS idx_raffle_entries_raffle ON raffle_entries(raffle_id);
             CREATE INDEX IF NOT EXISTS idx_raffle_entries_wallet ON raffle_entries(wallet);
+        `);
+
+        // App settings (carousel config etc.)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key VARCHAR(100) PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         `);
 
         console.log('✅ Database tables created/verified');
@@ -3546,6 +3565,48 @@ const raffles = {
     }
 };
 
+// Default carousel settings
+const DEFAULT_CAROUSEL_SETTINGS = {
+    frame: '/frame.png',
+    novelties: ['/novelty-1.png', '/novelty-2.png', '/novelty-3.png', '/novelty-4.png', '/novelty-5.png'],
+};
+
+const appSettings = {
+    get: async (key) => {
+        if (!pool) return null;
+        const result = await pool.query(`SELECT value FROM app_settings WHERE key = $1`, [key]);
+        if (!result.rows[0]) return null;
+        try { return JSON.parse(result.rows[0].value); } catch { return result.rows[0].value; }
+    },
+    set: async (key, value) => {
+        if (!pool) return false;
+        await pool.query(
+            `INSERT INTO app_settings (key, value, updated_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+            [key, JSON.stringify(value)]
+        );
+        return true;
+    },
+    getCarouselSettings: async () => {
+        if (!pool) return DEFAULT_CAROUSEL_SETTINGS;
+        const result = await pool.query(`SELECT value FROM app_settings WHERE key = 'carousel_settings'`);
+        if (!result.rows[0]) return DEFAULT_CAROUSEL_SETTINGS;
+        try { return { ...DEFAULT_CAROUSEL_SETTINGS, ...JSON.parse(result.rows[0].value) }; }
+        catch { return DEFAULT_CAROUSEL_SETTINGS; }
+    },
+    saveCarouselSettings: async (settings) => {
+        if (!pool) return false;
+        await pool.query(
+            `INSERT INTO app_settings (key, value, updated_at)
+             VALUES ('carousel_settings', $1, NOW())
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+            [JSON.stringify(settings)]
+        );
+        return true;
+    },
+};
+
 module.exports = {
     initDatabase,
     get pool() { return pool; },
@@ -3563,6 +3624,7 @@ module.exports = {
     checkin,
     quests,
     raffles,
+    appSettings,
     POINTS_TIERS,
     POINTS_CATEGORIES,
     CATEGORY_DESCRIPTIONS,

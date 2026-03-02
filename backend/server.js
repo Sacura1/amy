@@ -62,6 +62,7 @@ let referralsDb = null; // Will be set after PostgreSQL init
 let holdersDb = null; // Will be set after PostgreSQL init
 let pointsDb = null; // Will be set after PostgreSQL init
 let rafflesDb = null; // Will be set after PostgreSQL init
+let appSettingsDb = null; // Will be set after PostgreSQL init
 let POINTS_TIERS = null; // Will be set after PostgreSQL init
 
 const app = express();
@@ -286,6 +287,7 @@ nonces = {
         holdersDb = database.holders;
         pointsDb = database.points;
         rafflesDb = database.raffles;
+        appSettingsDb = database.appSettings;
         POINTS_TIERS = database.POINTS_TIERS;
         console.log('✅ PostgreSQL database ready');
 
@@ -4746,6 +4748,38 @@ app.post('/api/raffles/draw', isAdmin, async (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('POST /api/raffles/draw error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
+// ============================================
+// CAROUSEL SETTINGS
+// ============================================
+
+// GET /api/carousel-settings — public, returns current frame + novelties
+app.get('/api/carousel-settings', async (req, res) => {
+    try {
+        const settings = appSettingsDb
+            ? await appSettingsDb.getCarouselSettings()
+            : { frame: '/frame.png', novelties: ['/novelty-1.png','/novelty-2.png','/novelty-3.png','/novelty-4.png','/novelty-5.png'] };
+        res.json({ success: true, data: settings });
+    } catch (err) {
+        console.error('GET /api/carousel-settings error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
+// POST /api/admin/carousel-settings — admin only, saves frame + novelties
+app.post('/api/admin/carousel-settings', isAdmin, async (req, res) => {
+    try {
+        const { frame, novelties } = req.body;
+        if (!frame || !Array.isArray(novelties) || novelties.length === 0) {
+            return res.status(400).json({ success: false, error: 'frame and novelties[] required' });
+        }
+        await appSettingsDb.saveCarouselSettings({ frame, novelties });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('POST /api/admin/carousel-settings error:', err);
         res.status(500).json({ success: false, error: 'Server error' });
     }
 });
