@@ -3439,9 +3439,9 @@ const raffles = {
                 await client.query('ROLLBACK');
                 return { success: false, error: 'Raffle not found' };
             }
-            if (raffle.status === 'COMPLETED' || raffle.status === 'CANCELLED') {
+            if (raffle.status === 'COMPLETED' || raffle.status === 'CANCELLED' || raffle.status === 'DRAW_PENDING') {
                 await client.query('ROLLBACK');
-                return { success: false, error: 'Raffle is no longer active' };
+                return { success: false, error: 'Raffle is no longer accepting tickets' };
             }
 
             // Check user points
