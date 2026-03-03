@@ -533,6 +533,54 @@ async function createTables() {
             END $$;
         `);
 
+        // Fix typo: "Bulas" → "Bullas" in existing raffle titles
+        await client.query(`
+            UPDATE raffles SET title = REPLACE(title, 'Bulas', 'Bullas') WHERE title LIKE '%Bulas%';
+        `);
+
+        // One-time migration: reassign raffle IDs < 7001 to start at 7001
+        const lowIds = await client.query(`SELECT COUNT(*) FROM raffles WHERE id < 7001`);
+        if (parseInt(lowIds.rows[0].count) > 0) {
+            console.log('🔄 Reassigning raffle IDs < 7001 to start at 7001...');
+            await client.query(`
+                DO $$
+                DECLARE
+                    r RECORD;
+                    new_id INT;
+                BEGIN
+                    new_id := 7001;
+                    FOR r IN SELECT id FROM raffles WHERE id < 7001 ORDER BY created_at ASC, id ASC LOOP
+                        -- Insert copy with new ID
+                        INSERT INTO raffles (id, title, prize_description, image_url, ticket_cost, status,
+                            countdown_hours, live_at, ends_at, winner_wallet, total_tickets,
+                            unique_participants, total_points_committed, created_by, created_at)
+                        SELECT new_id, title, prize_description, image_url, ticket_cost, status,
+                            countdown_hours, live_at, ends_at, winner_wallet, total_tickets,
+                            unique_participants, total_points_committed, created_by, created_at
+                        FROM raffles WHERE id = r.id;
+                        -- Re-point entries to new ID
+                        UPDATE raffle_entries SET raffle_id = new_id WHERE raffle_id = r.id;
+                        -- Remove old row (entries already re-pointed, no cascade)
+                        DELETE FROM raffles WHERE id = r.id;
+                        new_id := new_id + 1;
+                    END LOOP;
+                    -- Advance sequence past highest ID
+                    PERFORM setval('raffles_id_seq', GREATEST((SELECT COALESCE(MAX(id),7000) FROM raffles), 7000), true);
+                END $$;
+            `);
+            console.log('✅ Raffle IDs reassigned successfully.');
+        }
+
+        // Add block-hash draw columns if not yet present
+        await client.query(`
+            ALTER TABLE raffles
+                ADD COLUMN IF NOT EXISTS close_block        BIGINT,
+                ADD COLUMN IF NOT EXISTS draw_block         BIGINT,
+                ADD COLUMN IF NOT EXISTS draw_block_hash    VARCHAR(66),
+                ADD COLUMN IF NOT EXISTS winning_ticket     BIGINT,
+                ADD COLUMN IF NOT EXISTS total_tickets_at_draw BIGINT;
+        `);
+
         // Create raffle_entries table
         await client.query(`
             CREATE TABLE IF NOT EXISTS raffle_entries (
@@ -3328,7 +3376,7 @@ const raffles = {
     getAll: async () => {
         if (!pool) return [];
         const result = await pool.query(
-            `SELECT * FROM raffles WHERE status IN ('TNM','LIVE') ORDER BY created_at DESC`
+            `SELECT * FROM raffles WHERE status IN ('TNM','LIVE','DRAW_PENDING') ORDER BY created_at DESC`
         );
         return result.rows;
     },
@@ -3511,12 +3559,16 @@ const raffles = {
         }
     },
 
-    drawWinner: async (raffleId) => {
+    // Phase 1 — called when countdown expires: freeze entries, record closeBlock, set DRAW_PENDING
+    initiateDraw: async (raffleId) => {
         if (!pool) return { success: false, error: 'Database not available' };
+
         const entries = await pool.query(
             `SELECT wallet, tickets FROM raffle_entries WHERE raffle_id = $1`,
             [raffleId]
         );
+
+        // No entries → complete immediately with no winner
         if (!entries.rows.length) {
             await pool.query(
                 `UPDATE raffles SET status = 'COMPLETED', ends_at = NOW() WHERE id = $1`,
@@ -3524,31 +3576,139 @@ const raffles = {
             );
             return { success: true, winner: null };
         }
-        // Build weighted pool
-        const pool_arr = [];
-        for (const row of entries.rows) {
-            for (let i = 0; i < row.tickets; i++) pool_arr.push(row.wallet);
-        }
-        const winner = pool_arr[Math.floor(Math.random() * pool_arr.length)];
+
+        // Fetch current Berachain block
+        const { ethers } = require('ethers');
+        const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+        const closeBlock = await provider.getBlockNumber();
+        const N_BLOCKS_DELAY = 300;
+        const drawBlock = closeBlock + N_BLOCKS_DELAY;
+
         await pool.query(
-            `UPDATE raffles SET status = 'COMPLETED', winner_wallet = LOWER($1), ends_at = NOW()
-             WHERE id = $2`,
-            [winner, raffleId]
+            `UPDATE raffles
+             SET status = 'DRAW_PENDING', close_block = $1, draw_block = $2
+             WHERE id = $3`,
+            [closeBlock, drawBlock, raffleId]
         );
+
+        console.log(`🎟️ Raffle ${raffleId} → DRAW_PENDING. closeBlock=${closeBlock}, drawBlock=${drawBlock}`);
+        return { success: true, drawBlock };
+    },
+
+    // Phase 2 — called once drawBlock + CONFIRMATIONS is reached: fetch hash, select winner
+    completeDraw: async (raffleId, drawBlock) => {
+        if (!pool) return { success: false, error: 'Database not available' };
+
+        const { ethers } = require('ethers');
+        const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+        const CONFIRMATIONS = 5;
+
+        const currentBlock = await provider.getBlockNumber();
+        if (currentBlock < drawBlock + CONFIRMATIONS) return { success: false, notReady: true };
+
+        // Fetch the draw block hash
+        const block = await provider.getBlock(drawBlock);
+        const blockHash = block.hash; // 32-byte hex string, 0x-prefixed
+
+        // Build entrants: only purchases on/before closeTs, sorted ascending by wallet
+        const raffle = await pool.query(`SELECT ends_at FROM raffles WHERE id = $1`, [raffleId]);
+        const closeTs = raffle.rows[0]?.ends_at;
+
+        const entries = await pool.query(
+            `SELECT wallet, tickets FROM raffle_entries
+             WHERE raffle_id = $1 AND purchased_at <= $2
+             ORDER BY wallet ASC`,
+            [raffleId, closeTs]
+        );
+
+        if (!entries.rows.length) {
+            await pool.query(
+                `UPDATE raffles SET status = 'COMPLETED', draw_block_hash = $1 WHERE id = $2`,
+                [blockHash, raffleId]
+            );
+            return { success: true, winner: null };
+        }
+
+        // Aggregate tickets per wallet (already unique per wallet in raffle_entries, but be safe)
+        const walletMap = new Map();
+        for (const row of entries.rows) {
+            const w = row.wallet.toLowerCase();
+            walletMap.set(w, (walletMap.get(w) || 0) + parseInt(row.tickets));
+        }
+        const entrants = Array.from(walletMap.entries())
+            .map(([wallet, ticketCount]) => ({ wallet, ticketCount }))
+            .sort((a, b) => a.wallet.localeCompare(b.wallet));
+
+        const totalTickets = entrants.reduce((s, e) => s + e.ticketCount, 0);
+
+        // Compute seed: keccak256(keccak256(UTF8(raffleId)) || blockHash)
+        const raffleIdHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(String(raffleId)));
+        const payload = ethers.utils.concat([raffleIdHash, blockHash]);
+        const seed = ethers.utils.keccak256(payload);
+
+        // winning ticket in [1..totalTickets]
+        const winningTicket = BigInt(1) + (BigInt(seed) % BigInt(totalTickets));
+
+        // Range method to find winner
+        let cursor = BigInt(1);
+        let winner = entrants[0].wallet;
+        for (const { wallet, ticketCount } of entrants) {
+            const start = cursor;
+            const end = cursor + BigInt(ticketCount) - BigInt(1);
+            if (winningTicket >= start && winningTicket <= end) {
+                winner = wallet;
+                break;
+            }
+            cursor = end + BigInt(1);
+        }
+
+        await pool.query(
+            `UPDATE raffles
+             SET status = 'COMPLETED',
+                 winner_wallet       = LOWER($1),
+                 draw_block_hash     = $2,
+                 winning_ticket      = $3,
+                 total_tickets_at_draw = $4
+             WHERE id = $5`,
+            [winner, blockHash, winningTicket.toString(), totalTickets, raffleId]
+        );
+
+        console.log(`🏆 Raffle ${raffleId} winner: ${winner} (ticket ${winningTicket}/${totalTickets}, block ${drawBlock})`);
         return { success: true, winner };
+    },
+
+    // Legacy manual draw — kept for admin override only (uses block hash if available, falls back to initiate)
+    drawWinner: async (raffleId) => {
+        return raffles.initiateDraw(raffleId);
     },
 
     checkAndDraw: async () => {
         if (!pool) return;
+
+        // Phase 1: expire LIVE raffles → DRAW_PENDING
         const expired = await pool.query(
             `SELECT id FROM raffles WHERE status = 'LIVE' AND ends_at <= NOW()`
         );
         for (const row of expired.rows) {
             try {
-                await raffles.drawWinner(row.id);
-                console.log(`🎟️ Winner drawn for raffle ${row.id}`);
+                await raffles.initiateDraw(row.id);
             } catch (err) {
-                console.error(`Error drawing winner for raffle ${row.id}:`, err);
+                console.error(`Error initiating draw for raffle ${row.id}:`, err);
+            }
+        }
+
+        // Phase 2: complete pending draws where draw_block is ready
+        const pending = await pool.query(
+            `SELECT id, draw_block FROM raffles WHERE status = 'DRAW_PENDING' AND draw_block IS NOT NULL`
+        );
+        for (const row of pending.rows) {
+            try {
+                const result = await raffles.completeDraw(row.id, row.draw_block);
+                if (result.success && !result.notReady) {
+                    console.log(`🎟️ Draw completed for raffle ${row.id}, winner: ${result.winner}`);
+                }
+            } catch (err) {
+                console.error(`Error completing draw for raffle ${row.id}:`, err);
             }
         }
     },
