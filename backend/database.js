@@ -571,6 +571,18 @@ async function createTables() {
             console.log('✅ Raffle IDs reassigned successfully.');
         }
 
+        // One-time: delete the test raffle 7001 and reset sequence so next raffle gets 7001
+        {
+            const testRes = await client.query(
+                `SELECT id FROM raffles WHERE id = 7001 AND title ILIKE '%TESTING THE RAFFLE%'`
+            );
+            if (testRes.rows.length > 0) {
+                await client.query(`DELETE FROM raffles WHERE id = 7001`); // entries cascade
+                await client.query(`SELECT setval('raffles_id_seq', 7000, true)`);
+                console.log('✅ Test raffle 7001 deleted, sequence reset to 7000.');
+            }
+        }
+
         // Add block-hash draw columns if not yet present
         await client.query(`
             ALTER TABLE raffles
