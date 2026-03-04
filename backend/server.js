@@ -4710,6 +4710,27 @@ app.post('/api/raffles/create', isAdmin, async (req, res) => {
     }
 });
 
+// PATCH /api/raffles/:id — admin only, update title/description/imageUrl
+app.patch('/api/raffles/:id', isAdmin, async (req, res) => {
+    try {
+        if (!rafflesDb) return res.status(503).json({ success: false, error: 'Database not available' });
+        const raffleId = parseInt(req.params.id);
+        const { title, description, imageUrl } = req.body;
+        await database.pool.query(
+            `UPDATE raffles SET
+             title = COALESCE($1, title),
+             prize_description = COALESCE($2, prize_description),
+             image_url = COALESCE($3, image_url)
+             WHERE id = $4`,
+            [title || null, description || null, imageUrl || null, raffleId]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('PATCH /api/raffles/:id error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
 // POST /api/raffles/cancel — admin only
 app.post('/api/raffles/cancel', isAdmin, async (req, res) => {
     try {
