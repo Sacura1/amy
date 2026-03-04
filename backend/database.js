@@ -3479,7 +3479,7 @@ const raffles = {
             await client.query(
                 `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
                  VALUES (LOWER($1), $2, 'RAFFLE_ENTRY', 0, 'none', 'RAFFLE_ENTRY', $3)`,
-                [wallet, -pointCost, `Bought ${quantity} ticket(s) for raffle: ${raffle.title}`]
+                [wallet, -pointCost, `Bought ${quantity} ticket(s) for raffle #${raffleId}: ${raffle.title}`]
             );
 
             // Upsert raffle_entries
