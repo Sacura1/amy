@@ -10,6 +10,7 @@ const multer = require('multer');
 const sgMail = require('@sendgrid/mail');
 const cron = require('node-cron');
 const googleSheetsService = require('./googleSheetsService');
+const raffleSheetService = require('./raffleSheetService');
 require('dotenv').config();
 
 // Configure SendGrid
@@ -290,6 +291,13 @@ nonces = {
         appSettingsDb = database.appSettings;
         POINTS_TIERS = database.POINTS_TIERS;
         console.log('✅ PostgreSQL database ready');
+
+        // Initialize raffle sheet sync service
+        try {
+            await raffleSheetService.initialize(database.pool);
+        } catch (err) {
+            console.error('⚠️ Raffle sheet service init error:', err.message);
+        }
 
         // Run initial nonce cleanup for PostgreSQL
         try {
@@ -4885,7 +4893,27 @@ app.listen(PORT, () => {
                 console.error('Raffle auto-draw error:', err);
             }
         }
-    }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });;
+    }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
+
+    // Sync raffles to Google Sheet every hour
+    cron.schedule('0 * * * *', async () => {
+        try {
+            await raffleSheetService.sync();
+        } catch (err) {
+            console.error('Raffle sheet sync cron error:', err);
+        }
+    }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
+
+    console.log(`⏰ Raffle sheet sync scheduled hourly`);
+
+    // Also run initial raffle sheet sync after 30 seconds
+    setTimeout(async () => {
+        try {
+            await raffleSheetService.sync();
+        } catch (err) {
+            console.error('Initial raffle sheet sync error:', err);
+        }
+    }, 30 * 1000);
 
     // Run initial balance update after 1 minute (give time for DB to initialize)
     setTimeout(async () => {
