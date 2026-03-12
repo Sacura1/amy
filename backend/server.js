@@ -1724,9 +1724,11 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         let surfwethMult = 1;
         let bullasMult = 1;
         let boogaBullasMult = 1;
+        let amyusdt0Mult = 1;
         try {
             const tokenHoldings = await queryAllTokenHoldings(wallet);
             sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 1;
+            amyusdt0Mult = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 1;
             plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 1;
             plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 1;
             plskdkMult = tokenHoldings.plskdk.multiplier > 1 ? tokenHoldings.plskdk.multiplier : 1;
@@ -1795,7 +1797,6 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
         // Note: dawnReferralMultiplier IS included - active for existing holders (registration closed for new users)
-        const amyusdt0Mult = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 0;
         const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (plskdkMult > 1 ? plskdkMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + (amyusdt0Mult > 1 ? amyusdt0Mult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
         // Calculate effective points per hour (base * multiplier)
@@ -4079,11 +4080,16 @@ const BULLA_CONTRACTS = {
     amyUsdt0Pool: '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'
 };
 
+const KODIAK_CONTRACTS = {
+    nonfungiblePositionManager: '0xFE5E8C83FFE4d9627A75EaA7Fee864768dB989bD',
+    amyUsdt0Pool: '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'
+};
+
 // Token addresses
 const TOKENS = {
     AMY: '0x098a75baeddec78f9a8d0830d6b86eac5cc8894e'.toLowerCase(),
     HONEY: '0xfcbd14dc51f0a4d49d5e53c2e0950e0bc26d0dce'.toLowerCase(),
-    USDT0: '0x0000000000000000000000000000000000000000'.toLowerCase() // TODO: Update with real USDT0 address if needed
+    USDT0: '0xd01ae6905d48315f7be10c7330aecf8360ef5b12'.toLowerCase()
 };
 
 // LP Multiplier tiers
@@ -4104,6 +4110,7 @@ const NFPM_ABI = [
 // Algebra Pool ABI (for getting current tick and price)
 const POOL_ABI = [
     'function globalState() view returns (uint160 price, int24 tick, uint16 lastFee, uint8 pluginConfig, uint16 communityFee, bool unlocked)',
+    'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
     'function token0() view returns (address)',
     'function token1() view returns (address)'
 ];
@@ -4167,12 +4174,22 @@ function getAmyUsdt0LpMultiplier(usdValue) {
 async function queryKodiakLpPositions(walletAddress) {
     try {
         const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
-        const nfpm = new ethers.Contract(BULLA_CONTRACTS.nonfungiblePositionManager, NFPM_ABI, provider);
-        const pool = new ethers.Contract(BULLA_CONTRACTS.amyUsdt0Pool, POOL_ABI, provider);
+        const nfpm = new ethers.Contract(KODIAK_CONTRACTS.nonfungiblePositionManager, NFPM_ABI, provider);
+        const pool = new ethers.Contract(KODIAK_CONTRACTS.amyUsdt0Pool, POOL_ABI, provider);
 
-        // Get current pool state for price calculation
-        const globalState = await pool.globalState();
-        const currentTick = globalState.tick;
+        // Get current pool state for price calculation (handle Algebra globalState or Uniswap V3 slot0)
+        let currentTick = 0;
+        try {
+            const globalState = await pool.globalState();
+            currentTick = globalState.tick;
+        } catch (e) {
+            try {
+                const slot0 = await pool.slot0();
+                currentTick = slot0.tick;
+            } catch (e2) {
+                console.error('? Failed to get pool tick:', e2.message);
+            }
+        }
 
         // Get pool tokens to determine order
         const token0 = (await pool.token0()).toLowerCase();
@@ -4199,31 +4216,9 @@ async function queryKodiakLpPositions(walletAddress) {
                 const posToken0 = position.token0.toLowerCase();
                 const posToken1 = position.token1.toLowerCase();
 
-                const isAmyUsdt0Pool =
-                    (posToken0 === TOKENS.AMY && (posToken1 === '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase() || posToken1 === '0x0000000000000000000000000000000000000000'.toLowerCase())) ||
-                    ((posToken0 === '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase() || posToken0 === '0x0000000000000000000000000000000000000000'.toLowerCase()) && posToken1 === TOKENS.AMY) ||
-                    (posToken0.toLowerCase() === '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase()) || (posToken1.toLowerCase() === '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase());
+                const isAmyUsdt0Pool = (posToken0 === TOKENS.AMY && posToken1 === TOKENS.USDT0) || (posToken0 === TOKENS.USDT0 && posToken1 === TOKENS.AMY);
 
-                // For Kodiak V3 AMY/USDT0 pool
-                const KODIAK_AMY_USDT0 = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase();
-                // We actually need to check if the position is for this SPECIFIC pool. 
-                // In Uniswap V3/Algebra, tokens + fee/spacing define the pool.
-                // For simplicity, if it matches the tokens of our target pool, we count it.
-                
-                // Let's use a simpler check: does it match AMY and the USDT0 address?
-                // Real USDT0 on Berachain is likely 0x... I will use the pool address itself as a hint if I can't find the token.
-                // Actually, the pool address is known.
-                
-                // Let's just check if the position tokens are AMY and the other token in that pool.
-                // From Kodiak: AMY (0x098a...) and USDT0 (0x05D9... or similar)
-                // For now, I'll check against AMY and assume the other is USDT0 if it's the right pool.
-                
-                if (!(posToken0 === TOKENS.AMY || posToken1 === TOKENS.AMY)) continue;
-                
-                // In a real scenario, we'd verify the exact pool. 
-                // For this implementation, we'll assume any position with AMY in the NFPM that isn't the Bulla pool is Kodiak.
-                const isBullaPool = (posToken0 === TOKENS.HONEY || posToken1 === TOKENS.HONEY);
-                if (isBullaPool) continue;
+                if (!isAmyUsdt0Pool) continue;
 
                 if (!position.liquidity || position.liquidity.isZero()) continue;
 
@@ -4276,9 +4271,19 @@ async function queryLpPositions(walletAddress) {
         const pool = new ethers.Contract(BULLA_CONTRACTS.amyHoneyPool, POOL_ABI, provider);
         const farmingCenter = new ethers.Contract(BULLA_CONTRACTS.farmingCenter, FARMING_CENTER_ABI, provider);
 
-        // Get current pool state for price calculation
-        const globalState = await pool.globalState();
-        const currentTick = globalState.tick;
+        // Get current pool state for price calculation (handle Algebra globalState or Uniswap V3 slot0)
+        let currentTick = 0;
+        try {
+            const globalState = await pool.globalState();
+            currentTick = globalState.tick;
+        } catch (e) {
+            try {
+                const slot0 = await pool.slot0();
+                currentTick = slot0.tick;
+            } catch (e2) {
+                console.error('? Failed to get pool tick:', e2.message);
+            }
+        }
 
         // Get pool tokens to determine order
         const token0 = (await pool.token0()).toLowerCase();
@@ -4662,9 +4667,11 @@ async function awardHourlyPoints() {
                 let surfwethMult = 0;
                 let bullasMult = 0;
                 let boogaBullasMult = 0;
+                let amyusdt0Mult = 0;
                 try {
                     const tokenHoldings = await queryAllTokenHoldings(user.wallet);
                     sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
+                    amyusdt0Mult = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 0;
                     plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 0;
                     plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 0;
                     plskdkMult = tokenHoldings.plskdk.multiplier > 1 ? tokenHoldings.plskdk.multiplier : 0;
@@ -4765,7 +4772,6 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const amyusdt0Mult = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 0;
                 const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
                 const basePoints = parseFloat(user.pointsPerHour);
@@ -5126,6 +5132,10 @@ process.on('SIGTERM', () => {
     console.log('👋 SIGTERM received, shutting down gracefully...');
     process.exit(0);
 });
+
+
+
+
 
 
 
