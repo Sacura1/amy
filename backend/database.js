@@ -577,7 +577,7 @@ async function createTables() {
                         new_id := new_id + 1;
                     END LOOP;
                     -- Advance sequence past highest ID
-                    PERFORM setval('raffles_id_seq', GREATEST((SELECT COALESCE(MAX(id),7000) FROM raffles), 7000), true);
+                    PERFORM setval('raffles_id_seq', (SELECT MAX(id) FROM raffles));
                 END $$;
             `);
             console.log('✅ Raffle IDs reassigned successfully.');
@@ -3802,6 +3802,7 @@ module.exports = {
     CATEGORY_DESCRIPTIONS,
     BADGE_DEFINITIONS
 };
+
 
 
 
