@@ -3423,3 +3423,4 @@ const raffles = {
         );
         return result.rows[0];
     },
+}
