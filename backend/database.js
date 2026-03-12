@@ -628,6 +628,9 @@ async function createTables() {
         // Migrate existing social connections to connection quests (one-time migration)
         await migrateExistingConnectionQuests(client);
 
+        // Ensure raffle sequence is correctly set to the maximum ID
+        await client.query(\SELECT setval('raffles_id_seq', COALESCE((SELECT MAX(id) FROM raffles), 7000), true)\);
+
         // Seed customization items if table is empty
         await seedCustomizationItems(client);
 
@@ -3802,6 +3805,8 @@ module.exports = {
     CATEGORY_DESCRIPTIONS,
     BADGE_DEFINITIONS
 };
+
+
 
 
 
