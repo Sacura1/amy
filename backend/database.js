@@ -1772,7 +1772,7 @@ const points = {
     },
 
     // Update token holdings data for a user (SAIL.r, plvHEDGE, plsBERA, HONEY-Bend, Staked BERA)
-    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1, surfusdValueUsd = 0, surfusdMultiplier = 1, surfcbbtcValueUsd = 0, surfcbbtcMultiplier = 1, surfwethValueUsd = 0, surfwethMultiplier = 1, bgtValueUsd = 0, bgtMultiplier = 1, snrusdValueUsd = 0, snrusdMultiplier = 1, jnrusdValueUsd = 0, jnrusdMultiplier = 1, bullasCount = 0, bullasMultiplier = 1, boogaBullasCount = 0, boogaBullasMultiplier = 1) => {
+    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1, surfusdValueUsd = 0, surfusdMultiplier = 1, surfcbbtcValueUsd = 0, surfcbbtcMultiplier = 1, surfwethValueUsd = 0, surfwethMultiplier = 1, bgtValueUsd = 0, bgtMultiplier = 1, snrusdValueUsd = 0, snrusdMultiplier = 1, jnrusdValueUsd = 0, jnrusdMultiplier = 1, amyusdt0ValueUsd = 0, amyusdt0Multiplier = 1, plskdkValueUsd = 0, plskdkMultiplier = 1, bullasCount = 0, bullasMultiplier = 1, boogaBullasCount = 0, boogaBullasMultiplier = 1) => {
         if (!pool) return null;
         await pool.query(
             `UPDATE amy_points SET
@@ -1798,14 +1798,18 @@ const points = {
              snrusd_multiplier = $20,
              jnrusd_value_usd = $21,
              jnrusd_multiplier = $22,
-             bullas_count = $23,
-             bullas_multiplier = $24,
-             booga_bullas_count = $25,
-             booga_bullas_multiplier = $26
-             WHERE LOWER(wallet) = LOWER($27)`,
-            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, bullasCount, bullasMultiplier, boogaBullasCount, boogaBullasMultiplier, wallet]
+             amyusdt0_value_usd = $23,
+             amyusdt0_multiplier = $24,
+             plskdk_value_usd = $25,
+             plskdk_multiplier = $26,
+             bullas_count = $27,
+             bullas_multiplier = $28,
+             booga_bullas_count = $29,
+             booga_bullas_multiplier = $30
+             WHERE LOWER(wallet) = LOWER($31)`,
+            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, amyusdt0ValueUsd, amyusdt0Multiplier, plskdkValueUsd, plskdkMultiplier, bullasCount, bullasMultiplier, boogaBullasCount, boogaBullasMultiplier, wallet]
         );
-        return { sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, bullasCount, bullasMultiplier, boogaBullasCount, boogaBullasMultiplier };
+        return { wallet };
     },
 
     // Update RaidShark multiplier for a user (admin only)
