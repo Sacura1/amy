@@ -536,8 +536,20 @@ async function createTables() {
         // Fix typo: "Bulas" → "Bullas" in existing raffle titles
         await client.query(`
             UPDATE raffles SET title = REPLACE(title, 'Bulas', 'Bullas') WHERE title LIKE '%Bulas%';
-        `);
+        \);
 
+        // Add threshold columns if they don't exist
+        await client.query(\
+            DO \$\$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='threshold_points') THEN
+                    ALTER TABLE raffles ADD COLUMN threshold_points INTEGER DEFAULT 5000;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='threshold_participants') THEN
+                    ALTER TABLE raffles ADD COLUMN threshold_participants INTEGER DEFAULT 10;
+                END IF;
+            END \$\$;
+        \);
         // One-time migration: reassign raffle IDs < 7001 to start at 7001
         const lowIds = await client.query(`SELECT COUNT(*) FROM raffles WHERE id < 7001`);
         if (parseInt(lowIds.rows[0].count) > 0) {
@@ -3508,7 +3520,7 @@ const raffles = {
                 [raffleId]
             );
             const r = updatedRaffle.rows[0];
-            if (r.status === 'TNM' && r.total_points_committed >= 5000 && r.unique_participants >= 10) {
+            if (r.status === 'TNM' && r.total_points_committed >= (r.threshold_points || 5000) && r.unique_participants >= (r.threshold_participants || 10)) {
                 await client.query(
                     `UPDATE raffles SET status = 'LIVE',
                      live_at = NOW(),
@@ -3802,3 +3814,7 @@ module.exports = {
     CATEGORY_DESCRIPTIONS,
     BADGE_DEFINITIONS
 };
+
+
+
+

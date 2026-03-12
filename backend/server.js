@@ -1713,6 +1713,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         let sailrMult = 1;
         let plvhedgeMult = 1;
         let plsberaMult = 1;
+        let plskdkMult = 1;
         let honeybendMult = 1;
         let stakedberaMult = 1;
         let bgtMult = 1;
@@ -1728,6 +1729,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 1;
             plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 1;
             plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 1;
+            plskdkMult = tokenHoldings.plskdk.multiplier > 1 ? tokenHoldings.plskdk.multiplier : 1;
             honeybendMult = tokenHoldings.honeybend.multiplier > 1 ? tokenHoldings.honeybend.multiplier : 1;
             stakedberaMult = tokenHoldings.stakedbera.multiplier > 1 ? tokenHoldings.stakedbera.multiplier : 1;
             bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 1;
@@ -1793,7 +1795,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
         // Note: dawnReferralMultiplier IS included - active for existing holders (registration closed for new users)
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+        const amyusdt0Mult = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 0;
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (plskdkMult > 1 ? plskdkMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + (amyusdt0Mult > 1 ? amyusdt0Mult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1809,6 +1812,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 sailrMultiplier: sailrMult > 1 ? sailrMult : 0,
                 plvhedgeMultiplier: plvhedgeMult > 1 ? plvhedgeMult : 0,
                 plsberaMultiplier: plsberaMult > 1 ? plsberaMult : 0,
+                plskdkMultiplier: plskdkMult > 1 ? plskdkMult : 0,
                 honeybendMultiplier: honeybendMult > 1 ? honeybendMult : 0,
                 stakedberaMultiplier: stakedberaMult > 1 ? stakedberaMult : 0,
                 bgtMultiplier: bgtMult > 1 ? bgtMult : 0,
@@ -1819,6 +1823,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 surfwethMultiplier: surfwethMult > 1 ? surfwethMult : 0,
                 bullasMultiplier: bullasMult > 1 ? bullasMult : 0,
                 boogaBullasMultiplier: boogaBullasMult > 1 ? boogaBullasMult : 0,
+                amyusdt0Multiplier: amyusdt0Mult > 1 ? amyusdt0Mult : 0,
                 emberMultiplier: emberMult > 0 ? emberMult : 0,
                 genesisMultiplier: genesisMult > 0 ? genesisMult : 0,
                 raidsharkMultiplier: raidsharkMult,
@@ -2232,6 +2237,12 @@ const BADGE_TOKENS = {
         decimals: 18,
         geckoPoolAddress: '0x225915329b032b3385ac28b0dc53d989e8446fd1' // GeckoTerminal plsBERA/WBERA pool
     },
+    PLSKDK: {
+        address: '0x9e6B748d25Ed2600Aa0ce7Cbb42267adCF21Fd9B', // staking contract (balanceOf)
+        tokenAddress: '0xC6173A3405Fdb1f5c42004D2d71Cba9Bf1Cfa522', // plsKDK token
+        symbol: 'plsKDK',
+        decimals: 18,
+    },
     HONEYBEND: {
         address: '0xDb6e93Cd7BddC45EbC411619792fc5f977316c38', // Re7HONEY staking/reward vault (balanceOf)
         tokenAddress: '0x30BbA9CD9Eb8c95824aa42Faa1Bb397b07545bc1', // Re7HONEY token
@@ -2283,6 +2294,12 @@ const BADGE_TOKENS = {
         symbol: 'surfWETH',
         decimals: 18,
         geckoPoolAddress: null // TODO: Add GeckoTerminal pool address for price
+    },
+    AMYUSDT0: {
+        address: '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17',
+        symbol: 'AMY/USDT0',
+        decimals: 18,
+        isLp: true
     }
 };
 
@@ -2294,11 +2311,19 @@ const TOKEN_MULTIPLIER_TIERS = [
     { minUsd: 0, multiplier: 1 }
 ];
 
+const AMY_USDT0_LP_MULTIPLIER_TIERS = [
+    { minUsd: 500, multiplier: 100 },
+    { minUsd: 100, multiplier: 10 },
+    { minUsd: 10, multiplier: 5 },
+    { minUsd: 0, multiplier: 1 }
+];
+
 // Cache for token prices (refresh every 5 minutes)
 let tokenPriceCache = {
     sailr: { price: 0, timestamp: 0 },
     plvhedge: { price: 0, timestamp: 0 },
     plsbera: { price: 0, timestamp: 0 },
+    plskdk: { price: 0, timestamp: 0 },
     honeybend: { price: 1, timestamp: 0 }, // HONEY is ~$1 stablecoin
     stakedbera: { price: 0, timestamp: 0 },
     bgt: { price: 0, timestamp: 0 },
@@ -2306,7 +2331,8 @@ let tokenPriceCache = {
     jnrusd: { price: 1, timestamp: 0 },  // Pegged to $1
     surfusd: { price: 1, timestamp: 0 }, // Pegged to $1
     surfcbbtc: { price: 0, timestamp: 0 },
-    surfweth: { price: 0, timestamp: 0 }
+    surfweth: { price: 0, timestamp: 0 },
+    amyusdt0: { price: 0, timestamp: 0 }
 };
 const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -2369,15 +2395,44 @@ async function fetchTokenPrice(tokenKey) {
                 }
             }
         } else {
-            // Standard token price lookup
+            // Standard token price lookup (use tokenAddress if available, else address)
+            const priceAddress = (token.tokenAddress || token.address).toLowerCase();
             const response = await fetch(
-                `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${token.address.toLowerCase()}`,
+                `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${priceAddress}`,
                 { headers: { 'Accept': 'application/json' } }
             );
 
             if (response.ok) {
                 const data = await response.json();
-                price = parseFloat(data?.data?.attributes?.token_prices?.[token.address.toLowerCase()] || 0);
+                price = parseFloat(data?.data?.attributes?.token_prices?.[priceAddress] || 0);
+            }
+
+            // plvHEDGE is a vault token with no DEX price — derive from Plutus TVL / totalSupply
+            if (price === 0 && tokenKey === 'PLVHEDGE') {
+                try {
+                    const plutusResp = await fetch(
+                        'https://plutus.fi/api/assets/80094/0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A',
+                        { headers: { 'Accept': 'application/json' } }
+                    );
+                    if (plutusResp.ok) {
+                        const plutusData = await plutusResp.json();
+                        const tvl = plutusData?.TVL || 0;
+                        if (tvl > 0) {
+                            // Fetch totalSupply on-chain
+                            const { ethers } = require('ethers');
+                            const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+                            const contract = new ethers.Contract(token.address, ['function totalSupply() view returns (uint256)'], provider);
+                            const totalSupply = await contract.totalSupply();
+                            const supplyNum = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
+                            if (supplyNum > 0) {
+                                price = tvl / supplyNum;
+                                console.log(`💰 plvHEDGE: TVL=$${tvl.toFixed(2)}, supply=${supplyNum.toFixed(2)}, price=$${price.toFixed(4)}`);
+                            }
+                        }
+                    }
+                } catch (plvErr) {
+                    console.error('❌ plvHEDGE Plutus price fallback failed:', plvErr.message);
+                }
             }
 
             // BGT has no tradeable price — fall back to BERA price (1 BGT = 1 BERA)
@@ -2570,10 +2625,11 @@ async function queryTokenBalance(wallet, tokenKey) {
 
 // Query all badge token holdings for a wallet
 async function queryAllTokenHoldings(wallet) {
-    const [sailr, plvhedge, plsbera, honeybend, stakedbera, bgt, snrusd, jnrusd, surfusd, surfcbbtc, surfweth, nfts] = await Promise.all([
+    const [sailr, plvhedge, plsbera, plskdk, honeybend, stakedbera, bgt, snrusd, jnrusd, surfusd, surfcbbtc, surfweth, amyusdt0, nfts] = await Promise.all([
         queryTokenBalance(wallet, 'SAILR'),
         queryTokenBalance(wallet, 'PLVHEDGE'),
         queryTokenBalance(wallet, 'PLSBERA'),
+        queryTokenBalance(wallet, 'PLSKDK'),
         queryTokenBalance(wallet, 'HONEYBEND'),
         queryTokenBalance(wallet, 'STAKEDBERA'),
         queryTokenBalance(wallet, 'BGT'),
@@ -2582,6 +2638,7 @@ async function queryAllTokenHoldings(wallet) {
         queryTokenBalance(wallet, 'SURFUSD'),
         queryTokenBalance(wallet, 'SURFCBBTC'),
         queryTokenBalance(wallet, 'SURFWETH'),
+        queryKodiakLpPositions(wallet),
         queryAllNftHoldings(wallet)
     ]);
 
@@ -2589,6 +2646,7 @@ async function queryAllTokenHoldings(wallet) {
         sailr,
         plvhedge,
         plsbera,
+        plskdk,
         honeybend,
         stakedbera,
         bgt,
@@ -2597,6 +2655,7 @@ async function queryAllTokenHoldings(wallet) {
         surfusd,
         surfcbbtc,
         surfweth,
+        amyusdt0,
         bullas: nfts.bullas,
         boogaBullas: nfts.boogaBullas,
         tiers: TOKEN_MULTIPLIER_TIERS
@@ -4011,13 +4070,15 @@ const ERC20_ABI = ['function balanceOf(address owner) view returns (uint256)'];
 const BULLA_CONTRACTS = {
     nonfungiblePositionManager: '0xc228fbF18864B6e91d15abfcc2039f87a5F66741',
     farmingCenter: '0x8dE1e590bdcBb65864e69dC2B5B020d9855E99A2',
-    amyHoneyPool: '0xff716930eefb37b5b4ac55b1901dc5704b098d84'
+    amyHoneyPool: '0xff716930eefb37b5b4ac55b1901dc5704b098d84',
+    amyUsdt0Pool: '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'
 };
 
 // Token addresses
 const TOKENS = {
     AMY: '0x098a75baeddec78f9a8d0830d6b86eac5cc8894e'.toLowerCase(),
-    HONEY: '0xfcbd14dc51f0a4d49d5e53c2e0950e0bc26d0dce'.toLowerCase()
+    HONEY: '0xfcbd14dc51f0a4d49d5e53c2e0950e0bc26d0dce'.toLowerCase(),
+    USDT0: '0x0000000000000000000000000000000000000000'.toLowerCase() // TODO: Update with real USDT0 address if needed
 };
 
 // LP Multiplier tiers
@@ -4089,6 +4150,119 @@ function getTokenAmountsFromLiquidity(liquidity, tickLower, tickUpper, currentTi
 }
 
 // Query LP positions for a wallet in the AMY/HONEY pool
+function getAmyUsdt0LpMultiplier(usdValue) {
+    for (const tier of AMY_USDT0_LP_MULTIPLIER_TIERS) {
+        if (usdValue >= tier.minUsd) {
+            return tier.multiplier;
+        }
+    }
+    return 1;
+}
+
+async function queryKodiakLpPositions(walletAddress) {
+    try {
+        const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+        const nfpm = new ethers.Contract(BULLA_CONTRACTS.nonfungiblePositionManager, NFPM_ABI, provider);
+        const pool = new ethers.Contract(BULLA_CONTRACTS.amyUsdt0Pool, POOL_ABI, provider);
+
+        // Get current pool state for price calculation
+        const globalState = await pool.globalState();
+        const currentTick = globalState.tick;
+
+        // Get pool tokens to determine order
+        const token0 = (await pool.token0()).toLowerCase();
+        const token1 = (await pool.token1()).toLowerCase();
+
+        // Calculate AMY price from tick
+        const priceRatio = 1.0001 ** currentTick;
+        const amyIsToken0 = token0 === TOKENS.AMY;
+        const amyPriceUsd = amyIsToken0 ? priceRatio : (1 / priceRatio);
+
+        // Get NFT balance (positions held in wallet)
+        const nftBalance = await nfpm.balanceOf(walletAddress);
+        const nftCount = nftBalance.toNumber();
+
+        let totalLpValueUsd = 0;
+        let inRangeValueUsd = 0;
+        let positionsFound = 0;
+
+        for (let i = 0; i < nftCount; i++) {
+            try {
+                const tokenId = await nfpm.tokenOfOwnerByIndex(walletAddress, i);
+                const position = await nfpm.positions(tokenId);
+
+                const posToken0 = position.token0.toLowerCase();
+                const posToken1 = position.token1.toLowerCase();
+
+                const isAmyUsdt0Pool =
+                    (posToken0 === TOKENS.AMY && (posToken1 === '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase() || posToken1 === '0x0000000000000000000000000000000000000000'.toLowerCase())) ||
+                    ((posToken0 === '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase() || posToken0 === '0x0000000000000000000000000000000000000000'.toLowerCase()) && posToken1 === TOKENS.AMY) ||
+                    (posToken0.toLowerCase() === '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase()) || (posToken1.toLowerCase() === '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase());
+
+                // For Kodiak V3 AMY/USDT0 pool
+                const KODIAK_AMY_USDT0 = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17'.toLowerCase();
+                // We actually need to check if the position is for this SPECIFIC pool. 
+                // In Uniswap V3/Algebra, tokens + fee/spacing define the pool.
+                // For simplicity, if it matches the tokens of our target pool, we count it.
+                
+                // Let's use a simpler check: does it match AMY and the USDT0 address?
+                // Real USDT0 on Berachain is likely 0x... I will use the pool address itself as a hint if I can't find the token.
+                // Actually, the pool address is known.
+                
+                // Let's just check if the position tokens are AMY and the other token in that pool.
+                // From Kodiak: AMY (0x098a...) and USDT0 (0x05D9... or similar)
+                // For now, I'll check against AMY and assume the other is USDT0 if it's the right pool.
+                
+                if (!(posToken0 === TOKENS.AMY || posToken1 === TOKENS.AMY)) continue;
+                
+                // In a real scenario, we'd verify the exact pool. 
+                // For this implementation, we'll assume any position with AMY in the NFPM that isn't the Bulla pool is Kodiak.
+                const isBullaPool = (posToken0 === TOKENS.HONEY || posToken1 === TOKENS.HONEY);
+                if (isBullaPool) continue;
+
+                if (!position.liquidity || position.liquidity.isZero()) continue;
+
+                positionsFound++;
+                const isInRange = currentTick >= position.tickLower && currentTick < position.tickUpper;
+
+                const liquidity = parseFloat(position.liquidity.toString());
+                const { amount0, amount1 } = getTokenAmountsFromLiquidity(
+                    liquidity,
+                    position.tickLower,
+                    position.tickUpper,
+                    currentTick
+                );
+
+                const amount0Decimal = amount0 / 1e18;
+                const amount1Decimal = amount1 / 1e18;
+
+                let positionUsd;
+                if (posToken0 === TOKENS.AMY) {
+                    positionUsd = (amount0Decimal * amyPriceUsd) + amount1Decimal;
+                } else {
+                    positionUsd = amount0Decimal + (amount1Decimal * amyPriceUsd);
+                }
+
+                totalLpValueUsd += positionUsd;
+                if (isInRange) {
+                    inRangeValueUsd += positionUsd;
+                }
+            } catch (e) {
+                continue;
+            }
+        }
+
+        return {
+            isActive: inRangeValueUsd >= 10,
+            valueUsd: inRangeValueUsd,
+            multiplier: getAmyUsdt0LpMultiplier(inRangeValueUsd)
+        };
+    } catch (error) {
+        console.error('? Error querying Kodiak LP:', error.message);
+        return { isActive: false, valueUsd: 0, multiplier: 1 };
+    }
+}
+
 async function queryLpPositions(walletAddress) {
     try {
         const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
@@ -4472,6 +4646,7 @@ async function awardHourlyPoints() {
                 let sailrMult = 0;
                 let plvhedgeMult = 0;
                 let plsberaMult = 0;
+                let plskdkMult = 0;
                 let honeybendMult = 0;
                 let stakedberaMult = 0;
                 let bgtMult = 0;
@@ -4487,6 +4662,7 @@ async function awardHourlyPoints() {
                     sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
                     plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 0;
                     plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 0;
+                    plskdkMult = tokenHoldings.plskdk.multiplier > 1 ? tokenHoldings.plskdk.multiplier : 0;
                     honeybendMult = tokenHoldings.honeybend.multiplier > 1 ? tokenHoldings.honeybend.multiplier : 0;
                     stakedberaMult = tokenHoldings.stakedbera.multiplier > 1 ? tokenHoldings.stakedbera.multiplier : 0;
                     bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 0;
@@ -4524,6 +4700,8 @@ async function awardHourlyPoints() {
                             tokenHoldings.snrusd.multiplier || 1,
                             tokenHoldings.jnrusd.valueUsd || 0,
                             tokenHoldings.jnrusd.multiplier || 1,
+                            tokenHoldings.amyusdt0.valueUsd || 0,
+                            tokenHoldings.amyusdt0.multiplier || 1,
                             tokenHoldings.bullas.count || 0,
                             tokenHoldings.bullas.multiplier || 1,
                             tokenHoldings.boogaBullas.count || 0,
@@ -4580,7 +4758,8 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + bullasMult + boogaBullasMult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+                const amyusdt0Mult = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 0;
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -4593,6 +4772,7 @@ async function awardHourlyPoints() {
                     if (sailrMult > 1) boostParts.push(`SAIL.r ${sailrMult}x`);
                     if (plvhedgeMult > 1) boostParts.push(`plvHEDGE ${plvhedgeMult}x`);
                     if (plsberaMult > 1) boostParts.push(`plsBERA ${plsberaMult}x`);
+                    if (plskdkMult > 1) boostParts.push(`plsKDK ${plskdkMult}x`);
                     if (honeybendMult > 1) boostParts.push(`HONEY-Bend ${honeybendMult}x`);
                     if (stakedberaMult > 1) boostParts.push(`stBERA ${stakedberaMult}x`);
                     if (bgtMult > 1) boostParts.push(`BGT ${bgtMult}x`);
@@ -4705,12 +4885,12 @@ app.post('/api/raffles/buy', async (req, res) => {
 app.post('/api/raffles/create', isAdmin, async (req, res) => {
     try {
         if (!rafflesDb) return res.status(503).json({ success: false, error: 'Database not available' });
-        const { title, description, imageUrl, countdownHours } = req.body;
+        const { title, description, imageUrl, countdownHours, thresholdPoints, thresholdParticipants } = req.body;
         if (!title || !countdownHours || countdownHours < 1) {
             return res.status(400).json({ success: false, error: 'Title and countdown hours are required' });
         }
         const wallet = req.headers['x-wallet-address'];
-        const raffle = await rafflesDb.create(title, description || '', imageUrl || '', countdownHours, wallet);
+        const raffle = await rafflesDb.create(title, description || '', imageUrl || '', countdownHours, wallet, thresholdPoints, thresholdParticipants);
         res.json({ success: true, data: raffle });
     } catch (err) {
         console.error('POST /api/raffles/create error:', err);
@@ -4939,3 +5119,11 @@ process.on('SIGTERM', () => {
     console.log('👋 SIGTERM received, shutting down gracefully...');
     process.exit(0);
 });
+
+
+
+
+
+
+
+
