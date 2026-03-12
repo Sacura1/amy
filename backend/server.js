@@ -1824,6 +1824,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 bullasMultiplier: bullasMult > 1 ? bullasMult : 0,
                 boogaBullasMultiplier: boogaBullasMult > 1 ? boogaBullasMult : 0,
                 amyusdt0Multiplier: amyusdt0Mult > 1 ? amyusdt0Mult : 0,
+                plskdkMultiplier: plskdkMult > 1 ? plskdkMult : 0,
                 emberMultiplier: emberMult > 0 ? emberMult : 0,
                 genesisMultiplier: genesisMult > 0 ? genesisMult : 0,
                 raidsharkMultiplier: raidsharkMult,
@@ -2700,6 +2701,10 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                     holdings.snrusd.multiplier || 1,
                     holdings.jnrusd.valueUsd || 0,
                     holdings.jnrusd.multiplier || 1,
+                    holdings.amyusdt0.valueUsd || 0,
+                    holdings.amyusdt0.multiplier || 1,
+                    holdings.plskdk.valueUsd || 0,
+                    holdings.plskdk.multiplier || 1,
                     holdings.bullas.count || 0,
                     holdings.bullas.multiplier || 1,
                     holdings.boogaBullas.count || 0,
@@ -4702,6 +4707,8 @@ async function awardHourlyPoints() {
                             tokenHoldings.jnrusd.multiplier || 1,
                             tokenHoldings.amyusdt0.valueUsd || 0,
                             tokenHoldings.amyusdt0.multiplier || 1,
+                            tokenHoldings.plskdk.valueUsd || 0,
+                            tokenHoldings.plskdk.multiplier || 1,
                             tokenHoldings.bullas.count || 0,
                             tokenHoldings.bullas.multiplier || 1,
                             tokenHoldings.boogaBullas.count || 0,
@@ -5119,6 +5126,9 @@ process.on('SIGTERM', () => {
     console.log('👋 SIGTERM received, shutting down gracefully...');
     process.exit(0);
 });
+
+
+
 
 
 
