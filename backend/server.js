@@ -4911,6 +4911,17 @@ app.post('/api/raffles/create', isAdmin, async (req, res) => {
     }
 });
 
+app.post('/api/maintenance/reset-raffles', isAdmin, async (req, res) => {
+    try {
+        if (!rafflesDb) return res.status(503).json({ success: false, error: 'Database not available' });
+        const result = await rafflesDb.clearAllRaffles();
+        res.json(result);
+    } catch (err) {
+        console.error('POST /api/maintenance/reset-raffles error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+
 // PATCH /api/raffles/:id — admin only, update title/description/imageUrl
 app.patch('/api/raffles/:id', isAdmin, async (req, res) => {
     try {
@@ -5132,6 +5143,7 @@ process.on('SIGTERM', () => {
     console.log('👋 SIGTERM received, shutting down gracefully...');
     process.exit(0);
 });
+
 
 
 

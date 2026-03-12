@@ -3417,6 +3417,24 @@ const raffles = {
         return result.rows;
     },
 
+    clearAllRaffles: async () => {
+        if (!pool) return { success: false };
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+            await client.query("DELETE FROM raffle_entries");
+            await client.query("DELETE FROM raffles");
+            await client.query("SELECT setval('raffles_id_seq', 7000, true)");
+            await client.query("COMMIT");
+            return { success: true };
+        } catch (e) {
+            await client.query("ROLLBACK");
+            throw e;
+        } finally {
+            client.release();
+        }
+    },
+
     create: async (title, description, imageUrl, countdownHours, createdBy) => {
         if (!pool) return null;
         const result = await pool.query(
