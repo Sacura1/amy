@@ -533,14 +533,14 @@ async function createTables() {
             END $$;
         `);
 
-        // Fix typo: "Bulas" → "Bullas" in existing raffle titles
+        // Fix typo: "Bulas" -> "Bullas" in existing raffle titles
         await client.query(`
             UPDATE raffles SET title = REPLACE(title, 'Bulas', 'Bullas') WHERE title LIKE '%Bulas%';
-        \);
+        `);
 
         // Add threshold columns if they don't exist
-        await client.query(\
-            DO \$\$
+        await client.query(`
+            DO $$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='threshold_points') THEN
                     ALTER TABLE raffles ADD COLUMN threshold_points INTEGER DEFAULT 5000;
@@ -548,8 +548,8 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='threshold_participants') THEN
                     ALTER TABLE raffles ADD COLUMN threshold_participants INTEGER DEFAULT 10;
                 END IF;
-            END \$\$;
-        \);
+            END $$;
+        `);
         // One-time migration: reassign raffle IDs < 7001 to start at 7001
         const lowIds = await client.query(`SELECT COUNT(*) FROM raffles WHERE id < 7001`);
         if (parseInt(lowIds.rows[0].count) > 0) {
