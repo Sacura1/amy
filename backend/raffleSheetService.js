@@ -60,7 +60,7 @@ class RaffleSheetService {
       console.log('?? Checking Raffle Queue...');
       const res = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.queueSpreadsheetId,
-        range: `${this.queueSheetName}!A1:Z100`,
+        range: `'${this.queueSheetName}'!A1:Z100`,
       });
       const rows = res.data.values;
       if (!rows || rows.length < 2) return;
@@ -100,7 +100,7 @@ class RaffleSheetService {
           
           await this.sheets.spreadsheets.values.update({
             spreadsheetId: this.queueSpreadsheetId,
-            range: `${this.queueSheetName}!${colLetter}${rowNum}`,
+            range: `'${this.queueSheetName}'!${colLetter}${rowNum}`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [[newId]] },
           });
@@ -122,7 +122,7 @@ class RaffleSheetService {
 
       const res = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.ledgerSheetName}!A1:Z1000`,
+        range: `'${this.ledgerSheetName}'!A1:Z1000`,
       });
       const rows = res.data.values || [];
       const headerMap = this._mapHeaders(rows);
@@ -163,14 +163,14 @@ class RaffleSheetService {
         if (rowNum) {
           await this.sheets.spreadsheets.values.update({
             spreadsheetId: this.spreadsheetId,
-            range: `${this.ledgerSheetName}!A${rowNum}`,
+            range: `'${this.ledgerSheetName}'!A${rowNum}`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [rowData] },
           });
         } else {
           await this.sheets.spreadsheets.values.append({
             spreadsheetId: this.spreadsheetId,
-            range: `${this.ledgerSheetName}!A1`,
+            range: `'${this.ledgerSheetName}'!A1`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [rowData] },
           });
