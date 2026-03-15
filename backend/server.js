@@ -5102,6 +5102,7 @@ app.listen(PORT, () => {
     // Sync raffles to Google Sheet every hour
     cron.schedule('0 * * * *', async () => {
         try {
+            await raffleSheetService.processQueue();
             await raffleSheetService.sync();
         } catch (err) {
             console.error('Raffle sheet sync cron error:', err);
@@ -5113,6 +5114,7 @@ app.listen(PORT, () => {
     // Also run initial raffle sheet sync after 30 seconds
     setTimeout(async () => {
         try {
+            await raffleSheetService.processQueue();
             await raffleSheetService.sync();
         } catch (err) {
             console.error('Initial raffle sheet sync error:', err);
@@ -5143,6 +5145,7 @@ process.on('SIGTERM', () => {
     console.log('👋 SIGTERM received, shutting down gracefully...');
     process.exit(0);
 });
+
 
 
 

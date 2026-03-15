@@ -3435,13 +3435,13 @@ const raffles = {
         }
     },
 
-    create: async (title, description, imageUrl, countdownHours, createdBy) => {
+    create: async (title, description, imageUrl, countdownHours, createdBy, thresholdPoints = 5000, thresholdParticipants = 10, slotId = null, noveltyName = null) => {
         if (!pool) return null;
         const result = await pool.query(
-            `INSERT INTO raffles (title, prize_description, image_url, countdown_hours, created_by)
-             VALUES ($1, $2, $3, $4, LOWER($5))
+            `INSERT INTO raffles (title, prize_description, image_url, countdown_hours, created_by, threshold_points, threshold_participants, slot_id, novelty_name)
+             VALUES ($1, $2, $3, $4, LOWER($5), $6, $7, $8, $9)
              RETURNING *`,
-            [title, description, imageUrl, countdownHours, createdBy]
+            [title, description, imageUrl, countdownHours, createdBy, thresholdPoints || 5000, thresholdParticipants || 10, slotId, noveltyName]
         );
         return result.rows[0];
     },
