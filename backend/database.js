@@ -134,6 +134,8 @@ async function createTables() {
                 referred_by VARCHAR(8),
                 referral_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
             );
         `);
 
@@ -185,6 +187,8 @@ async function createTables() {
                 points_per_hour DECIMAL(10, 2) DEFAULT 0,
                 last_points_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
             );
         `);
 
@@ -198,6 +202,8 @@ async function createTables() {
                 amy_balance_at_time DECIMAL(20, 2),
                 tier_at_time VARCHAR(20),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
             );
         `);
 
@@ -364,6 +370,8 @@ async function createTables() {
                 filter_id VARCHAR(50) DEFAULT 'default',
                 animation_id VARCHAR(50) DEFAULT 'default',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
@@ -399,6 +407,8 @@ async function createTables() {
                 cost_points INTEGER NOT NULL DEFAULT 0,
                 is_default BOOLEAN DEFAULT false,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
             );
         `);
 
@@ -432,6 +442,8 @@ async function createTables() {
                 code VARCHAR(6) NOT NULL,
                 expires_at TIMESTAMP NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
             );
         `);
 
@@ -444,6 +456,8 @@ async function createTables() {
                 streak_points_total INTEGER DEFAULT 0,
                 total_checkins INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
@@ -462,6 +476,8 @@ async function createTables() {
                 follow_amy_instagram_at TIMESTAMP,
                 quest_points_earned INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
@@ -520,6 +536,8 @@ async function createTables() {
                 total_points_committed INTEGER DEFAULT 0,
                 created_by VARCHAR(42),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                slot_id VARCHAR(50),
+                novelty_name VARCHAR(100)
             );
         `);
 
@@ -547,6 +565,12 @@ async function createTables() {
                 END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='threshold_participants') THEN
                     ALTER TABLE raffles ADD COLUMN threshold_participants INTEGER DEFAULT 10;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='slot_id') THEN
+                    ALTER TABLE raffles ADD COLUMN slot_id VARCHAR(50);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='novelty_name') THEN
+                    ALTER TABLE raffles ADD COLUMN novelty_name VARCHAR(100);
                 END IF;
             END $$;
         `);
@@ -3827,4 +3851,5 @@ module.exports = {
     CATEGORY_DESCRIPTIONS,
     BADGE_DEFINITIONS
 };
+
 
