@@ -6,9 +6,9 @@ class RaffleSheetService {
   constructor() {
     this.sheets = null;
     this.spreadsheetId = process.env.RAFFLE_SHEET_SPREADSHEET_ID;
-    this.ledgerSheetName = process.env.RAFFLE_SHEET_NAME || 'Amy_Raffle_Ledger';
+    this.ledgerSheetName = process.env.RAFFLE_SHEET_NAME || 'Sheet1';
     this.queueSpreadsheetId = process.env.RAFFLE_QUEUE_SPREADSHEET_ID || '1IRRbE4NQU-t5UgjbmB2hiWYbpj_UYsWhGny1-WfJiBw';
-    this.queueSheetName = process.env.RAFFLE_QUEUE_SHEET_NAME || 'Sheet1';
+    this.queueSheetName = process.env.RAFFLE_QUEUE_SHEET_NAME || 'Amy_Raffle_Queue';
     this.pool = null;
   }
 
