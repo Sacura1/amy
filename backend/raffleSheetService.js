@@ -81,49 +81,28 @@ class RaffleSheetService {
         return;
       }
 
-      const slotRowsById = new Map();
-      rows.slice(1).forEach((row) => {
-        const sanitizedRow = row.map(cell => (typeof cell === 'string' ? cell.trim() : cell));
-        const rawSlot = sanitizedRow[slotIdx];
-        if (!rawSlot) return;
-        const normalizedSlot = rawSlot.toString().trim().toLowerCase();
-        if (!normalizedSlot) return;
-        if (!slotRowsById.has(normalizedSlot)) {
-          slotRowsById.set(normalizedSlot, []);
-        }
-        slotRowsById.get(normalizedSlot).push(sanitizedRow);
-      });
+      const queueRows = rows.slice(1)
+        .map(row => row.map(cell => (typeof cell === 'string' ? cell.trim() : cell)));
 
-      const sheetSlots = Array.from(slotRowsById.keys());
+      const slotsFromQueue = [...new Set(queueRows.map(row => (row[slotIdx] || '').toString().trim().toLowerCase()).filter(Boolean))];
       const slotsToProcess = normalizedTargetSlot
         ? [normalizedTargetSlot]
-        : (sheetSlots.length ? sheetSlots : this.defaultSlots);
+        : (slotsFromQueue.length ? slotsFromQueue : this.defaultSlots);
 
       for (const slotId of slotsToProcess) {
         if (!slotId) continue;
-        const slotRows = slotRowsById.get(slotId) || [];
+        const slotRows = queueRows.filter(row => (row[slotIdx] || '').toString().trim().toLowerCase() === slotId);
         if (slotRows.length === 0) {
           console.log(`?? No queue rows available for slot ${slotId}`);
           continue;
         }
 
-        slotRows.sort((a, b) => {
-          const aPos = parseInt(a[queueIdx], 10);
-          const bPos = parseInt(b[queueIdx], 10);
-          if (Number.isNaN(aPos) && Number.isNaN(bPos)) return 0;
-          if (Number.isNaN(aPos)) return 1;
-          if (Number.isNaN(bPos)) return -1;
-          return aPos - bPos;
-        });
-
-        const pipelineRes = await this.pool.query(
-          "SELECT COUNT(*) FROM raffles WHERE slot_id = $1 AND status = 'TNM'",
+        const activeRes = await this.pool.query(
+          "SELECT id FROM raffles WHERE slot_id = $1 AND status IN ('TNM','LIVE','DRAW_PENDING')",
           [slotId]
         );
-        const pipelineCount = parseInt(pipelineRes.rows[0]?.count, 10) || 0;
-        const needed = Math.max(0, this.pipelineTarget - pipelineCount);
-        if (needed === 0) {
-          console.log(`?? Slot ${slotId} already has ${pipelineCount} TNM raffles (target ${this.pipelineTarget})`);
+        if (activeRes.rows.length > 0) {
+          console.log(`?? Slot ${slotId} already has active raffles (count=${activeRes.rows.length}), skipping queue`);
           continue;
         }
 
@@ -135,23 +114,29 @@ class RaffleSheetService {
           consumedRes.rows.map(r => parseInt(r.queue_position, 10)).filter(n => !Number.isNaN(n))
         );
 
-        let created = 0;
+        slotRows.sort((a, b) => {
+          const aPos = parseInt(a[queueIdx], 10);
+          const bPos = parseInt(b[queueIdx], 10);
+          if (Number.isNaN(aPos) && Number.isNaN(bPos)) return 0;
+          if (Number.isNaN(aPos)) return 1;
+          if (Number.isNaN(bPos)) return -1;
+          return aPos - bPos;
+        });
+
+        let created = false;
         for (const row of slotRows) {
-          if (created >= needed) break;
           const queuePos = parseInt(row[queueIdx], 10);
           if (Number.isNaN(queuePos) || consumedPositions.has(queuePos)) continue;
 
           const success = await this._createRaffleFromQueueRow(slotId, queuePos, row, headerMap);
           if (success) {
-            consumedPositions.add(queuePos);
-            created++;
+            created = true;
           }
+          break;
         }
 
-        if (created === 0) {
-          console.log(`?? Queue for slot ${slotId} is exhausted; no new raffles created`);
-        } else if (created < needed) {
-          console.log(`?? Slot ${slotId} pipeline partially filled: ${created}/${needed} (queue may need more rows)`);
+        if (!created) {
+          console.log(`?? Queue for slot ${slotId} has no unused row, skipping`);
         }
       }
     } catch (err) {
@@ -249,8 +234,14 @@ class RaffleSheetService {
             case 'raffle_id': val = r.id; break;
             case 'slot_id': val = r.slot_id; break;
             case 'novelty_name': val = r.novelty_name; break;
+            case 'partner': val = r.partner; break;
+            case 'campaign': val = r.campaign; break;
             case 'raffle_title': val = r.title; break;
             case 'raffle_description': val = r.prize_description; break;
+            case 'prize_type': val = r.prize_type; break;
+            case 'prize_asset': val = r.prize_asset; break;
+            case 'prize_value_usd': val = r.prize_value_usd; break;
+            case 'points_per_ticket': val = r.points_per_ticket; break;
             case 'raffle_state': val = this._mapStatus(r.status); break;
             case 'threshold_points': val = r.threshold_points; break;
             case 'threshold_users': val = r.threshold_participants; break;
