@@ -133,9 +133,7 @@ async function createTables() {
                 referral_code VARCHAR(8) UNIQUE,
                 referred_by VARCHAR(8),
                 referral_count INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                slot_id VARCHAR(50),
-                novelty_name VARCHAR(100)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
 
@@ -186,9 +184,7 @@ async function createTables() {
                 current_tier VARCHAR(20) DEFAULT 'none',
                 points_per_hour DECIMAL(10, 2) DEFAULT 0,
                 last_points_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                slot_id VARCHAR(50),
-                novelty_name VARCHAR(100)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
 
@@ -201,9 +197,7 @@ async function createTables() {
                 reason VARCHAR(100) NOT NULL,
                 amy_balance_at_time DECIMAL(20, 2),
                 tier_at_time VARCHAR(20),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                slot_id VARCHAR(50),
-                novelty_name VARCHAR(100)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
 
@@ -370,8 +364,6 @@ async function createTables() {
                 filter_id VARCHAR(50) DEFAULT 'default',
                 animation_id VARCHAR(50) DEFAULT 'default',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                slot_id VARCHAR(50),
-                novelty_name VARCHAR(100)
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
@@ -456,8 +448,6 @@ async function createTables() {
                 streak_points_total INTEGER DEFAULT 0,
                 total_checkins INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                slot_id VARCHAR(50),
-                novelty_name VARCHAR(100)
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
@@ -476,8 +466,6 @@ async function createTables() {
                 follow_amy_instagram_at TIMESTAMP,
                 quest_points_earned INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                slot_id VARCHAR(50),
-                novelty_name VARCHAR(100)
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
