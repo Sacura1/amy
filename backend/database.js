@@ -562,6 +562,14 @@ async function createTables() {
                 END IF;
             END $$;
         `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS consumed_queue_items (
+                slot_id VARCHAR(50) NOT NULL,
+                queue_position INTEGER NOT NULL,
+                consumed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (slot_id, queue_position)
+            );
+        `);
         // One-time migration: reassign raffle IDs < 7001 to start at 7001
         const lowIds = await client.query(`SELECT COUNT(*) FROM raffles WHERE id < 7001`);
         if (parseInt(lowIds.rows[0].count) > 0) {
