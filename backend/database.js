@@ -133,7 +133,7 @@ async function createTables() {
                 referral_code VARCHAR(8) UNIQUE,
                 referred_by VARCHAR(8),
                 referral_count INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 slot_id VARCHAR(50),
                 novelty_name VARCHAR(100)
             );
@@ -186,7 +186,7 @@ async function createTables() {
                 current_tier VARCHAR(20) DEFAULT 'none',
                 points_per_hour DECIMAL(10, 2) DEFAULT 0,
                 last_points_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 slot_id VARCHAR(50),
                 novelty_name VARCHAR(100)
             );
@@ -201,7 +201,7 @@ async function createTables() {
                 reason VARCHAR(100) NOT NULL,
                 amy_balance_at_time DECIMAL(20, 2),
                 tier_at_time VARCHAR(20),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 slot_id VARCHAR(50),
                 novelty_name VARCHAR(100)
             );
@@ -406,7 +406,7 @@ async function createTables() {
                 preview_url VARCHAR(500),
                 cost_points INTEGER NOT NULL DEFAULT 0,
                 is_default BOOLEAN DEFAULT false,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 slot_id VARCHAR(50),
                 novelty_name VARCHAR(100)
             );
@@ -441,7 +441,7 @@ async function createTables() {
                 email VARCHAR(255) NOT NULL,
                 code VARCHAR(6) NOT NULL,
                 expires_at TIMESTAMP NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 slot_id VARCHAR(50),
                 novelty_name VARCHAR(100)
             );
@@ -535,7 +535,7 @@ async function createTables() {
                 unique_participants INTEGER DEFAULT 0,
                 total_points_committed INTEGER DEFAULT 0,
                 created_by VARCHAR(42),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 slot_id VARCHAR(50),
                 novelty_name VARCHAR(100)
             );
@@ -3851,5 +3851,3 @@ module.exports = {
     CATEGORY_DESCRIPTIONS,
     BADGE_DEFINITIONS
 };
-
-
