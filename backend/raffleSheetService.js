@@ -229,31 +229,36 @@ class RaffleSheetService {
         const rowData = [];
         Object.keys(headerMap).forEach(key => {
           const idx = headerMap[key];
+          const normalizedKey = (key || '').toString().toLowerCase();
           let val = '';
-          switch(key) {
-            case 'raffle_id': val = r.id; break;
-            case 'slot_id': val = r.slot_id; break;
-            case 'novelty_name': val = r.novelty_name; break;
-            case 'partner': val = r.partner; break;
-            case 'campaign': val = r.campaign; break;
-            case 'raffle_title': val = r.title; break;
-            case 'raffle_description': val = r.prize_description; break;
-            case 'prize_type': val = r.prize_type; break;
-            case 'prize_asset': val = r.prize_asset; break;
-            case 'prize_value_usd': val = r.prize_value_usd; break;
-            case 'points_per_ticket': val = r.points_per_ticket; break;
-            case 'raffle_state': val = this._mapStatus(r.status); break;
-            case 'raffle_status': val = r.status; break;
-            case 'threshold_points': val = r.threshold_points; break;
-            case 'threshold_users': val = r.threshold_participants; break;
-            case 'countdown_hours': val = r.countdown_hours; break;
-            case 'raffle_created_at': val = this._fmtTs(r.created_at); break;
-            case 'tnm_completed_at': val = this._fmtTs(r.live_at); break;
-            case 'winner_drawn_at': val = this._fmtTs(r.ends_at); break;
-            case 'winner_wallet': val = r.winner_wallet; break;
-            case 'unique_participants': val = r.unique_participants; break;
-            case 'total_points_committed': val = r.total_points_committed; break;
-            case 'total_tickets_at_draw': val = r.total_tickets; break;
+          if (normalizedKey.includes('raffle_state')) {
+            val = this._mapStatus(r.status);
+          } else if (normalizedKey.includes('raffle_status')) {
+            val = r.status;
+          } else {
+            switch (normalizedKey) {
+              case 'raffle_id': val = r.id; break;
+              case 'slot_id': val = r.slot_id; break;
+              case 'novelty_name': val = r.novelty_name; break;
+              case 'partner': val = r.partner; break;
+              case 'campaign': val = r.campaign; break;
+              case 'raffle_title': val = r.title; break;
+              case 'raffle_description': val = r.prize_description; break;
+              case 'prize_type': val = r.prize_type; break;
+              case 'prize_asset': val = r.prize_asset; break;
+              case 'prize_value_usd': val = r.prize_value_usd; break;
+              case 'points_per_ticket': val = r.points_per_ticket; break;
+              case 'threshold_points': val = r.threshold_points; break;
+              case 'threshold_users': val = r.threshold_participants; break;
+              case 'countdown_hours': val = r.countdown_hours; break;
+              case 'raffle_created_at': val = this._fmtTs(r.created_at); break;
+              case 'tnm_completed_at': val = this._fmtTs(r.live_at); break;
+              case 'winner_drawn_at': val = this._fmtTs(r.ends_at); break;
+              case 'winner_wallet': val = r.winner_wallet; break;
+              case 'unique_participants': val = r.unique_participants; break;
+              case 'total_points_committed': val = r.total_points_committed; break;
+              case 'total_tickets_at_draw': val = r.total_tickets; break;
+            }
           }
           if (val !== undefined) rowData[idx] = val;
         });
