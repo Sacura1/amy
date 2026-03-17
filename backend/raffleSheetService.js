@@ -243,6 +243,7 @@ class RaffleSheetService {
             case 'prize_value_usd': val = r.prize_value_usd; break;
             case 'points_per_ticket': val = r.points_per_ticket; break;
             case 'raffle_state': val = this._mapStatus(r.status); break;
+            case 'raffle_status': val = r.status; break;
             case 'threshold_points': val = r.threshold_points; break;
             case 'threshold_users': val = r.threshold_participants; break;
             case 'countdown_hours': val = r.countdown_hours; break;
