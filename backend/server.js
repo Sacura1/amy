@@ -1709,64 +1709,44 @@ app.get('/api/points/:wallet', async (req, res, next) => {
             });
         }
 
-        // Calculate total multiplier from all sources
-        let sailrMult = 1;
-        let plvhedgeMult = 1;
-        let plsberaMult = 1;
-        let plskdkMult = 1;
-        let honeybendMult = 1;
-        let stakedberaMult = 1;
-        let bgtMult = 1;
-        let snrusdMult = 1;
-        let jnrusdMult = 1;
-        let surfusdMult = 1;
-        let surfcbbtcMult = 1;
-        let surfwethMult = 1;
-        let bullasMult = 1;
-        let boogaBullasMult = 1;
-        let amyusdt0Mult = 1;
-        try {
-            const tokenHoldings = await queryAllTokenHoldings(wallet);
-            sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 1;
-            amyusdt0Mult = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 1;
-            plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 1;
-            plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 1;
-            plskdkMult = tokenHoldings.plskdk.multiplier > 1 ? tokenHoldings.plskdk.multiplier : 1;
-            honeybendMult = tokenHoldings.honeybend.multiplier > 1 ? tokenHoldings.honeybend.multiplier : 1;
-            stakedberaMult = tokenHoldings.stakedbera.multiplier > 1 ? tokenHoldings.stakedbera.multiplier : 1;
-            bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 1;
-            snrusdMult = tokenHoldings.snrusd.multiplier > 1 ? tokenHoldings.snrusd.multiplier : 1;
-            jnrusdMult = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 1;
-            surfusdMult = tokenHoldings.surfusd.multiplier > 1 ? tokenHoldings.surfusd.multiplier : 1;
-            surfcbbtcMult = tokenHoldings.surfcbbtc.multiplier > 1 ? tokenHoldings.surfcbbtc.multiplier : 1;
-            surfwethMult = tokenHoldings.surfweth.multiplier > 1 ? tokenHoldings.surfweth.multiplier : 1;
-            bullasMult = tokenHoldings.bullas.multiplier > 1 ? tokenHoldings.bullas.multiplier : 1;
-            boogaBullasMult = tokenHoldings.boogaBullas.multiplier > 1 ? tokenHoldings.boogaBullas.multiplier : 1;
-        } catch (err) {
-            console.error('Error fetching token holdings for multiplier:', err.message);
-        }
+        // Calculate total multiplier from stored data
+        const toNumber = (value) => {
+            if (value === undefined || value === null) return 0;
+            const parsed = Number(value);
+            return Number.isNaN(parsed) ? 0 : parsed;
+        };
+        const bonusAboveOne = (value) => {
+            const num = toNumber(value);
+            return num > 1 ? num : 0;
+        };
+        const bonusAboveZero = (value) => {
+            const num = toNumber(value);
+            return num > 0 ? num : 0;
+        };
 
-        // Fetch RaidShark, Onchain Conviction, Swapper, and Mod multipliers from database
-        // Note: raidshark and conviction default to 1 in DB, so check > 1 to treat default as "no badge"
-        let raidsharkMult = 0;
-        let onchainConvictionMult = 0;
-        let swapperMult = 0;
-        let telegramModMult = 0;
-        let discordModMult = 0;
-        let emberMult = 0;
-        let genesisMult = 0;
-        try {
-            const badgeMultipliers = await database.points.getMultiplierBadges(wallet);
-            raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
-            onchainConvictionMult = badgeMultipliers.onchainConvictionMultiplier > 1 ? badgeMultipliers.onchainConvictionMultiplier : 0;
-            swapperMult = badgeMultipliers.swapperMultiplier > 0 ? badgeMultipliers.swapperMultiplier : 0;
-            telegramModMult = badgeMultipliers.telegramModMultiplier > 0 ? badgeMultipliers.telegramModMultiplier : 0;
-            discordModMult = badgeMultipliers.discordModMultiplier > 0 ? badgeMultipliers.discordModMultiplier : 0;
-            emberMult = badgeMultipliers.emberMultiplier > 0 ? badgeMultipliers.emberMultiplier : 0;
-            genesisMult = badgeMultipliers.genesisMultiplier > 0 ? badgeMultipliers.genesisMultiplier : 0;
-        } catch (err) {
-            console.error('Error fetching badge multipliers:', err.message);
-        }
+        const sailrMult = bonusAboveOne(pointsData.sailrMultiplier);
+        const amyusdt0Mult = bonusAboveOne(pointsData.amyusdt0Multiplier);
+        const plvhedgeMult = bonusAboveOne(pointsData.plvhedgeMultiplier);
+        const plsberaMult = bonusAboveOne(pointsData.plsberaMultiplier);
+        const plskdkMult = bonusAboveOne(pointsData.plskdkMultiplier);
+        const honeybendMult = bonusAboveOne(pointsData.honeybendMultiplier);
+        const stakedberaMult = bonusAboveOne(pointsData.stakedberaMultiplier);
+        const bgtMult = bonusAboveOne(pointsData.bgtMultiplier);
+        const snrusdMult = bonusAboveOne(pointsData.snrusdMultiplier);
+        const jnrusdMult = bonusAboveOne(pointsData.jnrusdMultiplier);
+        const surfusdMult = bonusAboveOne(pointsData.surfusdMultiplier);
+        const surfcbbtcMult = bonusAboveOne(pointsData.surfcbbtcMultiplier);
+        const surfwethMult = bonusAboveOne(pointsData.surfwethMultiplier);
+        const bullasMult = bonusAboveOne(pointsData.bullasMultiplier);
+        const boogaBullasMult = bonusAboveOne(pointsData.boogaBullasMultiplier);
+
+        const raidsharkMult = bonusAboveOne(pointsData.raidsharkMultiplier);
+        const onchainConvictionMult = bonusAboveOne(pointsData.onchainConvictionMultiplier);
+        const swapperMult = bonusAboveZero(pointsData.swapperMultiplier);
+        const telegramModMult = bonusAboveZero(pointsData.telegramModMultiplier);
+        const discordModMult = bonusAboveZero(pointsData.discordModMultiplier);
+        const emberMult = bonusAboveZero(pointsData.emberMultiplier);
+        const genesisMult = bonusAboveZero(pointsData.genesisMultiplier);
 
         // Fetch referral multiplier for Season 2 (active season)
         // And Dawn season archived data (historical, no longer gives bonus)
@@ -1885,6 +1865,48 @@ app.post('/api/points/update-balance', async (req, res) => {
                 tierInfo: POINTS_TIERS[result.tier] || POINTS_TIERS['none']
             }
         });
+
+        (async () => {
+            try {
+                if (!pointsDb) return;
+                const tokenHoldings = await queryAllTokenHoldings(wallet);
+                await pointsDb.updateTokenData(
+                    wallet,
+                    tokenHoldings.sailr.valueUsd || 0,
+                    tokenHoldings.sailr.multiplier || 1,
+                    tokenHoldings.plvhedge.valueUsd || 0,
+                    tokenHoldings.plvhedge.multiplier || 1,
+                    tokenHoldings.plsbera.valueUsd || 0,
+                    tokenHoldings.plsbera.multiplier || 1,
+                    tokenHoldings.honeybend.valueUsd || 0,
+                    tokenHoldings.honeybend.multiplier || 1,
+                    tokenHoldings.stakedbera.valueUsd || 0,
+                    tokenHoldings.stakedbera.multiplier || 1,
+                    tokenHoldings.surfusd.valueUsd || 0,
+                    tokenHoldings.surfusd.multiplier || 1,
+                    tokenHoldings.surfcbbtc.valueUsd || 0,
+                    tokenHoldings.surfcbbtc.multiplier || 1,
+                    tokenHoldings.surfweth.valueUsd || 0,
+                    tokenHoldings.surfweth.multiplier || 1,
+                    tokenHoldings.bgt.valueUsd || 0,
+                    tokenHoldings.bgt.multiplier || 1,
+                    tokenHoldings.snrusd.valueUsd || 0,
+                    tokenHoldings.snrusd.multiplier || 1,
+                    tokenHoldings.jnrusd.valueUsd || 0,
+                    tokenHoldings.jnrusd.multiplier || 1,
+                    tokenHoldings.amyusdt0.valueUsd || 0,
+                    tokenHoldings.amyusdt0.multiplier || 1,
+                    tokenHoldings.plskdk.valueUsd || 0,
+                    tokenHoldings.plskdk.multiplier || 1,
+                    tokenHoldings.bullas.count || 0,
+                    tokenHoldings.bullas.multiplier || 1,
+                    tokenHoldings.boogaBullas.count || 0,
+                    tokenHoldings.boogaBullas.multiplier || 1
+                );
+            } catch (err) {
+                console.error('Async token refresh failed:', err.message);
+            }
+        })();
 
     } catch (error) {
         console.error('❌ Error updating points balance:', error);
