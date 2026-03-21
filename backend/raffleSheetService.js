@@ -235,6 +235,22 @@ class RaffleSheetService {
             val = this._mapStatus(r.status);
           } else if (normalizedKey.includes('raffle_status')) {
             val = r.status;
+          } else if (normalizedKey.includes('winner_wallet')) {
+            val = r.winner_wallet;
+          } else if (normalizedKey.includes('total_points_committed')) {
+            val = r.total_points_committed;
+          } else if (normalizedKey.includes('total_tickets_at_draw')) {
+            val = r.total_tickets;
+          } else if (normalizedKey.includes('unique_participants')) {
+            val = r.unique_participants;
+          } else if (normalizedKey.includes('draw_block_number')) {
+            val = r.draw_block;
+          } else if (normalizedKey.includes('draw_block_hash')) {
+            val = r.draw_block_hash;
+          } else if (normalizedKey.includes('winning_ticket')) {
+            val = r.winning_ticket;
+          } else if (normalizedKey.includes('source_of_randomness')) {
+            val = r.draw_block ? `Berachain block ${r.draw_block}` : '';
           } else {
             switch (normalizedKey) {
               case 'raffle_id': val = r.id; break;
