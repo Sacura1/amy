@@ -251,13 +251,17 @@ class RaffleSheetService {
               case 'threshold_points': val = r.threshold_points; break;
               case 'threshold_users': val = r.threshold_participants; break;
               case 'countdown_hours': val = r.countdown_hours; break;
-              case 'raffle_created_at': val = this._fmtTs(r.created_at); break;
-              case 'tnm_completed_at': val = this._fmtTs(r.live_at); break;
-              case 'winner_drawn_at': val = this._fmtTs(r.ends_at); break;
-              case 'winner_wallet': val = r.winner_wallet; break;
-              case 'unique_participants': val = r.unique_participants; break;
-              case 'total_points_committed': val = r.total_points_committed; break;
-              case 'total_tickets_at_draw': val = r.total_tickets; break;
+            case 'raffle_created_at': val = this._fmtTs(r.created_at); break;
+            case 'tnm_completed_at': val = this._fmtTs(r.live_at); break;
+            case 'winner_drawn_at': val = this._fmtTs(r.ends_at); break;
+            case 'winner_wallet': val = r.winner_wallet; break;
+            case 'unique_participants': val = r.unique_participants; break;
+            case 'total_points_committed': val = r.total_points_committed; break;
+            case 'total_tickets_at_draw': val = r.total_tickets; break;
+            case 'draw_block_number': val = r.draw_block; break;
+            case 'draw_block_hash': val = r.draw_block_hash; break;
+            case 'winning_ticket_number': val = r.winning_ticket; break;
+            case 'source_of_randomness': val = r.draw_block ? `Berachain block ${r.draw_block}` : ''; break;
             }
           }
           if (val !== undefined) rowData[idx] = val;
