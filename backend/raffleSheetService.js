@@ -14,7 +14,6 @@ class RaffleSheetService {
     const slotEnv = process.env.RAFFLE_SLOT_IDS || 'slot_1,slot_2,slot_3,slot_4,slot_5';
     this.defaultSlots = slotEnv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   }
-  
 
   async initialize(pool) {
     this.pool = pool;
@@ -230,7 +229,7 @@ class RaffleSheetService {
         const rowData = [];
         Object.keys(headerMap).forEach(key => {
           const idx = headerMap[key];
-          const normalizedKey = (key || '').toString().toLowerCase();
+          const normalizedKey = (key || '').toString().toLowerCase().replace(/\s+/g, '_');
           let val = '';
           if (normalizedKey.includes('raffle_state')) {
             val = this._mapStatus(r.status);
