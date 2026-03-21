@@ -25,12 +25,12 @@ class RaffleSheetService {
           scopes: ['https://www.googleapis.com/auth/spreadsheets'],
         });
         this.sheets = google.sheets({ version: 'v4', auth });
-        console.log('? Raffle Sheet Service initialized');
+        console.log('✅ Raffle Sheet Service initialized');
         return true;
       }
       return false;
     } catch (err) {
-      console.error('? Raffle Sheet Service init error:', err.message);
+      console.error('❌ Raffle Sheet Service init error:', err.message);
       return false;
     }
   }
@@ -57,15 +57,12 @@ class RaffleSheetService {
     return s;
   }
 
-  /**
-   * Queue Pipeline: keep a slot-based buffer of upcoming raffles ordered by queue_position
-   */
   async processQueue(targetSlotId = null) {
     if (!this.sheets || !this.pool || !this.queueSpreadsheetId) return;
     const normalizedTargetSlot = targetSlotId ? targetSlotId.toString().trim().toLowerCase() : null;
 
     try {
-      console.log(`?? Checking Queue for slot: ${normalizedTargetSlot || 'ALL'}...`);
+      console.log(`🔄 Checking Queue for slot: ${normalizedTargetSlot || 'ALL'}...`);
       const res = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.queueSpreadsheetId,
         range: `'${this.queueSheetName}'!A1:Z200`,
@@ -77,7 +74,7 @@ class RaffleSheetService {
       const slotIdx = headerMap['slot_id'];
       const queueIdx = headerMap['queue_position'];
       if (slotIdx === undefined || queueIdx === undefined) {
-        console.warn('?? Queue sheet missing slot_id or queue_position columns');
+        console.warn('❌ Queue sheet missing slot_id or queue_position columns');
         return;
       }
 
@@ -93,7 +90,7 @@ class RaffleSheetService {
         if (!slotId) continue;
         const slotRows = queueRows.filter(row => (row[slotIdx] || '').toString().trim().toLowerCase() === slotId);
         if (slotRows.length === 0) {
-          console.log(`?? No queue rows available for slot ${slotId}`);
+          console.log(`ℹ️ No queue rows available for slot ${slotId}`);
           continue;
         }
 
@@ -102,7 +99,7 @@ class RaffleSheetService {
           [slotId]
         );
         if (activeRes.rows.length > 0) {
-          console.log(`?? Slot ${slotId} already has active raffles (count=${activeRes.rows.length}), skipping queue`);
+          console.log(`ℹ️ Slot ${slotId} already has active raffles (count=${activeRes.rows.length}), skipping queue`);
           continue;
         }
 
@@ -136,11 +133,11 @@ class RaffleSheetService {
         }
 
         if (!created) {
-          console.log(`?? Queue for slot ${slotId} has no unused row, skipping`);
+          console.log(`ℹ️ Queue for slot ${slotId} has no unused row, skipping`);
         }
       }
     } catch (err) {
-      console.error('? Error processing queue:', err.message);
+      console.error('❌ Error processing queue:', err.message);
     }
   }
 
@@ -194,11 +191,11 @@ class RaffleSheetService {
         [slotId, queuePosition]
       );
       await client.query('COMMIT');
-      console.log(`? Queued slot=${slotId} pos=${queuePosition} (raffle id=${insertRes.rows[0].id})`);
+      console.log(`✅ Queued slot=${slotId} pos=${queuePosition} (raffle id=${insertRes.rows[0].id})`);
       return true;
     } catch (err) {
       await client.query('ROLLBACK');
-      console.error('? Error creating raffle from queue row:', err.message);
+      console.error('❌ Error creating raffle from queue row:', err.message);
       return false;
     } finally {
       client.release();
@@ -208,17 +205,21 @@ class RaffleSheetService {
   async sync() {
     if (!this.sheets || !this.spreadsheetId || !this.pool) return;
     try {
-      console.log('?? Syncing Raffle Ledger...');
+      console.log('🔄 Syncing Raffle Ledger...');
       const dbResult = await this.pool.query("SELECT * FROM raffles ORDER BY id ASC");
       const raffles = dbResult.rows;
 
       const res = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
-        range: `'${this.ledgerSheetName}'!A1:Z1000`,
+        range: `'${this.ledgerSheetName}'!A1:AD1000`,
       });
       const rows = res.data.values || [];
+      if (rows.length === 0) {
+        console.warn('⚠️ Ledger sheet is empty, cannot map headers');
+        return;
+      }
+
       const headerMap = this._mapHeaders(rows);
-      
       const existingRows = {};
       rows.forEach((row, i) => {
         const id = row[headerMap['raffle_id']];
@@ -230,65 +231,68 @@ class RaffleSheetService {
         Object.keys(headerMap).forEach(key => {
           const idx = headerMap[key];
           const normalizedKey = (key || '').toString().toLowerCase().replace(/\s+/g, '_');
-          let val = '';
-          if (normalizedKey.includes('raffle_state')) {
+          let val = undefined;
+
+          // Mapping logic
+          if (normalizedKey.includes('raffle_id')) {
+            val = r.id;
+          } else if (normalizedKey.includes('slot_id')) {
+            val = r.slot_id;
+          } else if (normalizedKey.includes('raffle_title')) {
+            val = r.title;
+          } else if (normalizedKey.includes('raffle_description')) {
+            val = r.prize_description;
+          } else if (normalizedKey.includes('novelty_name')) {
+            val = r.novelty_name;
+          } else if (normalizedKey.includes('partner')) {
+            val = r.partner;
+          } else if (normalizedKey.includes('campaign')) {
+            val = r.campaign;
+          } else if (normalizedKey.includes('prize_type')) {
+            val = r.prize_type;
+          } else if (normalizedKey.includes('prize_asset')) {
+            val = r.prize_asset;
+          } else if (normalizedKey.includes('prize_value_usd')) {
+            val = r.prize_value_usd;
+          } else if (normalizedKey.includes('points_per_ticket')) {
+            val = r.points_per_ticket;
+          } else if (normalizedKey.includes('threshold_points')) {
+            val = r.threshold_points;
+          } else if (normalizedKey.includes('threshold_users')) {
+            val = r.threshold_participants;
+          } else if (normalizedKey.includes('countdown_hours')) {
+            val = r.countdown_hours;
+          } else if (normalizedKey.includes('raffle_state') || normalizedKey.includes('raffle_status')) {
             val = this._mapStatus(r.status);
-          } else if (normalizedKey.includes('raffle_status')) {
-            val = r.status;
-          } else if (normalizedKey.includes('winner_wallet')) {
-            val = r.winner_wallet;
-          } else if (normalizedKey.includes('winner_wallet')) {
-            val = r.winner_wallet;
+          } else if (normalizedKey.includes('raffle_created_at')) {
+            val = this._fmtTs(r.created_at);
+          } else if (normalizedKey.includes('tnm_completed_at')) {
+            val = this._fmtTs(r.live_at);
           } else if (normalizedKey.includes('winner_drawn_at')) {
             val = this._fmtTs(r.ends_at);
-          } else if (normalizedKey.includes('winner_ticket')) {
-            val = r.winning_ticket;
-          } else if (normalizedKey.includes('total_points_committed')) {
-            val = r.total_points_committed;
-          } else if (normalizedKey.includes('total_tickets_at_draw')) {
-            val = r.total_tickets;
+          } else if (normalizedKey.includes('winner_wallet') || normalizedKey.includes('winner_address')) {
+            val = r.winner_wallet;
           } else if (normalizedKey.includes('unique_participants')) {
             val = r.unique_participants;
+          } else if (normalizedKey.includes('total_points_committed')) {
+            val = r.total_points_committed;
+          } else if (normalizedKey.includes('total_tickets_at_draw') || normalizedKey.includes('total_tickets')) {
+            val = r.total_tickets;
           } else if (normalizedKey.includes('draw_block_number')) {
             val = r.draw_block;
           } else if (normalizedKey.includes('draw_block_hash')) {
             val = r.draw_block_hash;
-          } else if (normalizedKey.includes('winning_ticket')) {
+          } else if (normalizedKey.includes('winning_ticket_number') || normalizedKey.includes('winning_ticket')) {
             val = r.winning_ticket;
           } else if (normalizedKey.includes('source_of_randomness')) {
             val = r.draw_block ? `Berachain block ${r.draw_block}` : '';
-          } else {
-            switch (normalizedKey) {
-              case 'raffle_id': val = r.id; break;
-              case 'slot_id': val = r.slot_id; break;
-              case 'novelty_name': val = r.novelty_name; break;
-              case 'partner': val = r.partner; break;
-              case 'campaign': val = r.campaign; break;
-              case 'raffle_title': val = r.title; break;
-              case 'raffle_description': val = r.prize_description; break;
-              case 'prize_type': val = r.prize_type; break;
-              case 'prize_asset': val = r.prize_asset; break;
-              case 'prize_value_usd': val = r.prize_value_usd; break;
-              case 'points_per_ticket': val = r.points_per_ticket; break;
-              case 'threshold_points': val = r.threshold_points; break;
-              case 'threshold_users': val = r.threshold_participants; break;
-              case 'countdown_hours': val = r.countdown_hours; break;
-            case 'raffle_created_at': val = this._fmtTs(r.created_at); break;
-            case 'tnm_completed_at': val = this._fmtTs(r.live_at); break;
-            case 'winner_drawn_at': val = this._fmtTs(r.ends_at); break;
-            case 'winner_wallet': val = r.winner_wallet; break;
-            case 'unique_participants': val = r.unique_participants; break;
-            case 'total_points_committed': val = r.total_points_committed; break;
-            case 'total_tickets_at_draw': val = r.total_tickets; break;
-            case 'draw_block_number': val = r.draw_block; break;
-            case 'draw_block_hash': val = r.draw_block_hash; break;
-            case 'winning_ticket_number': val = r.winning_ticket; break;
-            case 'source_of_randomness': val = r.draw_block ? `Berachain block ${r.draw_block}` : ''; break;
-            }
           }
-          if (val !== undefined && val !== '') {
-            console.log(`?? Sync column "${key}" (${normalizedKey}) <- ${val}`);
-            rowData[idx] = val;
+
+          if (val !== undefined) {
+            // Even if val is null, we want to sync it to clear/set the cell
+            const displayVal = val === null ? '' : val;
+            console.log(`📊 Sync: "${key}" (${normalizedKey}) <- ${displayVal}`);
+            rowData[idx] = displayVal;
           }
         });
 
@@ -309,8 +313,9 @@ class RaffleSheetService {
           });
         }
       }
+      console.log('✅ Ledger sync complete');
     } catch (err) {
-      console.error('? Error syncing ledger:', err.message);
+      console.error('❌ Error syncing ledger:', err.message);
     }
   }
 }
