@@ -3682,9 +3682,10 @@ const raffles = {
         const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
         const CONFIRMATIONS = 5;
 
+        const drawBlockNum = Number(drawBlock);
         const currentBlock = await provider.getBlockNumber();
-        console.log(`[raffle ${raffleId}] completeDraw currentBlock=${currentBlock}, need >= ${drawBlock + CONFIRMATIONS}`);
-        if (currentBlock < drawBlock + CONFIRMATIONS) return { success: false, notReady: true };
+        console.log(`[raffle ${raffleId}] completeDraw currentBlock=${currentBlock}, need >= ${drawBlockNum + CONFIRMATIONS}`);
+        if (currentBlock < drawBlockNum + CONFIRMATIONS) return { success: false, notReady: true };
 
         try {
             // Fetch the draw block hash
