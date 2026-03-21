@@ -14,6 +14,7 @@ class RaffleSheetService {
     const slotEnv = process.env.RAFFLE_SLOT_IDS || 'slot_1,slot_2,slot_3,slot_4,slot_5';
     this.defaultSlots = slotEnv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   }
+  
 
   async initialize(pool) {
     this.pool = pool;
