@@ -3683,78 +3683,85 @@ const raffles = {
         const CONFIRMATIONS = 5;
 
         const currentBlock = await provider.getBlockNumber();
+        console.log(`[raffle ${raffleId}] completeDraw currentBlock=${currentBlock}, need >= ${drawBlock + CONFIRMATIONS}`);
         if (currentBlock < drawBlock + CONFIRMATIONS) return { success: false, notReady: true };
 
-        // Fetch the draw block hash
-        const block = await provider.getBlock(drawBlock);
-        const blockHash = block.hash; // 32-byte hex string, 0x-prefixed
+        try {
+            // Fetch the draw block hash
+            const block = await provider.getBlock(drawBlock);
+            const blockHash = block.hash; // 32-byte hex string, 0x-prefixed
 
-        // Build entrants: only purchases on/before closeTs, sorted ascending by wallet
-        const raffle = await pool.query(`SELECT ends_at FROM raffles WHERE id = $1`, [raffleId]);
-        const closeTs = raffle.rows[0]?.ends_at;
+            // Build entrants: only purchases on/before closeTs, sorted ascending by wallet
+            const raffle = await pool.query(`SELECT ends_at FROM raffles WHERE id = $1`, [raffleId]);
+            const closeTs = raffle.rows[0]?.ends_at;
 
-        const entries = await pool.query(
-            `SELECT wallet, tickets FROM raffle_entries
-             WHERE raffle_id = $1 AND purchased_at <= $2
-             ORDER BY wallet ASC`,
-            [raffleId, closeTs]
-        );
-
-        if (!entries.rows.length) {
-            await pool.query(
-                `UPDATE raffles SET status = 'COMPLETED', draw_block_hash = $1 WHERE id = $2`,
-                [blockHash, raffleId]
+            const entries = await pool.query(
+                `SELECT wallet, tickets FROM raffle_entries
+                 WHERE raffle_id = $1 AND purchased_at <= $2
+                 ORDER BY wallet ASC`,
+                [raffleId, closeTs]
             );
-            return { success: true, winner: null };
-        }
 
-        // Aggregate tickets per wallet (already unique per wallet in raffle_entries, but be safe)
-        const walletMap = new Map();
-        for (const row of entries.rows) {
-            const w = row.wallet.toLowerCase();
-            walletMap.set(w, (walletMap.get(w) || 0) + parseInt(row.tickets));
-        }
-        const entrants = Array.from(walletMap.entries())
-            .map(([wallet, ticketCount]) => ({ wallet, ticketCount }))
-            .sort((a, b) => a.wallet.localeCompare(b.wallet));
-
-        const totalTickets = entrants.reduce((s, e) => s + e.ticketCount, 0);
-
-        // Compute seed: keccak256(keccak256(UTF8(raffleId)) || blockHash)
-        const raffleIdHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(String(raffleId)));
-        const payload = ethers.utils.concat([raffleIdHash, blockHash]);
-        const seed = ethers.utils.keccak256(payload);
-
-        // winning ticket in [1..totalTickets]
-        const winningTicket = BigInt(1) + (BigInt(seed) % BigInt(totalTickets));
-
-        // Range method to find winner
-        let cursor = BigInt(1);
-        let winner = entrants[0].wallet;
-        for (const { wallet, ticketCount } of entrants) {
-            const start = cursor;
-            const end = cursor + BigInt(ticketCount) - BigInt(1);
-            if (winningTicket >= start && winningTicket <= end) {
-                winner = wallet;
-                break;
+            if (!entries.rows.length) {
+                await pool.query(
+                    `UPDATE raffles SET status = 'COMPLETED', draw_block_hash = $1 WHERE id = $2`,
+                    [blockHash, raffleId]
+                );
+                return { success: true, winner: null };
             }
-            cursor = end + BigInt(1);
+
+            // Aggregate tickets per wallet (already unique per wallet in raffle_entries, but be safe)
+            const walletMap = new Map();
+            for (const row of entries.rows) {
+                const w = row.wallet.toLowerCase();
+                walletMap.set(w, (walletMap.get(w) || 0) + parseInt(row.tickets));
+            }
+            const entrants = Array.from(walletMap.entries())
+                .map(([wallet, ticketCount]) => ({ wallet, ticketCount }))
+                .sort((a, b) => a.wallet.localeCompare(b.wallet));
+
+            const totalTickets = entrants.reduce((s, e) => s + e.ticketCount, 0);
+
+            // Compute seed: keccak256(keccak256(UTF8(raffleId)) || blockHash)
+            const raffleIdHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(String(raffleId)));
+            const payload = ethers.utils.concat([raffleIdHash, blockHash]);
+            const seed = ethers.utils.keccak256(payload);
+
+            // winning ticket in [1..totalTickets]
+            const winningTicket = BigInt(1) + (BigInt(seed) % BigInt(totalTickets));
+
+            // Range method to find winner
+            let cursor = BigInt(1);
+            let winner = entrants[0].wallet;
+            for (const { wallet, ticketCount } of entrants) {
+                const start = cursor;
+                const end = cursor + BigInt(ticketCount) - BigInt(1);
+                if (winningTicket >= start && winningTicket <= end) {
+                    winner = wallet;
+                    break;
+                }
+                cursor = end + BigInt(1);
+            }
+
+            await pool.query(
+                `UPDATE raffles
+                 SET status = 'COMPLETED',
+                     winner_wallet       = LOWER($1),
+                     draw_block_hash     = $2,
+                     winning_ticket      = $3,
+                     total_tickets_at_draw = $4
+                 WHERE id = $5`,
+                [winner, blockHash, winningTicket.toString(), totalTickets, raffleId]
+            );
+
+            console.log(`[raffle ${raffleId}] completeDraw winner=${winner} (ticket ${winningTicket}/${totalTickets}, block ${drawBlock})`);
+            return { success: true, winner };
+        } catch (err) {
+            console.error(`[raffle ${raffleId}] completeDraw error drawBlock=${drawBlock}:`, err);
+            throw err;
         }
-
-        await pool.query(
-            `UPDATE raffles
-             SET status = 'COMPLETED',
-                 winner_wallet       = LOWER($1),
-                 draw_block_hash     = $2,
-                 winning_ticket      = $3,
-                 total_tickets_at_draw = $4
-             WHERE id = $5`,
-            [winner, blockHash, winningTicket.toString(), totalTickets, raffleId]
-        );
-
-        console.log(`🏆 Raffle ${raffleId} winner: ${winner} (ticket ${winningTicket}/${totalTickets}, block ${drawBlock})`);
-        return { success: true, winner };
     },
+
 
     // Legacy manual draw — kept for admin override only (uses block hash if available, falls back to initiate)
     drawWinner: async (raffleId) => {
