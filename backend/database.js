@@ -3688,8 +3688,9 @@ const raffles = {
         if (currentBlock < drawBlockNum + CONFIRMATIONS) return { success: false, notReady: true };
 
         try {
+            const drawBlockNum = Number(drawBlock);
             // Fetch the draw block hash
-            const block = await provider.getBlock(drawBlock);
+            const block = await provider.getBlock(drawBlockNum);
             const blockHash = block.hash; // 32-byte hex string, 0x-prefixed
 
             // Build entrants: only purchases on/before closeTs, sorted ascending by wallet
