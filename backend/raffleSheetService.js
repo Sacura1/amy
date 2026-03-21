@@ -237,6 +237,12 @@ class RaffleSheetService {
             val = r.status;
           } else if (normalizedKey.includes('winner_wallet')) {
             val = r.winner_wallet;
+          } else if (normalizedKey.includes('winner_wallet')) {
+            val = r.winner_wallet;
+          } else if (normalizedKey.includes('winner_drawn_at')) {
+            val = this._fmtTs(r.ends_at);
+          } else if (normalizedKey.includes('winner_ticket')) {
+            val = r.winning_ticket;
           } else if (normalizedKey.includes('total_points_committed')) {
             val = r.total_points_committed;
           } else if (normalizedKey.includes('total_tickets_at_draw')) {
