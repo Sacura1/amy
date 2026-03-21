@@ -280,7 +280,10 @@ class RaffleSheetService {
             case 'source_of_randomness': val = r.draw_block ? `Berachain block ${r.draw_block}` : ''; break;
             }
           }
-          if (val !== undefined) rowData[idx] = val;
+          if (val !== undefined && val !== '') {
+            console.log(`?? Sync column "${key}" (${normalizedKey}) <- ${val}`);
+            rowData[idx] = val;
+          }
         });
 
         const rowNum = existingRows[r.id];
