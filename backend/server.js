@@ -2144,6 +2144,16 @@ app.post('/api/oauth/save', async (req, res) => {
             await pointsDb.updateBalance(wallet, parseFloat(amyBalance) || 0, xUsername);
         }
 
+        // Complete connectX quest (make sure OAuth-only flow still rewards the quest)
+        try {
+            const questResult = await database.quests.completeQuest(wallet.toLowerCase(), 'connectX');
+            if (questResult.success) {
+                console.log('✅ connectX quest completed via OAuth save for wallet:', wallet);
+            }
+        } catch (err) {
+            console.log('connectX quest already completed or error via OAuth save:', err.message);
+        }
+
         console.log('✅ OAuth user saved:', wallet, '@' + xUsername);
 
         res.json({
