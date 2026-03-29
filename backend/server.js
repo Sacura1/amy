@@ -4834,7 +4834,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + surfusdMult + surfcbbtcMult + surfwethMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -4853,9 +4853,6 @@ async function awardHourlyPoints() {
                     if (bgtMult > 1) boostParts.push(`BGT ${bgtMult}x`);
                     if (snrusdMult > 1) boostParts.push(`snrUSD ${snrusdMult}x`);
                     if (jnrusdMult > 1) boostParts.push(`jnrUSD ${jnrusdMult}x`);
-                    if (surfusdMult > 1) boostParts.push(`surfUSD ${surfusdMult}x`);
-                    if (surfcbbtcMult > 1) boostParts.push(`surfcbBTC ${surfcbbtcMult}x`);
-                    if (surfwethMult > 1) boostParts.push(`surfWETH ${surfwethMult}x`);
                     if (bullasMult > 1) boostParts.push(`Bullas ${bullasMult}x`);
                     if (boogaBullasMult > 1) boostParts.push(`Booga Bullas ${boogaBullasMult}x`);
                     if (raidsharkMult > 1) boostParts.push(`RaidShark ${raidsharkMult}x`);
