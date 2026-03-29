@@ -637,6 +637,37 @@ async function createTables() {
             );
         `);
 
+        // Strategy snapshots table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS strategy_snapshots (
+                wallet VARCHAR(42) PRIMARY KEY,
+                snapshot_data JSONB NOT NULL,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_strategy_snapshots_updated ON strategy_snapshots(last_updated);
+        `);
+
+        // Earn data history table for 7-day rolling APR
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS earn_data_history (
+                id SERIAL PRIMARY KEY,
+                position_id VARCHAR(100) NOT NULL,
+                tvl VARCHAR(50),
+                apr VARCHAR(50),
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_earn_history_pos_time ON earn_data_history(position_id, timestamp);
+        `);
+
+        // User base build table for 15-min AMY checks
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS user_base_build (
+                wallet VARCHAR(42) PRIMARY KEY,
+                amy_balance DECIMAL(24, 8) DEFAULT 0,
+                last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
         console.log('✅ Database tables created/verified');
 
         // Migrate from JSON files if tables are empty

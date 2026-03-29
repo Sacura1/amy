@@ -11,6 +11,7 @@ const sgMail = require('@sendgrid/mail');
 const cron = require('node-cron');
 const googleSheetsService = require('./googleSheetsService');
 const raffleSheetService = require('./raffleSheetService');
+const StrategyService = require('./lib/strategyService');
 require('dotenv').config();
 
 // Configure SendGrid
@@ -298,6 +299,48 @@ nonces = {
         } catch (err) {
             console.error('⚠️ Raffle sheet service init error:', err.message);
         }
+
+        // Initialize Strategy Service
+        const strategyService = new StrategyService(database);
+
+        // AMY STANDARD DATA PIPELINE CRONS
+        // 1. Base Build: Every 15 minutes (:00, :15, :30, :45)
+        cron.schedule('*/15 * * * *', async () => {
+            try {
+                await strategyService.runBaseBuild();
+            } catch (err) {
+                console.error('Base Build cron error:', err);
+            }
+        }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
+
+        // 2. Full Strategy Snapshot: Every hour on the hour (:00)
+        cron.schedule('0 * * * *', async () => {
+            try {
+                await strategyService.runFullStrategySnapshot();
+            } catch (err) {
+                console.error('Full Strategy Snapshot cron error:', err);
+            }
+        }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
+
+        // 3. Earn Data Update: Every hour at the 30-minute mark (:30)
+        cron.schedule('30 * * * *', async () => {
+            try {
+                await strategyService.runEarnDataUpdate();
+            } catch (err) {
+                console.error('Earn Data Update cron error:', err);
+            }
+        }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
+
+        // INITIAL STARTUP SYNC (Run after 5 seconds)
+        setTimeout(async () => {
+            console.log('🚀 [Startup] Running initial tracking and balance sync...');
+            try {
+                await strategyService.runBaseBuild();
+                await strategyService.runEarnDataUpdate();
+            } catch (err) {
+                console.error('Startup sync error:', err);
+            }
+        }, 5000);
 
         // Run initial nonce cleanup for PostgreSQL
         try {
@@ -1665,6 +1708,38 @@ app.get('/api/referral/downlines/:wallet', async (req, res) => {
 // POINTS API ROUTES
 // ============================================
 
+// Get Earn Data (cached hourly snapshots)
+app.get('/api/earn-data', async (req, res) => {
+    try {
+        if (!usePostgres) {
+            return res.json({ success: true, data: {}, error: 'Database not available' });
+        }
+        
+        const result = await database.pool.query(
+            `SELECT DISTINCT ON (position_id) position_id, tvl, apr, timestamp
+             FROM earn_data_history
+             ORDER BY position_id, timestamp DESC`
+        );
+        
+        const data = {};
+        result.rows.forEach(row => {
+            data[row.position_id] = {
+                tvl: row.tvl,
+                apr: row.apr
+            };
+        });
+
+        res.json({
+            success: true,
+            data: data,
+            lastUpdated: result.rows[0]?.timestamp || new Date().toISOString()
+        });
+    } catch (err) {
+        console.error('❌ Error fetching earn data:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // Get points for a wallet (public)
 app.get('/api/points/:wallet', async (req, res, next) => {
     try {
@@ -1734,9 +1809,6 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const bgtMult = bonusAboveOne(pointsData.bgtMultiplier);
         const snrusdMult = bonusAboveOne(pointsData.snrusdMultiplier);
         const jnrusdMult = bonusAboveOne(pointsData.jnrusdMultiplier);
-        const surfusdMult = bonusAboveOne(pointsData.surfusdMultiplier);
-        const surfcbbtcMult = bonusAboveOne(pointsData.surfcbbtcMultiplier);
-        const surfwethMult = bonusAboveOne(pointsData.surfwethMultiplier);
         const bullasMult = bonusAboveOne(pointsData.bullasMultiplier);
         const boogaBullasMult = bonusAboveOne(pointsData.boogaBullasMultiplier);
 
@@ -1777,7 +1849,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
         // Note: dawnReferralMultiplier IS included - active for existing holders (registration closed for new users)
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (plskdkMult > 1 ? plskdkMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (surfusdMult > 1 ? surfusdMult : 0) + (surfcbbtcMult > 1 ? surfcbbtcMult : 0) + (surfwethMult > 1 ? surfwethMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + (amyusdt0Mult > 1 ? amyusdt0Mult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (plskdkMult > 1 ? plskdkMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + (amyusdt0Mult > 1 ? amyusdt0Mult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -2310,24 +2382,6 @@ const BADGE_TOKENS = {
         symbol: 'jnrUSD',
         decimals: 18,
         isStablecoin: true // Pegged to $1
-    },
-    SURFUSD: {
-        address: '0x0000000000000000000000000000000000000000', // TODO: Add surfUSD contract address
-        symbol: 'surfUSD',
-        decimals: 18,
-        isStablecoin: true // Pegged to $1
-    },
-    SURFCBBTC: {
-        address: '0x0000000000000000000000000000000000000000', // TODO: Add surfcbBTC contract address
-        symbol: 'surfcbBTC',
-        decimals: 8, // Bitcoin decimals
-        geckoPoolAddress: null // TODO: Add GeckoTerminal pool address for price
-    },
-    SURFWETH: {
-        address: '0x0000000000000000000000000000000000000000', // TODO: Add surfWETH contract address
-        symbol: 'surfWETH',
-        decimals: 18,
-        geckoPoolAddress: null // TODO: Add GeckoTerminal pool address for price
     },
     AMYUSDT0: {
         address: '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17',
