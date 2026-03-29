@@ -2749,7 +2749,7 @@ app.get('/api/tokens/:wallet', async (req, res) => {
 
         const holdings = await queryAllTokenHoldings(wallet);
 
-        // Save token values to database for badge system
+        // Save updated token data to database for badge system
         try {
             if (pointsDb) {
                 await pointsDb.updateTokenData(
@@ -2764,12 +2764,6 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                     holdings.honeybend.multiplier || 1,
                     holdings.stakedbera.valueUsd || 0,
                     holdings.stakedbera.multiplier || 1,
-                    holdings.surfusd.valueUsd || 0,
-                    holdings.surfusd.multiplier || 1,
-                    holdings.surfcbbtc.valueUsd || 0,
-                    holdings.surfcbbtc.multiplier || 1,
-                    holdings.surfweth.valueUsd || 0,
-                    holdings.surfweth.multiplier || 1,
                     holdings.bgt.valueUsd || 0,
                     holdings.bgt.multiplier || 1,
                     holdings.snrusd.valueUsd || 0,
