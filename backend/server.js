@@ -1871,9 +1871,6 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 bgtMultiplier: bgtMult > 1 ? bgtMult : 0,
                 snrusdMultiplier: snrusdMult > 1 ? snrusdMult : 0,
                 jnrusdMultiplier: jnrusdMult > 1 ? jnrusdMult : 0,
-                surfusdMultiplier: surfusdMult > 1 ? surfusdMult : 0,
-                surfcbbtcMultiplier: surfcbbtcMult > 1 ? surfcbbtcMult : 0,
-                surfwethMultiplier: surfwethMult > 1 ? surfwethMult : 0,
                 bullasMultiplier: bullasMult > 1 ? bullasMult : 0,
                 boogaBullasMultiplier: boogaBullasMult > 1 ? boogaBullasMult : 0,
                 amyusdt0Multiplier: amyusdt0Mult > 1 ? amyusdt0Mult : 0,
@@ -2417,9 +2414,6 @@ let tokenPriceCache = {
     bgt: { price: 0, timestamp: 0 },
     snrusd: { price: 1, timestamp: 0 }, // Pegged to $1
     jnrusd: { price: 1, timestamp: 0 },  // Pegged to $1
-    surfusd: { price: 1, timestamp: 0 }, // Pegged to $1
-    surfcbbtc: { price: 0, timestamp: 0 },
-    surfweth: { price: 0, timestamp: 0 },
     amyusdt0: { price: 0, timestamp: 0 }
 };
 const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -4748,9 +4742,6 @@ async function awardHourlyPoints() {
                 let bgtMult = 0;
                 let snrusdMult = 0;
                 let jnrusdMult = 0;
-                let surfusdMult = 0;
-                let surfcbbtcMult = 0;
-                let surfwethMult = 0;
                 let bullasMult = 0;
                 let boogaBullasMult = 0;
                 let amyusdt0Mult = 0;
@@ -4766,9 +4757,6 @@ async function awardHourlyPoints() {
                     bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 0;
                     snrusdMult = tokenHoldings.snrusd.multiplier > 1 ? tokenHoldings.snrusd.multiplier : 0;
                     jnrusdMult = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 0;
-                    surfusdMult = tokenHoldings.surfusd.multiplier > 1 ? tokenHoldings.surfusd.multiplier : 0;
-                    surfcbbtcMult = tokenHoldings.surfcbbtc.multiplier > 1 ? tokenHoldings.surfcbbtc.multiplier : 0;
-                    surfwethMult = tokenHoldings.surfweth.multiplier > 1 ? tokenHoldings.surfweth.multiplier : 0;
                     bullasMult = tokenHoldings.bullas.multiplier > 1 ? tokenHoldings.bullas.multiplier : 0;
                     boogaBullasMult = tokenHoldings.boogaBullas.multiplier > 1 ? tokenHoldings.boogaBullas.multiplier : 0;
 
@@ -4786,12 +4774,6 @@ async function awardHourlyPoints() {
                             tokenHoldings.honeybend.multiplier || 1,
                             tokenHoldings.stakedbera.valueUsd || 0,
                             tokenHoldings.stakedbera.multiplier || 1,
-                            tokenHoldings.surfusd.valueUsd || 0,
-                            tokenHoldings.surfusd.multiplier || 1,
-                            tokenHoldings.surfcbbtc.valueUsd || 0,
-                            tokenHoldings.surfcbbtc.multiplier || 1,
-                            tokenHoldings.surfweth.valueUsd || 0,
-                            tokenHoldings.surfweth.multiplier || 1,
                             tokenHoldings.bgt.valueUsd || 0,
                             tokenHoldings.bgt.multiplier || 1,
                             tokenHoldings.snrusd.valueUsd || 0,
