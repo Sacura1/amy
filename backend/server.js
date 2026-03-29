@@ -2707,7 +2707,7 @@ async function queryTokenBalance(wallet, tokenKey) {
 
 // Query all badge token holdings for a wallet
 async function queryAllTokenHoldings(wallet) {
-    const [sailr, plvhedge, plsbera, plskdk, honeybend, stakedbera, bgt, snrusd, jnrusd, surfusd, surfcbbtc, surfweth, amyusdt0, nfts] = await Promise.all([
+    const [sailr, plvhedge, plsbera, plskdk, honeybend, stakedbera, bgt, snrusd, jnrusd, amyusdt0, nfts] = await Promise.all([
         queryTokenBalance(wallet, 'SAILR'),
         queryTokenBalance(wallet, 'PLVHEDGE'),
         queryTokenBalance(wallet, 'PLSBERA'),
@@ -2717,9 +2717,6 @@ async function queryAllTokenHoldings(wallet) {
         queryTokenBalance(wallet, 'BGT'),
         queryTokenBalance(wallet, 'SNRUSD'),
         queryTokenBalance(wallet, 'JNRUSD'),
-        queryTokenBalance(wallet, 'SURFUSD'),
-        queryTokenBalance(wallet, 'SURFCBBTC'),
-        queryTokenBalance(wallet, 'SURFWETH'),
         queryKodiakLpPositions(wallet),
         queryAllNftHoldings(wallet)
     ]);
@@ -2734,9 +2731,6 @@ async function queryAllTokenHoldings(wallet) {
         bgt,
         snrusd,
         jnrusd,
-        surfusd,
-        surfcbbtc,
-        surfweth,
         amyusdt0,
         bullas: nfts.bullas,
         boogaBullas: nfts.boogaBullas,
