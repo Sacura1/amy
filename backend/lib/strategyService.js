@@ -1,23 +1,22 @@
 const axios = require('axios');
 const { ethers } = require('ethers');
 
-// CONFIG - Exact addresses from customer scripts & Railway .env
+// CONFIG - Exact addresses and URLs from your Python scripts
 const RPC_URL = process.env.BERACHAIN_RPC || 'https://rpc.berachain.com';
 const AMY_TOKEN = '0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e';
 
-// Pool IDs - EXACT matching the Python script Gecko URLs
+// POOL IDs (EXACT FROM PYTHON)
 const AMY_HONEY_POOL = '0xff716930eefb37b5b4ac55b1901dc5704b098d84'; 
 const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
 
-// Subgraph URLs
-const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clxh7f8o72v7x01w133p5162a/subgraphs/algebra-integral-berachain/1.0.0/gn';
+// SUBGRAPH URLs (EXACT FROM PYTHON)
+const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clols2c0p7fby2nww199i4pdx/subgraphs/algebra-berachain-mainnet/0.0.3/gn';
 const KODIAK_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clpx84oel0al201r78jsl0r3i/subgraphs/kodiak-v3-berachain-mainnet/latest/gn';
 
 // snrUSD specific addresses
 const REWARD_VAULT_ADDRESS = '0x18e310dD4A6179D9600E95D18926AB7819B2A071';
 const SNRUSD_TOKEN_ADDRESS = '0xC38421E5577250EBa177Bc5bC832E747bea13Ee0';
 
-// ABIs
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
 const VAULT_ABI = ['function balanceOf(address) view returns (uint256)'];
 
@@ -118,8 +117,7 @@ class StrategyService {
         const query = {
             query: `{
               positions(where: { owner: "${wallet}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) {
-                liquidity tickLower tickUpper
-                pool { tick sqrtPrice }
+                liquidity tickLower { tickIdx } tickUpper { tickIdx } pool { tick sqrtPrice }
               }
             }`
         };
@@ -129,7 +127,9 @@ class StrategyService {
             if (!pos || pos.length === 0) return { value_usd: 0, count: 0 };
             let total = 0;
             for (const p of pos) {
-                const { amount0, amount1 } = this.calculateAmounts(parseInt(p.pool.tick), parseInt(p.tickLower), parseInt(p.tickUpper), p.liquidity, p.pool.sqrtPrice);
+                const tL = p.tickLower?.tickIdx || 0;
+                const tU = p.tickUpper?.tickIdx || 0;
+                const { amount0, amount1 } = this.calculateAmounts(parseInt(p.pool.tick), parseInt(tL), parseInt(tU), p.liquidity, p.pool.sqrtPrice);
                 total += (parseFloat(ethers.utils.formatUnits(amount0.toString(), 18)) * amyPrice) + parseFloat(ethers.utils.formatUnits(amount1.toString(), 18));
             }
             return { value_usd: total, count: pos.length };
