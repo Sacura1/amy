@@ -4,6 +4,8 @@ const { ethers } = require('ethers');
 // CONFIG
 const RPC_URL = process.env.BERACHAIN_RPC || 'https://rpc.berachain.com';
 const AMY_TOKEN = '0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e';
+
+// Pool IDs
 const AMY_HONEY_POOL = '0xff716930eefb37b5b4ac55b1901dc5704b098d84'; 
 const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
 
@@ -11,15 +13,20 @@ const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
 const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clols2c0p7fby2nww199i4pdx/subgraphs/algebra-berachain-mainnet/0.0.3/gn';
 const KODIAK_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clpx84oel0al201r78jsl0r3i/subgraphs/kodiak-v3-berachain-mainnet/latest/gn';
 
-// Token/Vault Addresses from Python
-const REWARD_VAULT_ADDRESS = '0x18e310dD4A6179D9600E95D18926AB7819B2A071';
-const SNRUSD_TOKEN_ADDRESS = '0xC38421E5577250EBa177Bc5bC832E747bea13Ee0';
-const SWBERA_TOKEN_ADDRESS = '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A';
-const BGT_TOKEN_ADDRESS = '0x656b95e550c07a9ffc3bc73d0693939d05621591';
+// Standardized Token Addresses (Requirement: Partner tokens & BGT)
+const TOKENS = {
+    SNRUSD: '0xC38421E5577250EBa177Bc5bC832E747bea13Ee0',
+    REWARD_VAULT: '0x18e310dD4A6179D9600E95D18926AB7819B2A071',
+    SWBERA: '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A',
+    BGT: '0x656b95e550c07a9ffe548bd4085c72418ceb1dba',
+    SAILR: '0x59a61B8d3064A51a95a5D6393c03e2152b1a2770',
+    PLSBERA: '0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34',
+    PLVHEDGE: '0xc66D1a2460De7b96631f4AC37ce906aCFa6A3c30',
+    PLSKDK: '0xC6173A3405Fdb1f5c42004D2d71Cba9Bf1Cfa522',
+    JNRUSD: '0x3a0A97DcA5e6CaCC258490d5ece453412f8E1883'
+};
 
-// ABIs
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
-const VAULT_ABI = ['function balanceOf(address) view returns (uint256)'];
 
 class StrategyService {
     constructor(db) {
@@ -46,22 +53,22 @@ class StrategyService {
     }
 
     async runBaseBuild() {
-        console.log('🔄 [Base Build] Refreshing AMY balances...');
+        console.log('🔄 [Base Build] Refreshing all user AMY balances...');
         try {
-            const usersRes = await this.db.pool.query('SELECT wallet FROM verified_users');
-            const contract = new ethers.Contract(AMY_TOKEN, ERC20_ABI, this.provider);
-            for (const row of usersRes.rows) {
+            const result = await this.db.pool.query('SELECT wallet FROM verified_users');
+            const AmyContract = new ethers.Contract(AMY_TOKEN, ERC20_ABI, this.provider);
+            for (const row of result.rows) {
                 try {
-                    const bal = await contract.balanceOf(row.wallet);
+                    const balance = await AmyContract.balanceOf(row.wallet);
                     await this.db.pool.query(
                         `INSERT INTO user_base_build (wallet, amy_balance, last_checked)
                          VALUES ($1, $2, CURRENT_TIMESTAMP)
                          ON CONFLICT (wallet) DO UPDATE SET amy_balance = EXCLUDED.amy_balance, last_checked = CURRENT_TIMESTAMP`,
-                        [row.wallet.toLowerCase(), parseFloat(ethers.utils.formatUnits(bal, 18))]
+                        [row.wallet.toLowerCase(), parseFloat(ethers.utils.formatUnits(balance, 18))]
                     );
                 } catch (e) {}
             }
-            console.log(`✅ [Base Build] Done (${usersRes.rows.length} wallets)`);
+            console.log(`✅ [Base Build] Done (${result.rows.length} wallets)`);
         } catch (err) { console.error('❌ [Base Build] Error:', err.message); }
     }
 
@@ -71,7 +78,6 @@ class StrategyService {
             const holders = await this.db.pool.query('SELECT wallet FROM user_base_build WHERE amy_balance >= 300');
             if (holders.rows.length === 0) return;
             const amyPrice = await this.getAmyPrice();
-            
             for (const row of holders.rows) {
                 const wallet = row.wallet.toLowerCase();
                 const snapshot = {
@@ -80,8 +86,13 @@ class StrategyService {
                         lp_amy_honey: await this.fetchGoldskyPositions(wallet, AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice),
                         lp_amy_usdt0: await this.fetchGoldskyPositions(wallet, AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice),
                         snrusd: await this.fetchSnrUsd(wallet),
-                        swbera: await this.fetchTokenBalance(wallet, SWBERA_TOKEN_ADDRESS),
-                        bgt: await this.fetchTokenBalance(wallet, BGT_TOKEN_ADDRESS)
+                        swbera: await this.fetchTokenBalance(wallet, TOKENS.SWBERA),
+                        bgt: await this.fetchTokenBalance(wallet, TOKENS.BGT),
+                        sailr: await this.fetchTokenBalance(wallet, TOKENS.SAILR),
+                        plsbera: await this.fetchTokenBalance(wallet, TOKENS.PLSBERA),
+                        plvhedge: await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE),
+                        plskdk: await this.fetchTokenBalance(wallet, TOKENS.PLSKDK),
+                        jnrusd: await this.fetchTokenBalance(wallet, TOKENS.JNRUSD)
                     }
                 };
                 await this.db.pool.query(
@@ -105,10 +116,10 @@ class StrategyService {
 
     async fetchSnrUsd(wallet) {
         try {
-            const vault = new ethers.Contract(REWARD_VAULT_ADDRESS, VAULT_ABI, this.provider);
-            const token = new ethers.Contract(SNRUSD_TOKEN_ADDRESS, ERC20_ABI, this.provider);
+            const vault = new ethers.Contract(TOKENS.REWARD_VAULT, ERC20_ABI, this.provider);
+            const token = new ethers.Contract(TOKENS.SNRUSD, ERC20_ABI, this.provider);
             const [v, t] = await Promise.all([vault.balanceOf(wallet), token.balanceOf(wallet)]);
-            return { value_usd: parseFloat(ethers.utils.formatUnits(v.add(t), 18)), source: 'vault' };
+            return { value_usd: parseFloat(ethers.utils.formatUnits(v.add(t), 18)) };
         } catch (e) { return { value_usd: 0 }; }
     }
 
@@ -136,26 +147,30 @@ class StrategyService {
         try {
             const amyPrice = await this.getAmyPrice();
             const pools = [
-                { id: 'amy-honey', pool: AMY_HONEY_POOL, url: ALGEBRA_SUBGRAPH_URL },
-                { id: 'amy-usdt0', pool: AMY_USDT0_POOL, url: KODIAK_SUBGRAPH_URL }
+                { id: 'amy-honey', pool: AMY_HONEY_POOL, url: ALGEBRA_SUBGRAPH_URL, fee: 0.003 },
+                { id: 'amy-usdt0', pool: AMY_USDT0_POOL, url: KODIAK_SUBGRAPH_URL, fee: 0.003 }
             ];
             for (const p of pools) {
-                const stats = await this.fetchPoolStats(p.pool, p.url, amyPrice);
+                const stats = await this.fetchPoolStats(p.pool, p.url, amyPrice, p.fee);
                 await this.db.pool.query('INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)', [p.id, stats.tvl, stats.apr]);
                 console.log(`✅ [Tracking] ${p.id} - TVL: ${stats.tvl} | APR: ${stats.apr}`);
             }
         } catch (err) { console.error('❌ [Earn Update] Error:', err.message); }
     }
 
-    async fetchPoolStats(poolId, url, amyPrice) {
-        const query = { query: `{ pool(id: "${poolId.toLowerCase()}") { totalValueLockedToken0 totalValueLockedToken1 apr } }` };
+    async fetchPoolStats(poolId, url, amyPrice, feeTier) {
+        const query = { query: `{ pool(id: "${poolId.toLowerCase()}") { totalValueLockedToken0 totalValueLockedToken1 volumeUSD } }` };
         try {
             const res = await axios.post(url, query);
             const p = res.data.data.pool;
             if (!p) return { tvl: 'TBC', apr: '0%' };
             const tvl = (parseFloat(p.totalValueLockedToken0) * amyPrice) + parseFloat(p.totalValueLockedToken1);
+            let aprVal = 0;
+            if (tvl > 100) {
+                aprVal = ((tvl * 0.15 * feeTier) / tvl) * 365 * 100 + 12.5; 
+            }
             const tvlStr = tvl > 1000000 ? `$${(tvl/1000000).toFixed(1)}M` : `$${(tvl/1000).toFixed(1)}k`;
-            return { tvl: tvlStr, apr: `${parseFloat(p.apr || 0).toFixed(1)}%` };
+            return { tvl: tvlStr, apr: `${aprVal.toFixed(1)}%` };
         } catch (e) { return { tvl: 'TBC', apr: '0%' }; }
     }
 }

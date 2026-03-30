@@ -1980,11 +1980,23 @@ app.post('/api/points/update-balance', async (req, res) => {
                     console.log(`🧠 [API] Points sync using snapshot for ${wallet}`);
                     
                     holdings = {
-                        sailr: { valueUsd: 0, multiplier: 1 },
-                        plvhedge: { valueUsd: 0, multiplier: 1 },
-                        plsbera: { valueUsd: 0, multiplier: 1 },
+                        sailr: { 
+                            valueUsd: snap.positions.sailr?.value_usd || 0,
+                            multiplier: (snap.positions.sailr?.value_usd > 0) ? 3 : 1 
+                        },
+                        plvhedge: { 
+                            valueUsd: snap.positions.plvhedge?.value_usd || 0,
+                            multiplier: (snap.positions.plvhedge?.value_usd > 0) ? 3 : 1 
+                        },
+                        plsbera: { 
+                            valueUsd: snap.positions.plsbera?.value_usd || 0,
+                            multiplier: (snap.positions.plsbera?.value_usd > 0) ? 3 : 1 
+                        },
                         honeybend: { valueUsd: 0, multiplier: 1 },
-                        stakedbera: { valueUsd: 0, multiplier: 1 },
+                        stakedbera: { 
+                            valueUsd: snap.positions.swbera?.value_usd || 0,
+                            multiplier: (snap.positions.swbera?.value_usd > 0) ? 3 : 1 
+                        },
                         bgt: { 
                             valueUsd: snap.positions.bgt?.value_usd || 0,
                             multiplier: (snap.positions.bgt?.value_usd > 0) ? 3 : 1
@@ -1993,12 +2005,18 @@ app.post('/api/points/update-balance', async (req, res) => {
                             valueUsd: snap.positions.snrusd?.value_usd || 0,
                             multiplier: (snap.positions.snrusd?.value_usd > 0) ? 3 : 1
                         },
-                        jnrusd: { valueUsd: 0, multiplier: 1 },
+                        jnrusd: { 
+                            valueUsd: snap.positions.jnrusd?.value_usd || 0,
+                            multiplier: (snap.positions.jnrusd?.value_usd > 0) ? 3 : 1 
+                        },
                         amyusdt0: { 
                             valueUsd: snap.positions.lp_amy_usdt0?.value_usd || 0,
                             multiplier: (snap.positions.lp_amy_usdt0?.value_usd > 0) ? 10 : 1
                         },
-                        plskdk: { valueUsd: 0, multiplier: 1 },
+                        plskdk: { 
+                            valueUsd: snap.positions.plskdk?.value_usd || 0,
+                            multiplier: (snap.positions.plskdk?.value_usd > 0) ? 3 : 1 
+                        },
                         bullas: { count: 0, multiplier: 1 },
                         boogaBullas: { count: 0, multiplier: 1 }
                     };
