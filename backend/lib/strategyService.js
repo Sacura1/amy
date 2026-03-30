@@ -1,15 +1,15 @@
 const axios = require('axios');
 const { ethers } = require('ethers');
 
-// CONFIG - Exact addresses from customer scripts
+// CONFIG - Exact addresses from customer scripts & Railway .env
 const RPC_URL = process.env.BERACHAIN_RPC || 'https://rpc.berachain.com';
 const AMY_TOKEN = '0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e';
 
-// Pool IDs (Verified from Python scripts)
-const AMY_HONEY_POOL = '0x05481d4a0342921d78f44d825c83f32483526521';
+// Pool IDs - EXACT matching the Python script Gecko URLs
+const AMY_HONEY_POOL = '0xff716930eefb37b5b4ac55b1901dc5704b098d84'; 
 const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
 
-// Subgraph URLs (CRITICAL: These are different projects)
+// Subgraph URLs
 const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clxh7f8o72v7x01w133p5162a/subgraphs/algebra-integral-berachain/1.0.0/gn';
 const KODIAK_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clpx84oel0al201r78jsl0r3i/subgraphs/kodiak-v3-berachain-mainnet/latest/gn';
 
@@ -27,9 +27,6 @@ class StrategyService {
         this.provider = new ethers.providers.JsonRpcProvider(RPC_URL);
     }
 
-    /**
-     * Standard Uniswap/Algebra V3 Math
-     */
     calculateAmounts(tickCurrent, tickLower, tickUpper, liquidity, sqrtPriceX96) {
         try {
             const Q96 = BigInt(2) ** BigInt(96);
@@ -118,14 +115,16 @@ class StrategyService {
     }
 
     async fetchGoldskyPositions(wallet, poolId, url, amyPrice) {
-        const query = `{
-          positions(where: { owner: "${wallet}", pool: "${poolId.toLowerCase()}", liquidity_gt: 0 }) {
-            liquidity tickLower tickUpper
-            pool { tick sqrtPrice }
-          }
-        }`;
+        const query = {
+            query: `{
+              positions(where: { owner: "${wallet}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) {
+                liquidity tickLower tickUpper
+                pool { tick sqrtPrice }
+              }
+            }`
+        };
         try {
-            const res = await axios.post(url, { query });
+            const res = await axios.post(url, query);
             const pos = res.data.data.positions;
             if (!pos || pos.length === 0) return { value_usd: 0, count: 0 };
             let total = 0;
@@ -153,9 +152,11 @@ class StrategyService {
     }
 
     async fetchPoolStats(poolId, url) {
-        const query = `{ pool(id: "${poolId.toLowerCase()}") { totalValueLockedUSD apr } }`;
+        const query = {
+            query: `{ pool(id: "${poolId.toLowerCase()}") { totalValueLockedUSD apr } }`
+        };
         try {
-            const res = await axios.post(url, { query });
+            const res = await axios.post(url, query);
             const p = res.data.data.pool;
             if (!p) return { tvl: 'TBC', apr: '0%' };
             const tvl = parseFloat(p.totalValueLockedUSD);
