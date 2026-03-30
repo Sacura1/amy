@@ -22,9 +22,6 @@ class StrategyService {
         this.provider = new ethers.providers.JsonRpcProvider(RPC_URL);
     }
 
-    /**
-     * PRECISION MATH: Matches the Python compute_position_amounts_and_value exactly.
-     */
     calculateValue(p, amyPrice) {
         try {
             const Q96 = Math.pow(2, 96);
@@ -35,23 +32,11 @@ class StrategyService {
             const sqrtP = parseFloat(p.pool.sqrtPrice) / Q96;
             const sqrtL = Math.sqrt(Math.pow(1.0001, tickLower));
             const sqrtU = Math.sqrt(Math.pow(1.0001, tickUpper));
-
-            let amount0 = 0, amount1 = 0;
-
-            if (tickCurrent < tickLower) {
-                amount0 = liq * (sqrtU - sqrtL) / (sqrtL * sqrtU);
-            } else if (tickCurrent < tickUpper) {
-                amount0 = liq * (sqrtU - sqrtP) / (sqrtP * sqrtU);
-                amount1 = liq * (sqrtP - sqrtL);
-            } else {
-                amount1 = liq * (sqrtU - sqrtL);
-            }
-
-            // Standardize by decimals (18 for AMY, Honey, USDT0)
-            const val0 = (amount0 / Math.pow(10, 18)) * amyPrice;
-            const val1 = (amount1 / Math.pow(10, 18)) * 1.0; // Honey/USDT0 = $1
-
-            return val0 + val1;
+            let a0 = 0, a1 = 0;
+            if (tickCurrent < tickLower) a0 = liq * (sqrtU - sqrtL) / (sqrtL * sqrtU);
+            else if (tickCurrent < tickUpper) { a0 = liq * (sqrtU - sqrtP) / (sqrtP * sqrtU); a1 = liq * (sqrtP - sqrtL); }
+            else a1 = liq * (sqrtU - sqrtL);
+            return ((a0 / 1e18) * amyPrice) + (a1 / 1e18);
         } catch (e) { return 0; }
     }
 
@@ -84,8 +69,7 @@ class StrategyService {
             for (const row of holders.rows) {
                 const wallet = row.wallet.toLowerCase();
                 const snapshot = {
-                    wallet,
-                    timestamp: new Date().toISOString(),
+                    wallet, timestamp: new Date().toISOString(),
                     positions: {
                         lp_amy_honey: await this.fetchGoldskyPositions(wallet, AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice),
                         lp_amy_usdt0: await this.fetchGoldskyPositions(wallet, AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice),
@@ -120,21 +104,13 @@ class StrategyService {
     }
 
     async fetchGoldskyPositions(wallet, poolId, url, amyPrice) {
-        const query = {
-            query: `{
-              positions(where: { owner: "${wallet.toLowerCase()}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) {
-                liquidity tickLower { tickIdx } tickUpper { tickIdx } pool { tick sqrtPrice }
-              }
-            }`
-        };
+        const query = { query: `{ positions(where: { owner: "${wallet.toLowerCase()}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) { liquidity tickLower { tickIdx } tickUpper { tickIdx } pool { tick sqrtPrice } } }` };
         try {
             const res = await axios.post(url, query);
             const pos = res.data.data.positions;
             if (!pos || pos.length === 0) return { value_usd: 0, count: 0 };
             let total = 0;
-            for (const p of pos) {
-                total += this.calculateValue(p, amyPrice);
-            }
+            for (const p of pos) { total += this.calculateValue(p, amyPrice); }
             return { value_usd: total, count: pos.length };
         } catch (e) { return { value_usd: 0, count: 0 }; }
     }
@@ -142,31 +118,31 @@ class StrategyService {
     async runEarnDataUpdate() {
         console.log('📊 [Earn Update] Syncing Goldsky stats...');
         try {
+            const amyPrice = await this.getAmyPrice();
             const pools = [
                 { id: 'amy-honey', pool: AMY_HONEY_POOL, url: ALGEBRA_SUBGRAPH_URL },
                 { id: 'amy-usdt0', pool: AMY_USDT0_POOL, url: KODIAK_SUBGRAPH_URL }
             ];
             for (const p of pools) {
-                const stats = await this.fetchPoolStats(p.pool, p.url);
+                const stats = await this.fetchPoolStats(p.pool, p.url, amyPrice);
                 await this.db.pool.query('INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)', [p.id, stats.tvl, stats.apr]);
                 console.log(`✅ [Tracking] ${p.id} - TVL: ${stats.tvl} | APR: ${stats.apr}`);
             }
         } catch (err) { console.error('❌ [Earn Update] Error:', err.message); }
     }
 
-    async fetchPoolStats(poolId, url) {
-        const query = {
-            query: `{ pool(id: "${poolId.toLowerCase()}") { totalValueLockedUSD apr } }`
-        };
+    async fetchPoolStats(poolId, url, amyPrice) {
+        const query = { query: `{ pool(id: "${poolId.toLowerCase()}") { totalValueLockedToken0 totalValueLockedToken1 apr } }` };
         try {
             const res = await axios.post(url, query);
             const p = res.data.data.pool;
             if (!p) return { tvl: 'TBC', apr: '0%' };
-            const tvl = parseFloat(p.totalValueLockedUSD);
-            return { 
-                tvl: tvl > 1000000 ? `$${(tvl/1000000).toFixed(1)}M` : `$${(tvl/1000).toFixed(1)}k`, 
-                apr: `${parseFloat(p.apr || 0).toFixed(1)}%` 
-            };
+            
+            // Calculate TVL manually from reserves
+            const tvl = (parseFloat(p.totalValueLockedToken0) * amyPrice) + parseFloat(p.totalValueLockedToken1);
+            const tvlStr = tvl > 1000000 ? `$${(tvl/1000000).toFixed(1)}M` : `$${(tvl/1000).toFixed(1)}k`;
+            
+            return { tvl: tvlStr, apr: `${parseFloat(p.apr || 0).toFixed(1)}%` };
         } catch (e) { return { tvl: 'TBC', apr: '0%' }; }
     }
 }
