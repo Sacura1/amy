@@ -7,12 +7,17 @@ const AMY_TOKEN = '0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e';
 const AMY_HONEY_POOL = '0xff716930eefb37b5b4ac55b1901dc5704b098d84'; 
 const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
 
+// URLs
 const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clols2c0p7fby2nww199i4pdx/subgraphs/algebra-berachain-mainnet/0.0.3/gn';
 const KODIAK_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clpx84oel0al201r78jsl0r3i/subgraphs/kodiak-v3-berachain-mainnet/latest/gn';
 
+// Token/Vault Addresses from Python
 const REWARD_VAULT_ADDRESS = '0x18e310dD4A6179D9600E95D18926AB7819B2A071';
 const SNRUSD_TOKEN_ADDRESS = '0xC38421E5577250EBa177Bc5bC832E747bea13Ee0';
+const SWBERA_TOKEN_ADDRESS = '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A';
+const BGT_TOKEN_ADDRESS = '0x656b95e550c07a9ffc3bc73d0693939d05621591';
 
+// ABIs
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
 const VAULT_ABI = ['function balanceOf(address) view returns (uint256)'];
 
@@ -61,11 +66,12 @@ class StrategyService {
     }
 
     async runFullStrategySnapshot() {
-        console.log('🧠 [Full Strategy] Generating snapshots...');
+        console.log('🧠 [Full Strategy] Generating snapshots for >300 AMY holders...');
         try {
             const holders = await this.db.pool.query('SELECT wallet FROM user_base_build WHERE amy_balance >= 300');
             if (holders.rows.length === 0) return;
             const amyPrice = await this.getAmyPrice();
+            
             for (const row of holders.rows) {
                 const wallet = row.wallet.toLowerCase();
                 const snapshot = {
@@ -73,7 +79,9 @@ class StrategyService {
                     positions: {
                         lp_amy_honey: await this.fetchGoldskyPositions(wallet, AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice),
                         lp_amy_usdt0: await this.fetchGoldskyPositions(wallet, AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice),
-                        snrusd: await this.fetchSnrUsd(wallet)
+                        snrusd: await this.fetchSnrUsd(wallet),
+                        swbera: await this.fetchTokenBalance(wallet, SWBERA_TOKEN_ADDRESS),
+                        bgt: await this.fetchTokenBalance(wallet, BGT_TOKEN_ADDRESS)
                     }
                 };
                 await this.db.pool.query(
@@ -85,6 +93,14 @@ class StrategyService {
             }
             console.log(`✅ [Full Strategy] Updated ${holders.rows.length} holders`);
         } catch (err) { console.error('❌ [Full Strategy] Error:', err.message); }
+    }
+
+    async fetchTokenBalance(wallet, tokenAddress) {
+        try {
+            const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.provider);
+            const bal = await contract.balanceOf(wallet);
+            return { value_usd: parseFloat(ethers.utils.formatUnits(bal, 18)) };
+        } catch (e) { return { value_usd: 0 }; }
     }
 
     async fetchSnrUsd(wallet) {
@@ -137,11 +153,8 @@ class StrategyService {
             const res = await axios.post(url, query);
             const p = res.data.data.pool;
             if (!p) return { tvl: 'TBC', apr: '0%' };
-            
-            // Calculate TVL manually from reserves
             const tvl = (parseFloat(p.totalValueLockedToken0) * amyPrice) + parseFloat(p.totalValueLockedToken1);
             const tvlStr = tvl > 1000000 ? `$${(tvl/1000000).toFixed(1)}M` : `$${(tvl/1000).toFixed(1)}k`;
-            
             return { tvl: tvlStr, apr: `${parseFloat(p.apr || 0).toFixed(1)}%` };
         } catch (e) { return { tvl: 'TBC', apr: '0%' }; }
     }

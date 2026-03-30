@@ -306,37 +306,42 @@ nonces = {
         // AMY STANDARD DATA PIPELINE CRONS
         // 1. Base Build: Every 15 minutes (:00, :15, :30, :45)
         cron.schedule('*/15 * * * *', async () => {
+            console.log('⏰ [Cron] Triggered: Base Build');
             try {
                 await strategyService.runBaseBuild();
             } catch (err) {
                 console.error('Base Build cron error:', err);
             }
-        }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
+        });
 
         // 2. Full Strategy Snapshot: Every hour on the hour (:00)
         cron.schedule('0 * * * *', async () => {
+            console.log('⏰ [Cron] Triggered: Full Strategy Snapshot');
             try {
                 await strategyService.runFullStrategySnapshot();
             } catch (err) {
                 console.error('Full Strategy Snapshot cron error:', err);
             }
-        }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
+        });
 
         // 3. Earn Data Update: Every hour at the 30-minute mark (:30)
         cron.schedule('30 * * * *', async () => {
+            console.log('⏰ [Cron] Triggered: Earn Data Update');
             try {
                 await strategyService.runEarnDataUpdate();
             } catch (err) {
                 console.error('Earn Data Update cron error:', err);
             }
-        }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
+        });
 
         // INITIAL STARTUP SYNC (Run after 5 seconds)
         setTimeout(async () => {
-            console.log('🚀 [Startup] Running initial tracking and balance sync...');
+            console.log('🚀 [Startup] Running initial tracking, balance, and STRATEGY sync...');
             try {
                 await strategyService.runBaseBuild();
                 await strategyService.runEarnDataUpdate();
+                await strategyService.runFullStrategySnapshot();
+                console.log('✅ [Startup] All standardized data pipelines initialized.');
             } catch (err) {
                 console.error('Startup sync error:', err);
             }
@@ -1961,39 +1966,73 @@ app.post('/api/points/update-balance', async (req, res) => {
         (async () => {
             try {
                 if (!pointsDb) return;
-                const tokenHoldings = await queryAllTokenHoldings(wallet);
+
+                // Requirement: No live strategy checks on frontend
+                // Prioritize the hourly backend snapshot
+                const snapshotRes = await database.pool.query(
+                    'SELECT snapshot_data FROM strategy_snapshots WHERE LOWER(wallet) = LOWER($1)',
+                    [wallet]
+                );
+
+                let holdings;
+                if (snapshotRes.rows.length > 0) {
+                    const snap = snapshotRes.rows[0].snapshot_data;
+                    console.log(`🧠 [API] Points sync using snapshot for ${wallet}`);
+                    
+                    holdings = {
+                        sailr: { valueUsd: 0, multiplier: 1 },
+                        plvhedge: { valueUsd: 0, multiplier: 1 },
+                        plsbera: { valueUsd: 0, multiplier: 1 },
+                        honeybend: { valueUsd: 0, multiplier: 1 },
+                        stakedbera: { valueUsd: 0, multiplier: 1 },
+                        bgt: { 
+                            valueUsd: snap.positions.bgt?.value_usd || 0,
+                            multiplier: (snap.positions.bgt?.value_usd > 0) ? 3 : 1
+                        },
+                        snrusd: { 
+                            valueUsd: snap.positions.snrusd?.value_usd || 0,
+                            multiplier: (snap.positions.snrusd?.value_usd > 0) ? 3 : 1
+                        },
+                        jnrusd: { valueUsd: 0, multiplier: 1 },
+                        amyusdt0: { 
+                            valueUsd: snap.positions.lp_amy_usdt0?.value_usd || 0,
+                            multiplier: (snap.positions.lp_amy_usdt0?.value_usd > 0) ? 10 : 1
+                        },
+                        plskdk: { valueUsd: 0, multiplier: 1 },
+                        bullas: { count: 0, multiplier: 1 },
+                        boogaBullas: { count: 0, multiplier: 1 }
+                    };
+                } else {
+                    // Fallback to live check ONLY if no snapshot exists (new users)
+                    holdings = await queryAllTokenHoldings(wallet);
+                }
+
                 await pointsDb.updateTokenData(
                     wallet,
-                    tokenHoldings.sailr.valueUsd || 0,
-                    tokenHoldings.sailr.multiplier || 1,
-                    tokenHoldings.plvhedge.valueUsd || 0,
-                    tokenHoldings.plvhedge.multiplier || 1,
-                    tokenHoldings.plsbera.valueUsd || 0,
-                    tokenHoldings.plsbera.multiplier || 1,
-                    tokenHoldings.honeybend.valueUsd || 0,
-                    tokenHoldings.honeybend.multiplier || 1,
-                    tokenHoldings.stakedbera.valueUsd || 0,
-                    tokenHoldings.stakedbera.multiplier || 1,
-                    tokenHoldings.surfusd.valueUsd || 0,
-                    tokenHoldings.surfusd.multiplier || 1,
-                    tokenHoldings.surfcbbtc.valueUsd || 0,
-                    tokenHoldings.surfcbbtc.multiplier || 1,
-                    tokenHoldings.surfweth.valueUsd || 0,
-                    tokenHoldings.surfweth.multiplier || 1,
-                    tokenHoldings.bgt.valueUsd || 0,
-                    tokenHoldings.bgt.multiplier || 1,
-                    tokenHoldings.snrusd.valueUsd || 0,
-                    tokenHoldings.snrusd.multiplier || 1,
-                    tokenHoldings.jnrusd.valueUsd || 0,
-                    tokenHoldings.jnrusd.multiplier || 1,
-                    tokenHoldings.amyusdt0.valueUsd || 0,
-                    tokenHoldings.amyusdt0.multiplier || 1,
-                    tokenHoldings.plskdk.valueUsd || 0,
-                    tokenHoldings.plskdk.multiplier || 1,
-                    tokenHoldings.bullas.count || 0,
-                    tokenHoldings.bullas.multiplier || 1,
-                    tokenHoldings.boogaBullas.count || 0,
-                    tokenHoldings.boogaBullas.multiplier || 1
+                    holdings.sailr.valueUsd || 0,
+                    holdings.sailr.multiplier || 1,
+                    holdings.plvhedge.valueUsd || 0,
+                    holdings.plvhedge.multiplier || 1,
+                    holdings.plsbera.valueUsd || 0,
+                    holdings.plsbera.multiplier || 1,
+                    holdings.honeybend.valueUsd || 0,
+                    holdings.honeybend.multiplier || 1,
+                    holdings.stakedbera.valueUsd || 0,
+                    holdings.stakedbera.multiplier || 1,
+                    holdings.bgt.valueUsd || 0,
+                    holdings.bgt.multiplier || 1,
+                    holdings.snrusd.valueUsd || 0,
+                    holdings.snrusd.multiplier || 1,
+                    holdings.jnrusd.valueUsd || 0,
+                    holdings.jnrusd.multiplier || 1,
+                    holdings.amyusdt0.valueUsd || 0,
+                    holdings.amyusdt0.multiplier || 1,
+                    holdings.plskdk.valueUsd || 0,
+                    holdings.plskdk.multiplier || 1,
+                    holdings.bullas.count || 0,
+                    holdings.bullas.multiplier || 1,
+                    holdings.boogaBullas.count || 0,
+                    holdings.boogaBullas.multiplier || 1
                 );
             } catch (err) {
                 console.error('Async token refresh failed:', err.message);
