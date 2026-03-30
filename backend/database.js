@@ -328,11 +328,14 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='ember_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN ember_multiplier INTEGER DEFAULT 0;
                 END IF;
-                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='genesis_multiplier') THEN
-                    ALTER TABLE amy_points ADD COLUMN genesis_multiplier INTEGER DEFAULT 0;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='plsbera_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN plsbera_multiplier INTEGER DEFAULT 1;
                 END IF;
-            END $$;
-        `);
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='last_updated') THEN
+                    ALTER TABLE amy_points ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                END IF;
+                END $$;
+                `);
 
         // Add social connection columns to verified_users
         await client.query(`
@@ -1845,7 +1848,7 @@ const points = {
     },
 
     // Update token holdings data for a user (SAIL.r, plvHEDGE, plsBERA, HONEY-Bend, Staked BERA)
-    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1, surfusdValueUsd = 0, surfusdMultiplier = 1, surfcbbtcValueUsd = 0, surfcbbtcMultiplier = 1, surfwethValueUsd = 0, surfwethMultiplier = 1, bgtValueUsd = 0, bgtMultiplier = 1, snrusdValueUsd = 0, snrusdMultiplier = 1, jnrusdValueUsd = 0, jnrusdMultiplier = 1, amyusdt0ValueUsd = 0, amyusdt0Multiplier = 1, plskdkValueUsd = 0, plskdkMultiplier = 1, bullasCount = 0, bullasMultiplier = 1, boogaBullasCount = 0, boogaBullasMultiplier = 1) => {
+    updateTokenData: async (wallet, sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd = 0, honeybendMultiplier = 1, stakedberaValueUsd = 0, stakedberaMultiplier = 1, bgtValueUsd = 0, bgtMultiplier = 1, snrusdValueUsd = 0, snrusdMultiplier = 1, jnrusdValueUsd = 0, jnrusdMultiplier = 1, amyusdt0ValueUsd = 0, amyusdt0Multiplier = 1, plskdkValueUsd = 0, plskdkMultiplier = 1, bullasCount = 0, bullasMultiplier = 1, boogaBullasCount = 0, boogaBullasMultiplier = 1) => {
         if (!pool) return null;
         await pool.query(
             `UPDATE amy_points SET
@@ -1859,28 +1862,22 @@ const points = {
              honeybend_multiplier = $8,
              stakedbera_value_usd = $9,
              stakedbera_multiplier = $10,
-             surfusd_value_usd = $11,
-             surfusd_multiplier = $12,
-             surfcbbtc_value_usd = $13,
-             surfcbbtc_multiplier = $14,
-             surfweth_value_usd = $15,
-             surfweth_multiplier = $16,
-             bgt_value_usd = $17,
-             bgt_multiplier = $18,
-             snrusd_value_usd = $19,
-             snrusd_multiplier = $20,
-             jnrusd_value_usd = $21,
-             jnrusd_multiplier = $22,
-             amyusdt0_value_usd = $23,
-             amyusdt0_multiplier = $24,
-             plskdk_value_usd = $25,
-             plskdk_multiplier = $26,
-             bullas_count = $27,
-             bullas_multiplier = $28,
-             booga_bullas_count = $29,
-             booga_bullas_multiplier = $30
-             WHERE LOWER(wallet) = LOWER($31)`,
-            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, surfusdValueUsd, surfusdMultiplier, surfcbbtcValueUsd, surfcbbtcMultiplier, surfwethValueUsd, surfwethMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, amyusdt0ValueUsd, amyusdt0Multiplier, plskdkValueUsd, plskdkMultiplier, bullasCount, bullasMultiplier, boogaBullasCount, boogaBullasMultiplier, wallet]
+             bgt_value_usd = $11,
+             bgt_multiplier = $12,
+             snrusd_value_usd = $13,
+             snrusd_multiplier = $14,
+             jnrusd_value_usd = $15,
+             jnrusd_multiplier = $16,
+             amyusdt0_value_usd = $17,
+             amyusdt0_multiplier = $18,
+             plskdk_value_usd = $19,
+             plskdk_multiplier = $20,
+             bullas_count = $21,
+             bullas_multiplier = $22,
+             booga_bullas_count = $23,
+             booga_bullas_multiplier = $24
+             WHERE LOWER(wallet) = LOWER($25)`,
+            [sailrValueUsd, sailrMultiplier, plvhedgeValueUsd, plvhedgeMultiplier, plsberaValueUsd, plsberaMultiplier, honeybendValueUsd, honeybendMultiplier, stakedberaValueUsd, stakedberaMultiplier, bgtValueUsd, bgtMultiplier, snrusdValueUsd, snrusdMultiplier, jnrusdValueUsd, jnrusdMultiplier, amyusdt0ValueUsd, amyusdt0Multiplier, plskdkValueUsd, plskdkMultiplier, bullasCount, bullasMultiplier, boogaBullasCount, boogaBullasMultiplier, wallet]
         );
         return { wallet };
     },
