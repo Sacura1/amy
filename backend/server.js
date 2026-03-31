@@ -1876,8 +1876,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
 
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         // Total multiplier: sum of active multipliers (same as cron job)
-        // Note: dawnReferralMultiplier IS included - active for existing holders (registration closed for new users)
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (plskdkMult > 1 ? plskdkMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + (amyusdt0Mult > 1 ? amyusdt0Mult : 0) + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+        // Requirement: referralMult removed as per customer request
+        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (plskdkMult > 1 ? plskdkMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + (amyusdt0Mult > 1 ? amyusdt0Mult : 0) + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -2453,6 +2453,13 @@ const BADGE_TOKENS = {
         symbol: 'snrUSD',
         decimals: 18,
         isStablecoin: true // Pegged to $1
+    },
+    SNRUSD: {
+        address: '0x18e310dD4A6179D9600E95D18926AB7819B2A071', // snrUSD Reward Vault
+        tokenAddress: '0xC38421E5577250EBa177Bc5bC832E747bea13Ee0', // snrUSD Token
+        symbol: 'snrUSD',
+        decimals: 18,
+        isStablecoin: true
     },
     JNRUSD: {
         address: '0x3a0A97DcA5e6CaCC258490d5ece453412f8E1883', // jnrUSD vault token
@@ -4908,7 +4915,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + referralMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -4932,7 +4939,6 @@ async function awardHourlyPoints() {
                     if (raidsharkMult > 1) boostParts.push(`RaidShark ${raidsharkMult}x`);
                     if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
                     if (swapperMult > 1) boostParts.push(`Swapper ${swapperMult}x`);
-                    if (referralMult > 1) boostParts.push(`Referral ${referralMult}x`);
                     if (dawnReferralMultiplier > 1) boostParts.push(`Dawn Referral ${dawnReferralMultiplier}x`);
                     if (telegramModMult > 1) boostParts.push(`TG Mod ${telegramModMult}x`);
                     if (discordModMult > 1) boostParts.push(`Discord Mod ${discordModMult}x`);
