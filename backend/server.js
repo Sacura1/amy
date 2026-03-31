@@ -1733,6 +1733,7 @@ app.get('/api/earn-data', async (req, res) => {
                     AVG(NULLIF(regexp_replace(apr, '[^0-9.]', '', 'g'), '')::float) as avg_val
                 FROM earn_data_history
                 WHERE timestamp > CURRENT_TIMESTAMP - INTERVAL '7 days'
+                AND NULLIF(regexp_replace(apr, '[^0-9.]', '', 'g'), '')::float < 500
                 GROUP BY position_id
             )
             SELECT 
