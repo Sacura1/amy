@@ -60,11 +60,11 @@ class StrategyService {
     }
 
     async runBaseBuild() {
-        console.log('🔄 [Base Build] Refreshing AMY balances...');
+        console.log('🔄 [Base Build] Refreshing balances...');
         try {
-            const result = await this.db.pool.query('SELECT wallet FROM verified_users');
+            const usersRes = await this.db.pool.query('SELECT wallet FROM verified_users');
             const contract = new ethers.Contract(AMY_TOKEN, ERC20_ABI, this.provider);
-            for (const row of result.rows) {
+            for (const row of usersRes.rows) {
                 try {
                     const bal = await contract.balanceOf(row.wallet);
                     await this.db.pool.query(
@@ -75,7 +75,7 @@ class StrategyService {
                     );
                 } catch (e) {}
             }
-            console.log(`✅ [Base Build] Done (${result.rows.length} wallets)`);
+            console.log(`✅ [Base Build] Done (${usersRes.rows.length} wallets)`);
         } catch (err) { console.error('❌ [Base Build] Error:', err.message); }
     }
 
@@ -177,7 +177,7 @@ class StrategyService {
             await this.syncSailrApr();
 
             console.log('✅ [Earn Update] All ground truth stats synced.');
-        } catch (err) { console.error('❌ [Earn Update] Error:', err.message); }
+        } catch (err) { console.error('❌ [Earn Update] Master Error:', err.message); }
     }
 
     async syncAlgebraApr(id, poolId, url, amyPrice) {
@@ -204,9 +204,9 @@ class StrategyService {
             const annualBgtValue = rewardRateBgt * 31536000 * beraPrice;
             const stakedValue = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
             
-            // Safety check to avoid crazy APR numbers
-            let apr = (stakedValue > 0) ? (annualBgtValue / stakedValue) * 100 : 0;
-            if (apr > 1000) apr = 10.3; // Fallback to Python ground truth if math explodes
+            // Robust safety check - cap at 500% to avoid BigInt overflow artifacts
+            let apr = (stakedValue > 100) ? (annualBgtValue / stakedValue) * 100 : 10.3;
+            if (apr > 500) apr = 10.3;
 
             const tvl = parseFloat(seniorData.tvl.slice(-1)[0].value);
             await this.saveMetric('snrusd', tvl, apr);
@@ -247,7 +247,8 @@ class StrategyService {
     }
 
     async saveMetric(id, tvl, apr) {
-        const tvlStr = (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
+        // REQUIREMENT FIX: If TVL is 0 or null, return TBC
+        const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
         await this.db.pool.query('INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)', [id, tvlStr, `${apr.toFixed(1)}%`]);
     }
 }
