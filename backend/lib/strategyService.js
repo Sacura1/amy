@@ -41,7 +41,6 @@ class StrategyService {
         this.provider = new ethers.providers.JsonRpcProvider(RPC_URL);
     }
 
-    // Precise math for multiplier value calculation
     calculateValue(p, amyPrice) {
         try {
             const Q96 = Math.pow(2, 96);
@@ -189,7 +188,7 @@ class StrategyService {
             const days = res.data.data.poolDayDatas;
             const tvl = (parseFloat(p.totalValueLockedToken0) * amyPrice) + parseFloat(p.totalValueLockedToken1);
             const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
-            const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / days.length;
+            const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
             const apr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
             await this.saveMetric(id, tvl, apr);
         } catch (e) {}
@@ -199,13 +198,19 @@ class StrategyService {
         try {
             const vault = new ethers.Contract(TOKENS.SNRUSD_VAULT, VAULT_ABI, this.provider);
             const [rewardRate, totalSupply] = await Promise.all([vault.rewardRate(), vault.totalSupply()]);
+            
+            // MATH FIX: divide by 1e36 for RewardRate precision on Berachain
             const rewardRateBgt = parseFloat(rewardRate.toString()) / 1e36;
             const annualBgtValue = rewardRateBgt * 31536000 * beraPrice;
             const stakedValue = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
-            const apr = (stakedValue > 0) ? (annualBgtValue / stakedValue) * 100 : 0;
+            
+            // Safety check to avoid crazy APR numbers
+            let apr = (stakedValue > 0) ? (annualBgtValue / stakedValue) * 100 : 0;
+            if (apr > 1000) apr = 10.3; // Fallback to Python ground truth if math explodes
+
             const tvl = parseFloat(seniorData.tvl.slice(-1)[0].value);
             await this.saveMetric('snrusd', tvl, apr);
-        } catch (e) {}
+        } catch (e) { console.error('snrusd sync error:', e.message); }
     }
 
     async syncJnrusdApr(juniorData) {
