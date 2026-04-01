@@ -2336,9 +2336,37 @@ app.get('/api/lp/:wallet', async (req, res) => {
         }
 
         const walletLower = wallet.toLowerCase();
-        const now = Date.now();
+        
+        // Prioritize Snapshot for consistent 'Currently Earning' display
+        const snapshotRes = await database.pool.query(
+            'SELECT snapshot_data FROM strategy_snapshots WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
 
-        // Check cache first
+        if (snapshotRes.rows.length > 0) {
+            const snap = snapshotRes.rows[0].snapshot_data;
+            const honeyLp = snap.positions.lp_amy_honey || { value_usd: 0, count: 0 };
+            console.log(`🧠 [API] LP status using snapshot for ${walletLower}`);
+            
+            return res.json({
+                success: true,
+                data: {
+                    wallet: walletLower,
+                    lpValueUsd: honeyLp.value_usd,
+                    totalLpValueUsd: honeyLp.value_usd,
+                    lpMultiplier: (honeyLp.value_usd >= 500) ? 100 : (honeyLp.value_usd >= 100) ? 10 : (honeyLp.value_usd >= 10) ? 5 : 1,
+                    positionsFound: honeyLp.count,
+                    inRangePositions: honeyLp.count,
+                    isInRange: honeyLp.count > 0,
+                    amyPriceUsd: 0.022,
+                    cached: true,
+                    tiers: LP_MULTIPLIER_TIERS
+                }
+            });
+        }
+
+        // Fallback to old cache/query if no snapshot exists
+        const now = Date.now();
         const cached = lpPositionCache.get(walletLower);
         if (cached && (now - cached.timestamp) < LP_CACHE_TTL) {
             return res.json({
@@ -2346,16 +2374,13 @@ app.get('/api/lp/:wallet', async (req, res) => {
                 data: {
                     ...cached.data,
                     cached: true,
-                    cacheAge: Math.round((now - cached.timestamp) / 1000 / 60), // minutes
+                    cacheAge: Math.round((now - cached.timestamp) / 1000 / 60),
                     tiers: LP_MULTIPLIER_TIERS
                 }
             });
         }
 
-        // Query LP position from blockchain
         const lpData = await queryLpPositions(wallet);
-
-        // Cache the result
         const responseData = {
             wallet: walletLower,
             lpValueUsd: lpData.lpValueUsd,
@@ -2368,7 +2393,6 @@ app.get('/api/lp/:wallet', async (req, res) => {
         };
         lpPositionCache.set(walletLower, { data: responseData, timestamp: now });
 
-        // Update database with fresh LP data if points system is available
         if (pointsDb) {
             await pointsDb.updateLpData(wallet, lpData.lpValueUsd, lpData.lpMultiplier);
         }
@@ -2835,6 +2859,51 @@ app.get('/api/tokens/:wallet', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Wallet address required' });
         }
 
+        const walletLower = wallet.toLowerCase();
+
+        // Prioritize Snapshot for consistent 'Active Strategies' display
+        const snapshotRes = await database.pool.query(
+            'SELECT snapshot_data FROM strategy_snapshots WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+
+        if (snapshotRes.rows.length > 0) {
+            const snap = snapshotRes.rows[0].snapshot_data;
+            const p = snap.positions;
+            console.log(`🧠 [API] Token status using snapshot for ${walletLower}`);
+
+            // Helper to map snapshot values back to the frontend format
+            const mapPos = (val, multiplier) => ({
+                valueUsd: val || 0,
+                multiplier: multiplier || 1,
+                isActive: (val > 0)
+            });
+
+            const holdings = {
+                sailr: mapPos(p.sailr?.value_usd, 3),
+                plvhedge: mapPos(p.plvhedge?.value_usd, 3),
+                plsbera: mapPos(p.plsbera?.value_usd, 3),
+                plskdk: mapPos(p.plskdk?.value_usd, 3),
+                honeybend: mapPos(p.honey_bend?.value_usd, 3),
+                stakedbera: mapPos(p.swbera?.value_usd, 3),
+                bgt: mapPos(p.bgt?.value_usd, 3),
+                snrusd: mapPos(p.snrusd?.value_usd, 3),
+                jnrusd: mapPos(p.jnrusd?.value_usd, 3),
+                amyusdt0: mapPos(p.lp_amy_usdt0?.value_usd, 10),
+                bullas: { count: 0, multiplier: 1 },
+                boogaBullas: { count: 0, multiplier: 1 }
+            };
+
+            return res.json({
+                success: true,
+                data: {
+                    wallet: walletLower,
+                    ...holdings,
+                    tiers: TOKEN_MULTIPLIER_TIERS
+                }
+            });
+        }
+
         const holdings = await queryAllTokenHoldings(wallet);
 
         // Save updated token data to database for badge system
@@ -2875,8 +2944,9 @@ app.get('/api/tokens/:wallet', async (req, res) => {
         res.json({
             success: true,
             data: {
-                wallet: wallet.toLowerCase(),
-                ...holdings
+                wallet: walletLower,
+                ...holdings,
+                tiers: TOKEN_MULTIPLIER_TIERS
             }
         });
 
