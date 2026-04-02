@@ -24,10 +24,13 @@ const TOKENS = {
     PLSKDK: '0xC6173A3405Fdb1f5c42004D2d71Cba9Bf1Cfa522',
     HONEY_BEND_VAULT: '0xDb6e93Cd7BddC45EbC411619792fc5f977316c38',
     SWBERA_VAULT: '0x118d2ceee9785eaf70c15cd74cd84c9f8c3eec9a',
-    SAILR_POOL: '0x704d1c9dddeb2ccd4bf999f3426c755917f0d00c'
+    SAILR_POOL: '0x704d1c9dddeb2ccd4bf999f3426c755917f0d00c',
+    BULLAS_NFT: '0xe8bEB147a93BB757DB15e468FaBD119CA087EfAE',
+    BOOGA_NFT: '0x9e6B748d25Ed2600Aa0ce7Cbb42267adCF21Fd9B'
 };
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
+const NFT_ABI = ['function balanceOf(address) view returns (uint256)'];
 const VAULT_ABI = [
     'function totalSupply() view returns (uint256)',
     'function rewardRate() view returns (uint256)',
@@ -41,17 +44,18 @@ class StrategyService {
         this.provider = new ethers.providers.JsonRpcProvider(RPC_URL);
     }
 
+    // Precise math for multiplier value calculation
     calculateValue(p, amyPrice) {
         try {
             const Q96 = Math.pow(2, 96);
             const liq = parseFloat(p.liquidity);
-            const tickCurrent = parseInt(p.pool.tick);
+            const sqrtP = parseFloat(p.pool.sqrtPrice) / Q96;
             const tickLower = parseInt(p.tickLower?.tickIdx || 0);
             const tickUpper = parseInt(p.tickUpper?.tickIdx || 0);
-            const sqrtP = parseFloat(p.pool.sqrtPrice) / Q96;
             const sqrtL = Math.sqrt(Math.pow(1.0001, tickLower));
             const sqrtU = Math.sqrt(Math.pow(1.0001, tickUpper));
             let a0 = 0, a1 = 0;
+            const tickCurrent = parseInt(p.pool.tick);
             if (tickCurrent < tickLower) a0 = liq * (sqrtU - sqrtL) / (sqrtL * sqrtU);
             else if (tickCurrent < tickUpper) { a0 = liq * (sqrtU - sqrtP) / (sqrtP * sqrtU); a1 = liq * (sqrtP - sqrtL); }
             else a1 = liq * (sqrtU - sqrtL);
@@ -60,11 +64,11 @@ class StrategyService {
     }
 
     async runBaseBuild() {
-        console.log('🔄 [Base Build] Refreshing balances...');
+        console.log('🔄 [Base Build] Refreshing AMY balances...');
         try {
-            const usersRes = await this.db.pool.query('SELECT wallet FROM verified_users');
+            const result = await this.db.pool.query('SELECT wallet FROM verified_users');
             const contract = new ethers.Contract(AMY_TOKEN, ERC20_ABI, this.provider);
-            for (const row of usersRes.rows) {
+            for (const row of result.rows) {
                 try {
                     const bal = await contract.balanceOf(row.wallet);
                     await this.db.pool.query(
@@ -75,12 +79,12 @@ class StrategyService {
                     );
                 } catch (e) {}
             }
-            console.log(`✅ [Base Build] Done (${usersRes.rows.length} wallets)`);
+            console.log(`✅ [Base Build] Done (${result.rows.length} wallets)`);
         } catch (err) { console.error('❌ [Base Build] Error:', err.message); }
     }
 
     async runFullStrategySnapshot() {
-        console.log('🧠 [Full Strategy] Generating snapshots...');
+        console.log('🧠 [Full Strategy] Generating snapshots for >300 AMY holders (including NFTs)...');
         try {
             const holders = await this.db.pool.query('SELECT wallet FROM user_base_build WHERE amy_balance >= 300');
             if (holders.rows.length === 0) return;
@@ -102,7 +106,9 @@ class StrategyService {
                         sailr: await this.fetchTokenBalance(wallet, TOKENS.SAILR),
                         plsbera: await this.fetchTokenBalance(wallet, TOKENS.PLSBERA),
                         plvhedge: await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE),
-                        plskdk: await this.fetchTokenBalance(wallet, TOKENS.PLSKDK)
+                        plskdk: await this.fetchTokenBalance(wallet, TOKENS.PLSKDK),
+                        bullas: await this.fetchNftCount(wallet, TOKENS.BULLAS_NFT),
+                        boogaBullas: await this.fetchNftCount(wallet, TOKENS.BOOGA_NFT)
                     }
                 };
                 await this.db.pool.query(
@@ -112,8 +118,16 @@ class StrategyService {
                     [wallet, JSON.stringify(snapshot)]
                 );
             }
-            console.log(`✅ [Full Strategy] Updated ${holders.rows.length} holders`);
+            console.log(`✅ [Full Strategy] Snapshots updated.`);
         } catch (err) { console.error('❌ [Full Strategy] Error:', err.message); }
+    }
+
+    async fetchNftCount(wallet, nftAddress) {
+        try {
+            const contract = new ethers.Contract(nftAddress, NFT_ABI, this.provider);
+            const bal = await contract.balanceOf(wallet);
+            return parseInt(bal.toString());
+        } catch (e) { return 0; }
     }
 
     async fetchTokenBalance(wallet, tokenAddress, customPrice = null) {
@@ -132,18 +146,6 @@ class StrategyService {
         } catch (e) { return { value_usd: 0 }; }
     }
 
-    async fetchGoldskyPositions(wallet, poolId, url, amyPrice) {
-        const query = { query: `{ positions(where: { owner: "${wallet.toLowerCase()}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) { liquidity tickLower { tickIdx } tickUpper { tickIdx } pool { tick sqrtPrice } } }` };
-        try {
-            const res = await axios.post(url, query);
-            const pos = res.data.data.positions;
-            if (!pos || pos.length === 0) return { value_usd: 0, count: 0 };
-            let total = 0;
-            for (const p of pos) { total += this.calculateValue(p, amyPrice); }
-            return { value_usd: total, count: pos.length };
-        } catch (e) { return { value_usd: 0, count: 0 }; }
-    }
-
     async getAmyPrice() {
         try {
             const res = await axios.get(`https://api.geckoterminal.com/api/v2/networks/berachain/pools/${AMY_HONEY_POOL}`);
@@ -156,6 +158,18 @@ class StrategyService {
             const res = await axios.get('https://api.geckoterminal.com/api/v2/networks/berachain/pools/0x2608b7c8eb17e22cb95b7cd6f872993cf33a4ca1');
             return parseFloat(res.data.data.attributes.base_token_price_usd) || 0.60;
         } catch (e) { return 0.60; }
+    }
+
+    async fetchGoldskyPositions(wallet, poolId, url, amyPrice) {
+        const query = { query: `{ positions(where: { owner: "${wallet.toLowerCase()}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) { liquidity tickLower { tickIdx } tickUpper { tickIdx } pool { tick sqrtPrice } } }` };
+        try {
+            const res = await axios.post(url, query);
+            const pos = res.data.data.positions;
+            if (!pos || pos.length === 0) return { value_usd: 0, count: 0 };
+            let total = 0;
+            for (const p of pos) { total += this.calculateValue(p, amyPrice); }
+            return { value_usd: total, count: pos.length };
+        } catch (e) { return { value_usd: 0, count: 0 }; }
     }
 
     async runEarnDataUpdate() {
@@ -198,19 +212,14 @@ class StrategyService {
         try {
             const vault = new ethers.Contract(TOKENS.SNRUSD_VAULT, VAULT_ABI, this.provider);
             const [rewardRate, totalSupply] = await Promise.all([vault.rewardRate(), vault.totalSupply()]);
-            
-            // MATH FIX: divide by 1e36 for RewardRate precision on Berachain
             const rewardRateBgt = parseFloat(rewardRate.toString()) / 1e36;
             const annualBgtValue = rewardRateBgt * 31536000 * beraPrice;
             const stakedValue = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
-            
-            // Robust safety check - cap at 500% to avoid BigInt overflow artifacts
             let apr = (stakedValue > 100) ? (annualBgtValue / stakedValue) * 100 : 10.3;
             if (apr > 500) apr = 10.3;
-
             const tvl = parseFloat(seniorData.tvl.slice(-1)[0].value);
             await this.saveMetric('snrusd', tvl, apr);
-        } catch (e) { console.error('snrusd sync error:', e.message); }
+        } catch (e) {console.error('snrusd sync error:', e.message);}
     }
 
     async syncJnrusdApr(juniorData) {
@@ -247,7 +256,6 @@ class StrategyService {
     }
 
     async saveMetric(id, tvl, apr) {
-        // REQUIREMENT FIX: If TVL is 0 or null, return TBC
         const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
         await this.db.pool.query('INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)', [id, tvlStr, `${apr.toFixed(1)}%`]);
     }

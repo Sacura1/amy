@@ -1876,9 +1876,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         }
 
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
-        // Total multiplier: sum of active multipliers (same as cron job)
-        // Requirement: referralMult removed as per customer request
-        const totalMultiplier = Math.max(1, lpMult + (sailrMult > 1 ? sailrMult : 0) + (plvhedgeMult > 1 ? plvhedgeMult : 0) + (plsberaMult > 1 ? plsberaMult : 0) + (plskdkMult > 1 ? plskdkMult : 0) + (honeybendMult > 1 ? honeybendMult : 0) + (stakedberaMult > 1 ? stakedberaMult : 0) + (bgtMult > 1 ? bgtMult : 0) + (snrusdMult > 1 ? snrusdMult : 0) + (jnrusdMult > 1 ? jnrusdMult : 0) + (bullasMult > 1 ? bullasMult : 0) + (boogaBullasMult > 1 ? boogaBullasMult : 0) + (amyusdt0Mult > 1 ? amyusdt0Mult : 0) + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+        // Total multiplier: sum of active multipliers (standardized calculation)
+        const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -2872,26 +2871,50 @@ app.get('/api/tokens/:wallet', async (req, res) => {
             const p = snap.positions;
             console.log(`🧠 [API] Token status using snapshot for ${walletLower}`);
 
-            // Helper to map snapshot values back to the frontend format
-            const mapPos = (val, multiplier) => ({
-                valueUsd: val || 0,
-                multiplier: multiplier || 1,
-                isActive: (val > 0)
-            });
+            // Helper to map snapshot values back to the frontend format with tiered multipliers
+            const mapPos = (val, tiers) => {
+                const value = val || 0;
+                let multiplier = 1;
+                
+                // Only calculate multiplier if user has a balance
+                if (value > 0) {
+                    if (value >= 500) multiplier = tiers[2];
+                    else if (value >= 100) multiplier = tiers[1];
+                    else if (value >= 10) multiplier = tiers[0];
+                }
+
+                return {
+                    valueUsd: value,
+                    multiplier: multiplier,
+                    isActive: (value >= 10) // Requirement: Badge active at $10+
+                };
+            };
+
+            const standardTiers = [3, 5, 10];
+            const lpTiers = [5, 10, 100];
 
             const holdings = {
-                sailr: mapPos(p.sailr?.value_usd, 3),
-                plvhedge: mapPos(p.plvhedge?.value_usd, 3),
-                plsbera: mapPos(p.plsbera?.value_usd, 3),
-                plskdk: mapPos(p.plskdk?.value_usd, 3),
-                honeybend: mapPos(p.honey_bend?.value_usd, 3),
-                stakedbera: mapPos(p.swbera?.value_usd, 3),
-                bgt: mapPos(p.bgt?.value_usd, 3),
-                snrusd: mapPos(p.snrusd?.value_usd, 3),
-                jnrusd: mapPos(p.jnrusd?.value_usd, 3),
-                amyusdt0: mapPos(p.lp_amy_usdt0?.value_usd, 10),
-                bullas: { count: 0, multiplier: 1 },
-                boogaBullas: { count: 0, multiplier: 1 }
+                sailr: mapPos(p.sailr?.value_usd, standardTiers),
+                plvhedge: mapPos(p.plvhedge?.value_usd, standardTiers),
+                plsbera: mapPos(p.plsbera?.value_usd, standardTiers),
+                plskdk: mapPos(p.plskdk?.value_usd, standardTiers),
+                honeybend: mapPos(p.honey_bend?.value_usd, standardTiers),
+                stakedbera: mapPos(p.swbera?.value_usd, standardTiers),
+                bgt: mapPos(p.bgt?.value_usd, standardTiers),
+                snrusd: mapPos(p.snrusd?.value_usd, standardTiers),
+                jnrusd: mapPos(p.jnrusd?.value_usd, standardTiers),
+                amyusdt0: mapPos(p.lp_amy_usdt0?.value_usd, lpTiers),
+                bullas: { 
+                    count: snap.positions.bullas || 0, 
+                    multiplier: (snap.positions.bullas > 0) ? 3 : 1,
+                    isActive: (snap.positions.bullas > 0)
+                },
+                boogaBullas: { 
+                    count: snap.positions.boogaBullas || 0, 
+                    multiplier: (snap.positions.boogaBullas > 0) ? 3 : 1,
+                    isActive: (snap.positions.boogaBullas > 0)
+                },
+                tiers: TOKEN_MULTIPLIER_TIERS
             };
 
             return res.json({
