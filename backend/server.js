@@ -2872,10 +2872,12 @@ app.get('/api/tokens/:wallet', async (req, res) => {
             console.log(`🧠 [API] Token status using snapshot for ${walletLower}`);
 
             // Helper to map snapshot values back to the frontend format with tiered multipliers
-            const mapPos = (val, tiers) => {
-                const value = val || 0;
+            const mapPos = (pos, tiers) => {
+                const value = (typeof pos === 'object' ? pos?.value_usd : pos) || 0;
+                // Use dedicated balance field if snapshot has it, otherwise fall back to value_usd
+                const balance = (typeof pos === 'object' && pos?.balance != null) ? pos.balance : value;
                 let multiplier = 1;
-                
+
                 // Only calculate multiplier if user has a balance
                 if (value > 0) {
                     if (value >= 500) multiplier = tiers[2];
@@ -2885,6 +2887,7 @@ app.get('/api/tokens/:wallet', async (req, res) => {
 
                 return {
                     valueUsd: value,
+                    balance: balance,
                     multiplier: multiplier,
                     isActive: (value >= 10) // Requirement: Badge active at $10+
                 };
@@ -2894,16 +2897,16 @@ app.get('/api/tokens/:wallet', async (req, res) => {
             const lpTiers = [5, 10, 100];
 
             const holdings = {
-                sailr: mapPos(p.sailr?.value_usd, standardTiers),
-                plvhedge: mapPos(p.plvhedge?.value_usd, standardTiers),
-                plsbera: mapPos(p.plsbera?.value_usd, standardTiers),
-                plskdk: mapPos(p.plskdk?.value_usd, standardTiers),
-                honeybend: mapPos(p.honey_bend?.value_usd, standardTiers),
-                stakedbera: mapPos(p.swbera?.value_usd, standardTiers),
-                bgt: mapPos(p.bgt?.value_usd, standardTiers),
-                snrusd: mapPos(p.snrusd?.value_usd, standardTiers),
-                jnrusd: mapPos(p.jnrusd?.value_usd, standardTiers),
-                amyusdt0: mapPos(p.lp_amy_usdt0?.value_usd, lpTiers),
+                sailr: mapPos(p.sailr, standardTiers),
+                plvhedge: mapPos(p.plvhedge, standardTiers),
+                plsbera: mapPos(p.plsbera, standardTiers),
+                plskdk: mapPos(p.plskdk, standardTiers),
+                honeybend: mapPos(p.honey_bend, standardTiers),
+                stakedbera: mapPos(p.swbera, standardTiers),
+                bgt: mapPos(p.bgt, standardTiers),
+                snrusd: mapPos(p.snrusd, standardTiers),
+                jnrusd: mapPos(p.jnrusd, standardTiers),
+                amyusdt0: { ...mapPos(p.lp_amy_usdt0, lpTiers), count: p.lp_amy_usdt0?.count || 0 },
                 bullas: { 
                     count: snap.positions.bullas || 0, 
                     multiplier: (snap.positions.bullas > 0) ? 3 : 1,
@@ -2916,6 +2919,29 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                 },
                 tiers: TOKEN_MULTIPLIER_TIERS
             };
+
+            // Sync snapshot values back to amy_points so DB multipliers stay current
+            try {
+                if (pointsDb) {
+                    await pointsDb.updateTokenData(
+                        wallet,
+                        holdings.sailr.valueUsd || 0,       holdings.sailr.multiplier || 1,
+                        holdings.plvhedge.valueUsd || 0,    holdings.plvhedge.multiplier || 1,
+                        holdings.plsbera.valueUsd || 0,     holdings.plsbera.multiplier || 1,
+                        holdings.honeybend.valueUsd || 0,   holdings.honeybend.multiplier || 1,
+                        holdings.stakedbera.valueUsd || 0,  holdings.stakedbera.multiplier || 1,
+                        holdings.bgt.valueUsd || 0,         holdings.bgt.multiplier || 1,
+                        holdings.snrusd.valueUsd || 0,      holdings.snrusd.multiplier || 1,
+                        holdings.jnrusd.valueUsd || 0,      holdings.jnrusd.multiplier || 1,
+                        holdings.amyusdt0.valueUsd || 0,    holdings.amyusdt0.multiplier || 1,
+                        holdings.plskdk.valueUsd || 0,      holdings.plskdk.multiplier || 1,
+                        holdings.bullas.count || 0,         holdings.bullas.multiplier || 1,
+                        holdings.boogaBullas.count || 0,    holdings.boogaBullas.multiplier || 1
+                    );
+                }
+            } catch (err) {
+                console.error('Error syncing snapshot to amy_points:', err.message);
+            }
 
             return res.json({
                 success: true,

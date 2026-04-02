@@ -16,17 +16,17 @@ const LR_CHARTS_API = 'https://lr-api-production.up.railway.app/api/v1/charts/va
 const TOKENS = {
     SNRUSD_VAULT: '0x18e310dD4A6179D9600E95D18926AB7819B2A071',
     JNRUSD: '0x3a0A97DcA5e6CaCC258490d5ece453412f8E1883',
-    SWBERA: '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A',
+    SWBERA: '0x118D2cEeE9785eaf70C15Cd74CD84c9f8c3EeC9a', // sWBERA staking vault
     BGT: '0x656b95e550c07a9ffe548bd4085c72418ceb1dba',
     SAILR: '0x59a61B8d3064A51a95a5D6393c03e2152b1a2770',
-    PLSBERA: '0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34',
-    PLVHEDGE: '0xc66D1a2460De7b96631f4AC37ce906aCFa6A3c30',
-    PLSKDK: '0xC6173A3405Fdb1f5c42004D2d71Cba9Bf1Cfa522',
+    PLSBERA: '0xe8bEB147a93BB757DB15e468FaBD119CA087EfAE', // plsBERA staking contract
+    PLVHEDGE: '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A', // plvHEDGE token
+    PLSKDK: '0x9e6B748d25Ed2600Aa0ce7Cbb42267adCF21Fd9B', // plsKDK staking contract
     HONEY_BEND_VAULT: '0xDb6e93Cd7BddC45EbC411619792fc5f977316c38',
     SWBERA_VAULT: '0x118d2ceee9785eaf70c15cd74cd84c9f8c3eec9a',
     SAILR_POOL: '0x704d1c9dddeb2ccd4bf999f3426c755917f0d00c',
-    BULLAS_NFT: '0xe8bEB147a93BB757DB15e468FaBD119CA087EfAE',
-    BOOGA_NFT: '0x9e6B748d25Ed2600Aa0ce7Cbb42267adCF21Fd9B'
+    BULLAS_NFT: '0x333814f5e16eee61d0c0b03a5b6abbd424b381c2',
+    BOOGA_NFT: '0x5a30c392714a9a9a8177c7998d9d59c3dd120917'
 };
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
@@ -88,9 +88,16 @@ class StrategyService {
         try {
             const holders = await this.db.pool.query('SELECT wallet FROM user_base_build WHERE amy_balance >= 300');
             if (holders.rows.length === 0) return;
-            const amyPrice = await this.getAmyPrice();
-            const beraPrice = await this.getBeraPrice();
-            
+            const [amyPrice, beraPrice, sailrPrice, plsBeraPrice, plvHedgePrice, plsKdkPrice] = await Promise.all([
+                this.getAmyPrice(),
+                this.getBeraPrice(),
+                this.getSailrPrice(),
+                this.getPlsBeraPrice(),
+                this.getPlvHedgePrice(),
+                this.getPlsKdkPrice(),
+            ]);
+            console.log(`💰 [Full Strategy] Prices: AMY=$${amyPrice.toFixed(4)}, BERA=$${beraPrice.toFixed(4)}, SAILR=$${sailrPrice.toFixed(4)}, plsBERA=$${plsBeraPrice.toFixed(4)}, plvHEDGE=$${plvHedgePrice.toFixed(4)}, plsKDK=$${plsKdkPrice.toFixed(4)}`);
+
             for (const row of holders.rows) {
                 const wallet = row.wallet.toLowerCase();
                 const snapshot = {
@@ -103,10 +110,10 @@ class StrategyService {
                         honey_bend: await this.fetchStakedBalance(wallet, TOKENS.HONEY_BEND_VAULT),
                         swbera: await this.fetchTokenBalance(wallet, TOKENS.SWBERA, beraPrice),
                         bgt: await this.fetchTokenBalance(wallet, TOKENS.BGT, 1.0),
-                        sailr: await this.fetchTokenBalance(wallet, TOKENS.SAILR),
-                        plsbera: await this.fetchTokenBalance(wallet, TOKENS.PLSBERA),
-                        plvhedge: await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE),
-                        plskdk: await this.fetchTokenBalance(wallet, TOKENS.PLSKDK),
+                        sailr: await this.fetchTokenBalance(wallet, TOKENS.SAILR, sailrPrice),
+                        plsbera: await this.fetchTokenBalance(wallet, TOKENS.PLSBERA, plsBeraPrice),
+                        plvhedge: await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE, plvHedgePrice),
+                        plskdk: await this.fetchTokenBalance(wallet, TOKENS.PLSKDK, plsKdkPrice),
                         bullas: await this.fetchNftCount(wallet, TOKENS.BULLAS_NFT),
                         boogaBullas: await this.fetchNftCount(wallet, TOKENS.BOOGA_NFT)
                     }
@@ -134,16 +141,19 @@ class StrategyService {
         try {
             const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.provider);
             const bal = await contract.balanceOf(wallet);
-            return { value_usd: parseFloat(ethers.utils.formatUnits(bal, 18)) * (customPrice || 1.0) };
-        } catch (e) { return { value_usd: 0 }; }
+            const balance = parseFloat(ethers.utils.formatUnits(bal, 18));
+            const price = (customPrice != null && customPrice > 0) ? customPrice : 1.0;
+            return { value_usd: balance * price, balance };
+        } catch (e) { return { value_usd: 0, balance: 0 }; }
     }
 
     async fetchStakedBalance(wallet, vaultAddress) {
         try {
             const vault = new ethers.Contract(vaultAddress, VAULT_ABI, this.provider);
             const bal = await vault.balanceOf(wallet);
-            return { value_usd: parseFloat(ethers.utils.formatUnits(bal, 18)) };
-        } catch (e) { return { value_usd: 0 }; }
+            const balance = parseFloat(ethers.utils.formatUnits(bal, 18));
+            return { value_usd: balance, balance };
+        } catch (e) { return { value_usd: 0, balance: 0 }; }
     }
 
     async getAmyPrice() {
@@ -158,6 +168,50 @@ class StrategyService {
             const res = await axios.get('https://api.geckoterminal.com/api/v2/networks/berachain/pools/0x2608b7c8eb17e22cb95b7cd6f872993cf33a4ca1');
             return parseFloat(res.data.data.attributes.base_token_price_usd) || 0.60;
         } catch (e) { return 0.60; }
+    }
+
+    async getSailrPrice() {
+        try {
+            const addr = '0x59a61b8d3064a51a95a5d6393c03e2152b1a2770';
+            const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);
+            return parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0) || 0;
+        } catch (e) { return 0; }
+    }
+
+    async getPlsBeraPrice() {
+        try {
+            const res = await axios.get('https://api.geckoterminal.com/api/v2/networks/berachain/pools/0x225915329b032b3385ac28b0dc53d989e8446fd1');
+            return parseFloat(res.data?.data?.attributes?.base_token_price_usd || 0) || 0;
+        } catch (e) { return 0; }
+    }
+
+    async getPlvHedgePrice() {
+        try {
+            const addr = '0x28602b1ae8ca0ff5cd01b96a36f88f72febe727a';
+            const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);
+            const price = parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0);
+            if (price > 0) return price;
+        } catch (e) {}
+        // Plutus TVL/totalSupply fallback
+        try {
+            const plutusRes = await axios.get('https://plutus.fi/api/assets/80094/0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A');
+            const tvl = parseFloat(plutusRes.data?.TVL || 0);
+            if (tvl > 0) {
+                const contract = new ethers.Contract(TOKENS.PLVHEDGE, ['function totalSupply() view returns (uint256)'], this.provider);
+                const totalSupply = await contract.totalSupply();
+                const supplyNum = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
+                if (supplyNum > 0) return tvl / supplyNum;
+            }
+        } catch (e) {}
+        return 0;
+    }
+
+    async getPlsKdkPrice() {
+        try {
+            const addr = '0xc6173a3405fdb1f5c42004d2d71cba9bf1cfa522';
+            const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);
+            return parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0) || 0;
+        } catch (e) { return 0; }
     }
 
     async fetchGoldskyPositions(wallet, poolId, url, amyPrice) {
@@ -219,7 +273,7 @@ class StrategyService {
             if (apr > 500) apr = 10.3;
             const tvl = parseFloat(seniorData.tvl.slice(-1)[0].value);
             await this.saveMetric('snrusd', tvl, apr);
-        } catch (e) {console.error('snrusd sync error:', e.message);}
+        } catch (e) {}
     }
 
     async syncJnrusdApr(juniorData) {
