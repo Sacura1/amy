@@ -334,6 +334,12 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='last_updated') THEN
                     ALTER TABLE amy_points ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='dawn_referral_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN dawn_referral_multiplier INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='genesis_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN genesis_multiplier INTEGER DEFAULT 0;
+                END IF;
                 END $$;
                 `);
 
@@ -2817,15 +2823,20 @@ const badges = {
 
         const earned = [];
 
-        // Get user data including token holdings and new badge multipliers
+        // Get user data including token holdings and standardized badge multipliers
         const userData = await pool.query(
             `SELECT v.x_username, p.total_points, p.lp_multiplier, p.lp_value_usd,
              p.sailr_multiplier, p.sailr_value_usd, p.plvhedge_multiplier, p.plvhedge_value_usd,
              p.plsbera_multiplier, p.plsbera_value_usd, p.honeybend_value_usd, p.honeybend_multiplier,
-             p.stakedbera_value_usd, p.stakedbera_multiplier, p.surfusd_value_usd, p.surfusd_multiplier,
-             p.surfcbbtc_value_usd, p.surfcbbtc_multiplier, p.surfweth_value_usd, p.surfweth_multiplier,
+             p.stakedbera_value_usd, p.stakedbera_multiplier,
+             p.bgt_value_usd, p.bgt_multiplier,
+             p.snrusd_value_usd, p.snrusd_multiplier,
+             p.jnrusd_value_usd, p.jnrusd_multiplier,
+             p.amyusdt0_value_usd, p.amyusdt0_multiplier,
+             p.plskdk_value_usd, p.plskdk_multiplier,
              p.raidshark_multiplier, p.onchain_conviction_multiplier,
              p.swapper_multiplier, p.ember_multiplier, p.genesis_multiplier,
+             p.dawn_referral_multiplier,
              r.referral_code, r.referral_count,
              p.bullas_count, p.bullas_multiplier, p.booga_bullas_count, p.booga_bullas_multiplier
              FROM verified_users v
@@ -2843,139 +2854,57 @@ const badges = {
                 earned.push(BADGE_DEFINITIONS.verified);
             }
 
-            // LP (Bulla Exchange) badges
-            const lpUsd = parseFloat(user.lp_value_usd) || 0;
-            if (lpUsd >= 500) earned.push(BADGE_DEFINITIONS.lp_x10);
-            else if (lpUsd >= 100) earned.push(BADGE_DEFINITIONS.lp_x5);
-            else if (lpUsd >= 10) earned.push(BADGE_DEFINITIONS.lp_x3);
+            // Helper for tiered value badges ($10, $100, $500)
+            const addTiered = (val, tiers) => {
+                const v = parseFloat(val) || 0;
+                if (v >= 500) earned.push(tiers[2]);
+                else if (v >= 100) earned.push(tiers[1]);
+                else if (v >= 10) earned.push(tiers[0]);
+            };
 
-            // SAIL.r badges
-            const sailrUsd = parseFloat(user.sailr_value_usd) || 0;
-            if (sailrUsd >= 500) earned.push(BADGE_DEFINITIONS.sailr_x10);
-            else if (sailrUsd >= 100) earned.push(BADGE_DEFINITIONS.sailr_x5);
-            else if (sailrUsd >= 10) earned.push(BADGE_DEFINITIONS.sailr_x3);
+            // AMY/HONEY LP badges
+            addTiered(user.lp_value_usd, [BADGE_DEFINITIONS.lp_x3, BADGE_DEFINITIONS.lp_x5, BADGE_DEFINITIONS.lp_x10]);
 
-            // plvHEDGE badges
-            const plvhedgeUsd = parseFloat(user.plvhedge_value_usd) || 0;
-            if (plvhedgeUsd >= 500) earned.push(BADGE_DEFINITIONS.plvhedge_x10);
-            else if (plvhedgeUsd >= 100) earned.push(BADGE_DEFINITIONS.plvhedge_x5);
-            else if (plvhedgeUsd >= 10) earned.push(BADGE_DEFINITIONS.plvhedge_x3);
+            // AMY/USDT0 LP badges (Standardized)
+            addTiered(user.amyusdt0_value_usd, [BADGE_DEFINITIONS.amyusdt0_x5, BADGE_DEFINITIONS.amyusdt0_x10, BADGE_DEFINITIONS.amyusdt0_x100]);
 
-            // plsBERA badges
-            const plsberaUsd = parseFloat(user.plsbera_value_usd) || 0;
-            if (plsberaUsd >= 500) earned.push(BADGE_DEFINITIONS.plsbera_x10);
-            else if (plsberaUsd >= 100) earned.push(BADGE_DEFINITIONS.plsbera_x5);
-            else if (plsberaUsd >= 10) earned.push(BADGE_DEFINITIONS.plsbera_x3);
+            // Partner Badges (SAIL.r, plvHEDGE, plsBERA, plsKDK, HONEY Bend, stBERA, snrUSD, jnrUSD)
+            addTiered(user.sailr_value_usd, [BADGE_DEFINITIONS.sailr_x3, BADGE_DEFINITIONS.sailr_x5, BADGE_DEFINITIONS.sailr_x10]);
+            addTiered(user.plvhedge_value_usd, [BADGE_DEFINITIONS.plvhedge_x3, BADGE_DEFINITIONS.plvhedge_x5, BADGE_DEFINITIONS.plvhedge_x10]);
+            addTiered(user.plsbera_value_usd, [BADGE_DEFINITIONS.plsbera_x3, BADGE_DEFINITIONS.plsbera_x5, BADGE_DEFINITIONS.plsbera_x10]);
+            addTiered(user.plskdk_value_usd, [BADGE_DEFINITIONS.plskdk_x3, BADGE_DEFINITIONS.plskdk_x5, BADGE_DEFINITIONS.plskdk_x10]);
+            addTiered(user.honeybend_value_usd, [BADGE_DEFINITIONS.honeybend_x3, BADGE_DEFINITIONS.honeybend_x5, BADGE_DEFINITIONS.honeybend_x10]);
+            addTiered(user.stakedbera_value_usd, [BADGE_DEFINITIONS.stakedbera_x3, BADGE_DEFINITIONS.stakedbera_x5, BADGE_DEFINITIONS.stakedbera_x10]);
+            addTiered(user.snrusd_value_usd, [BADGE_DEFINITIONS.snrusd_x3, BADGE_DEFINITIONS.snrusd_x5, BADGE_DEFINITIONS.snrusd_x10]);
+            addTiered(user.jnrusd_value_usd, [BADGE_DEFINITIONS.jnrusd_x3, BADGE_DEFINITIONS.jnrusd_x5, BADGE_DEFINITIONS.jnrusd_x10]);
 
-            // HONEY Bend badges
-            const honeybendUsd = parseFloat(user.honeybend_value_usd) || 0;
-            if (honeybendUsd >= 500) earned.push(BADGE_DEFINITIONS.honeybend_x10);
-            else if (honeybendUsd >= 100) earned.push(BADGE_DEFINITIONS.honeybend_x5);
-            else if (honeybendUsd >= 10) earned.push(BADGE_DEFINITIONS.honeybend_x3);
-
-            // Staked BERA badges
-            const stakedberaUsd = parseFloat(user.stakedbera_value_usd) || 0;
-            if (stakedberaUsd >= 500) earned.push(BADGE_DEFINITIONS.stakedbera_x10);
-            else if (stakedberaUsd >= 100) earned.push(BADGE_DEFINITIONS.stakedbera_x5);
-            else if (stakedberaUsd >= 10) earned.push(BADGE_DEFINITIONS.stakedbera_x3);
-
-            // SurfUSD badges
-            const surfusdUsd = parseFloat(user.surfusd_value_usd) || 0;
-            if (surfusdUsd >= 500) earned.push(BADGE_DEFINITIONS.surfusd_x10);
-            else if (surfusdUsd >= 100) earned.push(BADGE_DEFINITIONS.surfusd_x5);
-            else if (surfusdUsd >= 10) earned.push(BADGE_DEFINITIONS.surfusd_x3);
-
-            // SurfcbBTC badges
-            const surfcbbtcUsd = parseFloat(user.surfcbbtc_value_usd) || 0;
-            if (surfcbbtcUsd >= 500) earned.push(BADGE_DEFINITIONS.surfcbbtc_x10);
-            else if (surfcbbtcUsd >= 100) earned.push(BADGE_DEFINITIONS.surfcbbtc_x5);
-            else if (surfcbbtcUsd >= 10) earned.push(BADGE_DEFINITIONS.surfcbbtc_x3);
-
-            // SurfWETH badges
-            const surfwethUsd = parseFloat(user.surfweth_value_usd) || 0;
-            if (surfwethUsd >= 500) earned.push(BADGE_DEFINITIONS.surfweth_x10);
-            else if (surfwethUsd >= 100) earned.push(BADGE_DEFINITIONS.surfweth_x5);
-            else if (surfwethUsd >= 10) earned.push(BADGE_DEFINITIONS.surfweth_x3);
-
-            // BGT badges
+            // BGT badges (Standardized balance thresholds)
             const bgtUsd = parseFloat(user.bgt_value_usd) || 0;
-            if (bgtUsd >= 500) earned.push(BADGE_DEFINITIONS.bgt_x10);
-            else if (bgtUsd >= 100) earned.push(BADGE_DEFINITIONS.bgt_x5);
-            else if (bgtUsd >= 10) earned.push(BADGE_DEFINITIONS.bgt_x3);
+            if (bgtUsd >= 1) earned.push(BADGE_DEFINITIONS.bgt_x10);
+            else if (bgtUsd >= 0.1) earned.push(BADGE_DEFINITIONS.bgt_x5);
+            else if (bgtUsd >= 0.01) earned.push(BADGE_DEFINITIONS.bgt_x3);
 
-            // snrUSD badges
-            const snrusdUsd = parseFloat(user.snrusd_value_usd) || 0;
-            if (snrusdUsd >= 500) earned.push(BADGE_DEFINITIONS.snrusd_x10);
-            else if (snrusdUsd >= 100) earned.push(BADGE_DEFINITIONS.snrusd_x5);
-            else if (snrusdUsd >= 10) earned.push(BADGE_DEFINITIONS.snrusd_x3);
+            // NFT Badges (count-based)
+            if (parseInt(user.bullas_count) >= 2) earned.push(BADGE_DEFINITIONS.bullas_x3);
+            if (parseInt(user.booga_bullas_count) >= 3) earned.push(BADGE_DEFINITIONS.booga_bullas_x3);
 
-            // jnrUSD badges
-            const jnrusdUsd = parseFloat(user.jnrusd_value_usd) || 0;
-            if (jnrusdUsd >= 500) earned.push(BADGE_DEFINITIONS.jnrusd_x10);
-            else if (jnrusdUsd >= 100) earned.push(BADGE_DEFINITIONS.jnrusd_x5);
-            else if (jnrusdUsd >= 10) earned.push(BADGE_DEFINITIONS.jnrusd_x3);
+            // Promo badges (Manual Multipliers)
+            if (parseInt(user.raidshark_multiplier) >= 3) earned.push(BADGE_DEFINITIONS.raidshark_x3);
+            if (parseInt(user.onchain_conviction_multiplier) >= 3) earned.push(BADGE_DEFINITIONS.conviction_x3);
+            if (parseInt(user.swapper_multiplier) >= 3) earned.push(BADGE_DEFINITIONS.swapper_x3);
+            if (parseInt(user.ember_multiplier) >= 3) earned.push(BADGE_DEFINITIONS.ember_x3);
 
-            // Bullas NFT badges (count-based)
-            const bullasCount = parseInt(user.bullas_count) || 0;
-            if (bullasCount >= 28) earned.push(BADGE_DEFINITIONS.bullas_x15);
-            else if (bullasCount >= 8) earned.push(BADGE_DEFINITIONS.bullas_x5);
-            else if (bullasCount >= 2) earned.push(BADGE_DEFINITIONS.bullas_x3);
+            // DAWN LEGACY (Standardized from CSV)
+            const dawnMult = parseInt(user.dawn_referral_multiplier) || 0;
+            if (dawnMult >= 10) earned.push(BADGE_DEFINITIONS.referral_x10);
+            else if (dawnMult >= 5) earned.push(BADGE_DEFINITIONS.referral_x5);
+            else if (dawnMult >= 3) earned.push(BADGE_DEFINITIONS.referral_x3);
 
-            // Booga Bullas NFT badges (count-based)
-            const boogaBullasCount = parseInt(user.booga_bullas_count) || 0;
-            if (boogaBullasCount >= 42) earned.push(BADGE_DEFINITIONS.booga_bullas_x15);
-            else if (boogaBullasCount >= 13) earned.push(BADGE_DEFINITIONS.booga_bullas_x5);
-            else if (boogaBullasCount >= 3) earned.push(BADGE_DEFINITIONS.booga_bullas_x3);
-
-            // RaidShark badges (based on multiplier assigned by admin)
-            const raidsharkMult = parseInt(user.raidshark_multiplier) || 0;
-            if (raidsharkMult >= 15) earned.push(BADGE_DEFINITIONS.raidshark_x15);
-            else if (raidsharkMult >= 7) earned.push(BADGE_DEFINITIONS.raidshark_x7);
-            else if (raidsharkMult >= 3) earned.push(BADGE_DEFINITIONS.raidshark_x3);
-
-            // Onchain Conviction badges (based on multiplier assigned by admin)
-            const convictionMult = parseInt(user.onchain_conviction_multiplier) || 0;
-            if (convictionMult >= 10) earned.push(BADGE_DEFINITIONS.conviction_x10);
-            else if (convictionMult >= 5) earned.push(BADGE_DEFINITIONS.conviction_x5);
-            else if (convictionMult >= 3) earned.push(BADGE_DEFINITIONS.conviction_x3);
-
-            // Ember badges (admin-assigned)
-            const emberMult = parseInt(user.ember_multiplier) || 0;
-            if (emberMult >= 10) earned.push(BADGE_DEFINITIONS.ember_x10);
-            else if (emberMult >= 5) earned.push(BADGE_DEFINITIONS.ember_x5);
-            else if (emberMult >= 3) earned.push(BADGE_DEFINITIONS.ember_x3);
-
-            // Genesis badges (admin-assigned)
+            // GENESIS LEGACY (Standardized from CSV)
             const genesisMult = parseInt(user.genesis_multiplier) || 0;
             if (genesisMult >= 10) earned.push(BADGE_DEFINITIONS.genesis_x10);
             else if (genesisMult >= 5) earned.push(BADGE_DEFINITIONS.genesis_x5);
             else if (genesisMult >= 3) earned.push(BADGE_DEFINITIONS.genesis_x3);
-
-            // Seasoned Swapper badges (based on multiplier assigned by admin)
-            const swapperMult = parseInt(user.swapper_multiplier) || 0;
-            if (swapperMult >= 10) earned.push(BADGE_DEFINITIONS.swapper_x10);
-            else if (swapperMult >= 5) earned.push(BADGE_DEFINITIONS.swapper_x5);
-            else if (swapperMult >= 3) earned.push(BADGE_DEFINITIONS.swapper_x3);
-
-            // Referral badges - calculate valid referral count dynamically
-            let validRefs = 0;
-            if (user.referral_code) {
-                const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
-                const refResult = await pool.query(
-                    'SELECT COUNT(*) as count FROM referrals WHERE UPPER(referred_by) = UPPER($1) AND last_known_balance >= $2',
-                    [user.referral_code, MINIMUM_AMY]
-                );
-                validRefs = parseInt(refResult.rows[0].count) || 0;
-            }
-
-            // Referral badges (old system - kept for backwards compatibility)
-            if (validRefs >= 10) earned.push(BADGE_DEFINITIONS.referrer_10);
-            else if (validRefs >= 5) earned.push(BADGE_DEFINITIONS.referrer_5);
-
-            // Referral badges (new multiplier-based system: 1=x3, 2=x5, 3+=x10)
-            if (validRefs >= 3) earned.push(BADGE_DEFINITIONS.referral_x10);
-            else if (validRefs >= 2) earned.push(BADGE_DEFINITIONS.referral_x5);
-            else if (validRefs >= 1) earned.push(BADGE_DEFINITIONS.referral_x3);
 
             // Points badges
             const pts = parseFloat(user.total_points) || 0;
@@ -2985,6 +2914,7 @@ const badges = {
 
         return earned;
     }
+
 };
 
 // Customization items helper functions
