@@ -2629,7 +2629,11 @@ const BADGE_DEFINITIONS = {
     // Genesis badges (admin-assigned, OGs)
     genesis_x3: { id: 'genesis_x3', name: 'Genesis Level 1', description: 'Genesis OG Top 50 x3', icon: '⭐' },
     genesis_x5: { id: 'genesis_x5', name: 'Genesis Level 2', description: 'Genesis OG Top 20 x5', icon: '⭐' },
-    genesis_x10: { id: 'genesis_x10', name: 'Genesis Level 3', description: 'Genesis OG Top 10 x10', icon: '⭐' }
+    genesis_x10: { id: 'genesis_x10', name: 'Genesis Level 3', description: 'Genesis OG Top 10 x10', icon: '⭐' },
+    // AMY/USDT0 LP badges
+    amyusdt0_x5: { id: 'amyusdt0_x5', name: 'AMY/USDT0 Bronze', description: '$10+ AMY/USDT0 LP', icon: '💱' },
+    amyusdt0_x10: { id: 'amyusdt0_x10', name: 'AMY/USDT0 Silver', description: '$100+ AMY/USDT0 LP', icon: '💱' },
+    amyusdt0_x100: { id: 'amyusdt0_x100', name: 'AMY/USDT0 Gold', description: '$500+ AMY/USDT0 LP', icon: '💱' }
 };
 
 // User profiles helper functions
