@@ -2467,6 +2467,7 @@ const BADGE_TOKENS = {
         address: '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A',
         symbol: 'plvHEDGE',
         decimals: 18,
+        geckoPoolAddress: '0xbb27edace822f244a91c2417b07c617e7a691be6', // plvHEDGE/HONEY pool — accurate ~$1.17
         geckoId: 'berachain_0x28602b1ae8ca0ff5cd01b96a36f88f72febe727a'
     },
     PLSBERA: {
@@ -2632,10 +2633,8 @@ async function fetchTokenPrice(tokenKey) {
                 price = parseFloat(data?.data?.attributes?.token_prices?.[priceAddress] || 0);
             }
 
-            // plvHEDGE is a vault receipt token — GeckoTerminal returns a wrong illiquid price.
-            // Always derive from Plutus TVL / totalSupply, ignoring whatever GeckoTerminal returned.
+            // plvHEDGE now uses geckoPoolAddress above — this block is no longer reachable for PLVHEDGE
             if (tokenKey === 'PLVHEDGE') {
-                price = 0; // reset any bad GeckoTerminal price
                 try {
                     const plutusResp = await fetch(
                         'https://plutus.fi/api/assets/80094/0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A',
@@ -4162,6 +4161,157 @@ app.post('/api/admin/referrals/set-dawn-multiplier', isAdmin, async (req, res) =
 });
 
 // ============================================
+// ADMIN: TRIGGER POINTS CRON FOR ONE WALLET
+// ============================================
+
+// Runs the full hourly points distribution logic for a single wallet immediately.
+// Use after deploy to confirm multipliers and history are correct without waiting an hour.
+// POST /api/admin/trigger-points-wallet  { wallet: "0x..." }
+app.post('/api/admin/trigger-points-wallet', isAdmin, async (req, res) => {
+    try {
+        const targetWallet = (req.body.wallet || '').toLowerCase();
+        if (!targetWallet) return res.status(400).json({ success: false, error: 'wallet required' });
+        if (!pointsDb) return res.status(500).json({ success: false, error: 'pointsDb not ready' });
+
+        const userData = await pointsDb.getPoints(targetWallet);
+        if (!userData || userData.pointsPerHour <= 0) {
+            return res.status(404).json({ success: false, error: 'Wallet not found or has no pointsPerHour' });
+        }
+
+        // ── Snapshot-based token holdings (same logic as hourly cron) ──
+        const snapRes = await database.pool.query(
+            'SELECT snapshot_data FROM strategy_snapshots WHERE LOWER(wallet) = LOWER($1)',
+            [targetWallet]
+        );
+        let tokenHoldings;
+        if (snapRes.rows.length > 0) {
+            const snap = snapRes.rows[0].snapshot_data;
+            const p = snap.positions;
+            const stdT = [3, 5, 10];
+            const lpT  = [5, 10, 100];
+            const mp = (pos, tiers) => {
+                const v = (typeof pos === 'object' ? pos?.value_usd : pos) || 0;
+                const b = (typeof pos === 'object' && pos?.balance != null) ? pos.balance : v;
+                let m = 1;
+                if (v >= 500) m = tiers[2]; else if (v >= 100) m = tiers[1]; else if (v >= 10) m = tiers[0];
+                return { valueUsd: v, balance: b, multiplier: m };
+            };
+            const bullasCount = snap.positions.bullas || 0;
+            const boogaCount  = snap.positions.boogaBullas || 0;
+            tokenHoldings = {
+                sailr:      mp(p.sailr,       stdT),
+                plvhedge:   mp(p.plvhedge,    stdT),
+                plsbera:    mp(p.plsbera,     stdT),
+                plskdk:     mp(p.plskdk,      stdT),
+                honeybend:  mp(p.honey_bend,  stdT),
+                stakedbera: mp(p.swbera,      stdT),
+                bgt:        mp(p.bgt,         stdT),
+                snrusd:     mp(p.snrusd,      stdT),
+                jnrusd:     mp(p.jnrusd,      stdT),
+                amyusdt0:   { ...mp(p.lp_amy_usdt0, lpT), count: p.lp_amy_usdt0?.count || 0 },
+                bullas:     { count: bullasCount, multiplier: getBullasMultiplier(bullasCount) },
+                boogaBullas:{ count: boogaCount,  multiplier: getBoogaBullasMultiplier(boogaCount) },
+            };
+        } else {
+            tokenHoldings = await queryAllTokenHoldings(targetWallet);
+        }
+
+        // Save token data
+        await pointsDb.updateTokenData(
+            targetWallet,
+            tokenHoldings.sailr.valueUsd || 0,      tokenHoldings.sailr.multiplier || 1,
+            tokenHoldings.plvhedge.valueUsd || 0,   tokenHoldings.plvhedge.multiplier || 1,
+            tokenHoldings.plsbera.valueUsd || 0,    tokenHoldings.plsbera.multiplier || 1,
+            tokenHoldings.honeybend.valueUsd || 0,  tokenHoldings.honeybend.multiplier || 1,
+            tokenHoldings.stakedbera.valueUsd || 0, tokenHoldings.stakedbera.multiplier || 1,
+            tokenHoldings.bgt.valueUsd || 0,        tokenHoldings.bgt.multiplier || 1,
+            tokenHoldings.snrusd.valueUsd || 0,     tokenHoldings.snrusd.multiplier || 1,
+            tokenHoldings.jnrusd.valueUsd || 0,     tokenHoldings.jnrusd.multiplier || 1,
+            tokenHoldings.amyusdt0.valueUsd || 0,   tokenHoldings.amyusdt0.multiplier || 1,
+            tokenHoldings.plskdk.valueUsd || 0,     tokenHoldings.plskdk.multiplier || 1,
+            tokenHoldings.bullas.count || 0,        tokenHoldings.bullas.multiplier || 1,
+            tokenHoldings.boogaBullas.count || 0,   tokenHoldings.boogaBullas.multiplier || 1
+        );
+
+        // ── Badge multipliers ──
+        const badgeMults = await database.points.getMultiplierBadges(targetWallet);
+        const raidsharkMult      = badgeMults.raidsharkMultiplier > 1 ? badgeMults.raidsharkMultiplier : 0;
+        const onchainConviction  = badgeMults.onchainConvictionMultiplier > 1 ? badgeMults.onchainConvictionMultiplier : 0;
+        const swapperMult        = badgeMults.swapperMultiplier > 0 ? badgeMults.swapperMultiplier : 0;
+        const telegramModMult    = badgeMults.telegramModMultiplier > 0 ? badgeMults.telegramModMultiplier : 0;
+        const discordModMult     = badgeMults.discordModMultiplier > 0 ? badgeMults.discordModMultiplier : 0;
+        const emberMult          = badgeMults.emberMultiplier > 0 ? badgeMults.emberMultiplier : 0;
+        const genesisMult        = badgeMults.genesisMultiplier > 0 ? badgeMults.genesisMultiplier : 0;
+
+        // ── Referral ──
+        let dawnReferralMultiplier = 0;
+        if (referralsDb) {
+            const dawnData = await referralsDb.getDawnReferralData(targetWallet);
+            if (dawnData) dawnReferralMultiplier = dawnData.dawnReferralMultiplier || 0;
+        }
+
+        // ── Calculate total ──
+        const lpMult        = parseInt(userData.lpMultiplier) > 1 ? parseInt(userData.lpMultiplier) : 0;
+        const sailrMult     = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
+        const amyusdt0Mult  = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 0;
+        const plvhedgeMult  = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 0;
+        const plsberaMult   = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 0;
+        const plskdkMult    = tokenHoldings.plskdk.multiplier > 1 ? tokenHoldings.plskdk.multiplier : 0;
+        const honeybendMult = tokenHoldings.honeybend.multiplier > 1 ? tokenHoldings.honeybend.multiplier : 0;
+        const stakedberaMult= tokenHoldings.stakedbera.multiplier > 1 ? tokenHoldings.stakedbera.multiplier : 0;
+        const bgtMult       = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 0;
+        const snrusdMult    = tokenHoldings.snrusd.multiplier > 1 ? tokenHoldings.snrusd.multiplier : 0;
+        const jnrusdMult    = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 0;
+        const bullasMult    = tokenHoldings.bullas.multiplier > 1 ? tokenHoldings.bullas.multiplier : 0;
+        const boogaMult     = tokenHoldings.boogaBullas.multiplier > 1 ? tokenHoldings.boogaBullas.multiplier : 0;
+        const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaMult + amyusdt0Mult + raidsharkMult + onchainConviction + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+
+        // ── Build breakdown & write history ──
+        const breakdown = [];
+        if (lpMult > 1)          breakdown.push({ name: 'AMY/HONEY - LP',        multiplier: lpMult });
+        if (amyusdt0Mult > 1)    breakdown.push({ name: 'AMY/USDT0 - LP',        multiplier: amyusdt0Mult });
+        if (onchainConviction > 1) breakdown.push({ name: 'Conviction - Monthly', multiplier: onchainConviction });
+        if (sailrMult > 1)       breakdown.push({ name: 'SAIL.r - Royalty',       multiplier: sailrMult });
+        if (dawnReferralMultiplier > 0) breakdown.push({ name: 'Dawn - Legacy',   multiplier: dawnReferralMultiplier });
+        if (plsberaMult > 1)     breakdown.push({ name: 'plsBERA - Staked',       multiplier: plsberaMult });
+        if (plskdkMult > 1)      breakdown.push({ name: 'plsKDK - Staked',        multiplier: plskdkMult });
+        if (plvhedgeMult > 1)    breakdown.push({ name: 'plvHEDGE - Vault',       multiplier: plvhedgeMult });
+        if (snrusdMult > 1)      breakdown.push({ name: 'snrUSD - Vault',         multiplier: snrusdMult });
+        if (jnrusdMult > 1)      breakdown.push({ name: 'jnrUSD - Vault',         multiplier: jnrusdMult });
+        if (honeybendMult > 1)   breakdown.push({ name: 'HONEY - Lent',           multiplier: honeybendMult });
+        if (stakedberaMult > 1)  breakdown.push({ name: 'BERA - Staked',          multiplier: stakedberaMult });
+        if (bgtMult > 1)         breakdown.push({ name: 'BGT',                    multiplier: bgtMult });
+        if (bullasMult > 1)      breakdown.push({ name: 'Bullas - NFT',           multiplier: bullasMult });
+        if (boogaMult > 1)       breakdown.push({ name: 'Booga Bullas - NFT',     multiplier: boogaMult });
+        if (raidsharkMult > 1)   breakdown.push({ name: 'Raider - Monthly',       multiplier: raidsharkMult });
+        if (swapperMult > 0)     breakdown.push({ name: 'Swapper',                multiplier: swapperMult });
+        if (telegramModMult > 0) breakdown.push({ name: 'Telegram Mod',           multiplier: telegramModMult });
+        if (discordModMult > 0)  breakdown.push({ name: 'Discord Mod',            multiplier: discordModMult });
+        if (emberMult > 0)       breakdown.push({ name: 'Ember',                  multiplier: emberMult });
+        if (genesisMult > 0)     breakdown.push({ name: 'Genesis',                multiplier: genesisMult });
+
+        const basePoints  = parseFloat(userData.pointsPerHour);
+        const finalPoints = basePoints * totalMultiplier;
+        const description = JSON.stringify({ total_multiplier: totalMultiplier, multiplier_breakdown: breakdown });
+
+        await pointsDb.addPoints(targetWallet, finalPoints, description);
+
+        res.json({
+            success: true,
+            wallet: targetWallet,
+            totalMultiplier,
+            breakdown,
+            basePoints,
+            finalPoints,
+            message: 'Points cron triggered. Run check-multiplier-consistency.mjs to verify.'
+        });
+    } catch (err) {
+        console.error('❌ trigger-points-wallet error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ============================================
 // DAILY CHECK-IN ENDPOINTS
 // ============================================
 
@@ -4975,21 +5125,63 @@ async function awardHourlyPoints() {
                 let boogaBullasMult = 0;
                 let amyusdt0Mult = 0;
                 try {
-                    const tokenHoldings = await queryAllTokenHoldings(user.wallet);
-                    sailrMult = tokenHoldings.sailr.multiplier > 1 ? tokenHoldings.sailr.multiplier : 0;
-                    amyusdt0Mult = tokenHoldings.amyusdt0.multiplier > 1 ? tokenHoldings.amyusdt0.multiplier : 0;
-                    plvhedgeMult = tokenHoldings.plvhedge.multiplier > 1 ? tokenHoldings.plvhedge.multiplier : 0;
-                    plsberaMult = tokenHoldings.plsbera.multiplier > 1 ? tokenHoldings.plsbera.multiplier : 0;
-                    plskdkMult = tokenHoldings.plskdk.multiplier > 1 ? tokenHoldings.plskdk.multiplier : 0;
-                    honeybendMult = tokenHoldings.honeybend.multiplier > 1 ? tokenHoldings.honeybend.multiplier : 0;
-                    stakedberaMult = tokenHoldings.stakedbera.multiplier > 1 ? tokenHoldings.stakedbera.multiplier : 0;
-                    bgtMult = tokenHoldings.bgt.multiplier > 1 ? tokenHoldings.bgt.multiplier : 0;
-                    snrusdMult = tokenHoldings.snrusd.multiplier > 1 ? tokenHoldings.snrusd.multiplier : 0;
-                    jnrusdMult = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 0;
-                    bullasMult = tokenHoldings.bullas.multiplier > 1 ? tokenHoldings.bullas.multiplier : 0;
-                    boogaBullasMult = tokenHoldings.boogaBullas.multiplier > 1 ? tokenHoldings.boogaBullas.multiplier : 0;
+                    // Use snapshot data for token multipliers — more reliable than live price fetches.
+                    // Live fetches can fail (price API returns 0) and overwrite correct snapshot values.
+                    const snapRes = await database.pool.query(
+                        'SELECT snapshot_data FROM strategy_snapshots WHERE LOWER(wallet) = LOWER($1)',
+                        [user.wallet]
+                    );
 
-                    // Save updated token data to database (handles stake/unstake changes)
+                    let tokenHoldings;
+                    if (snapRes.rows.length > 0) {
+                        const snap = snapRes.rows[0].snapshot_data;
+                        const p = snap.positions;
+                        const stdT = [3, 5, 10];
+                        const lpT  = [5, 10, 100];
+                        const mp = (pos, tiers) => {
+                            const v = (typeof pos === 'object' ? pos?.value_usd : pos) || 0;
+                            const b = (typeof pos === 'object' && pos?.balance != null) ? pos.balance : v;
+                            let m = 1;
+                            if (v >= 500) m = tiers[2];
+                            else if (v >= 100) m = tiers[1];
+                            else if (v >= 10)  m = tiers[0];
+                            return { valueUsd: v, balance: b, multiplier: m };
+                        };
+                        const bullasCount = snap.positions.bullas || 0;
+                        const boogaCount  = snap.positions.boogaBullas || 0;
+                        tokenHoldings = {
+                            sailr:      mp(p.sailr,        stdT),
+                            plvhedge:   mp(p.plvhedge,     stdT),
+                            plsbera:    mp(p.plsbera,      stdT),
+                            plskdk:     mp(p.plskdk,       stdT),
+                            honeybend:  mp(p.honey_bend,   stdT),
+                            stakedbera: mp(p.swbera,       stdT),
+                            bgt:        mp(p.bgt,          stdT),
+                            snrusd:     mp(p.snrusd,       stdT),
+                            jnrusd:     mp(p.jnrusd,       stdT),
+                            amyusdt0:   { ...mp(p.lp_amy_usdt0, lpT), count: p.lp_amy_usdt0?.count || 0 },
+                            bullas:     { count: bullasCount, multiplier: getBullasMultiplier(bullasCount) },
+                            boogaBullas:{ count: boogaCount,  multiplier: getBoogaBullasMultiplier(boogaCount) },
+                        };
+                    } else {
+                        // No snapshot yet — fall back to live query (new wallets only)
+                        tokenHoldings = await queryAllTokenHoldings(user.wallet);
+                    }
+
+                    sailrMult      = tokenHoldings.sailr.multiplier > 1      ? tokenHoldings.sailr.multiplier      : 0;
+                    amyusdt0Mult   = tokenHoldings.amyusdt0.multiplier > 1   ? tokenHoldings.amyusdt0.multiplier   : 0;
+                    plvhedgeMult   = tokenHoldings.plvhedge.multiplier > 1   ? tokenHoldings.plvhedge.multiplier   : 0;
+                    plsberaMult    = tokenHoldings.plsbera.multiplier > 1    ? tokenHoldings.plsbera.multiplier    : 0;
+                    plskdkMult     = tokenHoldings.plskdk.multiplier > 1     ? tokenHoldings.plskdk.multiplier     : 0;
+                    honeybendMult  = tokenHoldings.honeybend.multiplier > 1  ? tokenHoldings.honeybend.multiplier  : 0;
+                    stakedberaMult = tokenHoldings.stakedbera.multiplier > 1 ? tokenHoldings.stakedbera.multiplier : 0;
+                    bgtMult        = tokenHoldings.bgt.multiplier > 1        ? tokenHoldings.bgt.multiplier        : 0;
+                    snrusdMult     = tokenHoldings.snrusd.multiplier > 1     ? tokenHoldings.snrusd.multiplier     : 0;
+                    jnrusdMult     = tokenHoldings.jnrusd.multiplier > 1     ? tokenHoldings.jnrusd.multiplier     : 0;
+                    bullasMult     = tokenHoldings.bullas.multiplier > 1     ? tokenHoldings.bullas.multiplier     : 0;
+                    boogaBullasMult= tokenHoldings.boogaBullas.multiplier > 1? tokenHoldings.boogaBullas.multiplier: 0;
+
+                    // Save snapshot-derived multipliers to DB
                     if (pointsDb) {
                         await pointsDb.updateTokenData(
                             user.wallet,
@@ -5020,7 +5212,7 @@ async function awardHourlyPoints() {
                         );
                     }
                 } catch (err) {
-                    // If token query fails, continue with LP only
+                    // If snapshot query fails, continue with LP only
                 }
 
                 // Fetch RaidShark, Onchain Conviction, Swapper, and Mod multipliers from database

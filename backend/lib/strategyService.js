@@ -193,17 +193,12 @@ class StrategyService {
     }
 
     async getPlvHedgePrice() {
-        // plvHEDGE is a Plutus vault receipt token — GeckoTerminal returns a wrong/illiquid price.
-        // Always derive price from Plutus TVL ÷ on-chain totalSupply.
+        // Use the most liquid plvHEDGE/HONEY pool on Kodiak V3 — pool endpoint is accurate (~$1.17)
+        // GeckoTerminal token_price and Plutus TVL/supply both return ~$23 (wrong)
         try {
-            const plutusRes = await axios.get('https://plutus.fi/api/assets/80094/0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A');
-            const tvl = parseFloat(plutusRes.data?.TVL || 0);
-            if (tvl > 0) {
-                const contract = new ethers.Contract(TOKENS.PLVHEDGE, ['function totalSupply() view returns (uint256)'], this.provider);
-                const totalSupply = await contract.totalSupply();
-                const supplyNum = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
-                if (supplyNum > 0) return tvl / supplyNum;
-            }
+            const res = await axios.get('https://api.geckoterminal.com/api/v2/networks/berachain/pools/0xbb27edace822f244a91c2417b07c617e7a691be6');
+            const price = parseFloat(res.data?.data?.attributes?.base_token_price_usd || 0);
+            if (price > 0) return price;
         } catch (e) {}
         return 0;
     }
