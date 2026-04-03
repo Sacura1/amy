@@ -214,7 +214,11 @@ async function createTables() {
                     ALTER TABLE points_history ADD COLUMN category VARCHAR(50);
                 END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='points_history' AND column_name='description') THEN
-                    ALTER TABLE points_history ADD COLUMN description VARCHAR(255);
+                    ALTER TABLE points_history ADD COLUMN description TEXT;
+                END IF;
+                -- Widen existing VARCHAR(255) to TEXT if needed
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='points_history' AND column_name='description' AND character_maximum_length = 255) THEN
+                    ALTER TABLE points_history ALTER COLUMN description TYPE TEXT;
                 END IF;
             END $$;
         `);

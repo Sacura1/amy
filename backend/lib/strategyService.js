@@ -171,6 +171,13 @@ class StrategyService {
     }
 
     async getSailrPrice() {
+        // Primary: use pool endpoint (more reliable than token_price for SAIL.r)
+        try {
+            const res = await axios.get(`https://api.geckoterminal.com/api/v2/networks/berachain/pools/${TOKENS.SAILR_POOL}`);
+            const price = parseFloat(res.data?.data?.attributes?.base_token_price_usd || 0);
+            if (price > 0) return price;
+        } catch (e) {}
+        // Fallback: token_price endpoint
         try {
             const addr = '0x59a61b8d3064a51a95a5d6393c03e2152b1a2770';
             const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);

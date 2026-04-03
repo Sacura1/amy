@@ -1903,7 +1903,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         if (discordModMult > 0) multiplierBreakdown.push({ name: 'Discord Mod', multiplier: discordModMult });
         if (emberMult > 0) multiplierBreakdown.push({ name: 'Ember', multiplier: emberMult });
         if (genesisMult > 0) multiplierBreakdown.push({ name: 'Genesis', multiplier: genesisMult });
-        if (referralMult > 0) multiplierBreakdown.push({ name: 'Referral', multiplier: referralMult });
+        // Note: referralMult (Season 2) is not added to totalMultiplier formula, so excluded from breakdown
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -2460,6 +2460,7 @@ const BADGE_TOKENS = {
         address: '0x59a61B8d3064A51a95a5D6393c03e2152b1a2770',
         symbol: 'SAIL.r',
         decimals: 18,
+        geckoPoolAddress: '0x704d1c9dddeb2ccd4bf999f3426c755917f0d00c', // SAIL.r pool for reliable price
         geckoId: 'berachain_0x59a61b8d3064a51a95a5d6393c03e2152b1a2770'
     },
     PLVHEDGE: {
@@ -5094,7 +5095,7 @@ async function awardHourlyPoints() {
                 if (discordModMult > 0) breakdown.push({ name: 'Discord Mod', multiplier: discordModMult });
                 if (emberMult > 0) breakdown.push({ name: 'Ember', multiplier: emberMult });
                 if (genesisMult > 0) breakdown.push({ name: 'Genesis', multiplier: genesisMult });
-                if (referralMult > 0) breakdown.push({ name: 'Referral', multiplier: referralMult });
+                // Note: referralMult (Season 2) not in totalMultiplier formula, excluded from breakdown
                 const description = JSON.stringify({ total_multiplier: totalMultiplier, multiplier_breakdown: breakdown });
 
                 const result = await pointsDb.awardPoints(
