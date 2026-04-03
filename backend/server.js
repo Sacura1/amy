@@ -4173,7 +4173,7 @@ app.post('/api/admin/trigger-points-wallet', isAdmin, async (req, res) => {
         if (!targetWallet) return res.status(400).json({ success: false, error: 'wallet required' });
         if (!pointsDb) return res.status(500).json({ success: false, error: 'pointsDb not ready' });
 
-        const userData = await pointsDb.getPoints(targetWallet);
+        const userData = await pointsDb.getByWallet(targetWallet);
         if (!userData || userData.pointsPerHour <= 0) {
             return res.status(404).json({ success: false, error: 'Wallet not found or has no pointsPerHour' });
         }
@@ -4294,7 +4294,14 @@ app.post('/api/admin/trigger-points-wallet', isAdmin, async (req, res) => {
         const finalPoints = basePoints * totalMultiplier;
         const description = JSON.stringify({ total_multiplier: totalMultiplier, multiplier_breakdown: breakdown });
 
-        await pointsDb.addPoints(targetWallet, finalPoints, description);
+        await pointsDb.awardPoints(
+            targetWallet, finalPoints,
+            `Earned ${finalPoints.toFixed(2)} points (${totalMultiplier}x multiplier)`,
+            userData.lastAmyBalance || 0,
+            userData.currentTier || 'none',
+            'DAILY_EARN',
+            description
+        );
 
         res.json({
             success: true,
