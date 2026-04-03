@@ -2632,8 +2632,10 @@ async function fetchTokenPrice(tokenKey) {
                 price = parseFloat(data?.data?.attributes?.token_prices?.[priceAddress] || 0);
             }
 
-            // plvHEDGE is a vault token with no DEX price — derive from Plutus TVL / totalSupply
-            if (price === 0 && tokenKey === 'PLVHEDGE') {
+            // plvHEDGE is a vault receipt token — GeckoTerminal returns a wrong illiquid price.
+            // Always derive from Plutus TVL / totalSupply, ignoring whatever GeckoTerminal returned.
+            if (tokenKey === 'PLVHEDGE') {
+                price = 0; // reset any bad GeckoTerminal price
                 try {
                     const plutusResp = await fetch(
                         'https://plutus.fi/api/assets/80094/0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A',

@@ -193,13 +193,8 @@ class StrategyService {
     }
 
     async getPlvHedgePrice() {
-        try {
-            const addr = '0x28602b1ae8ca0ff5cd01b96a36f88f72febe727a';
-            const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);
-            const price = parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0);
-            if (price > 0) return price;
-        } catch (e) {}
-        // Plutus TVL/totalSupply fallback
+        // plvHEDGE is a Plutus vault receipt token — GeckoTerminal returns a wrong/illiquid price.
+        // Always derive price from Plutus TVL ÷ on-chain totalSupply.
         try {
             const plutusRes = await axios.get('https://plutus.fi/api/assets/80094/0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A');
             const tvl = parseFloat(plutusRes.data?.TVL || 0);
