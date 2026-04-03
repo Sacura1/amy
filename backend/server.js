@@ -1876,8 +1876,34 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         }
 
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
+        const amyHoneyLpMult = bonusAboveOne(pointsData.amyHoneyLpMultiplier || pointsData.lpMultiplier);
         // Total multiplier: sum of active multipliers (standardized calculation)
         const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+
+        // Build canonical multiplier breakdown (one source of truth)
+        const multiplierBreakdown = [];
+        if (lpMult > 1) multiplierBreakdown.push({ name: 'AMY/HONEY - LP', multiplier: lpMult });
+        if (amyusdt0Mult > 1) multiplierBreakdown.push({ name: 'AMY/USDT0 - LP', multiplier: amyusdt0Mult });
+        if (onchainConvictionMult > 1) multiplierBreakdown.push({ name: 'Conviction - Monthly', multiplier: onchainConvictionMult });
+        if (sailrMult > 1) multiplierBreakdown.push({ name: 'SAIL.r - Royalty', multiplier: sailrMult });
+        if (dawnReferralMultiplier > 0) multiplierBreakdown.push({ name: 'Dawn - Legacy', multiplier: dawnReferralMultiplier });
+        if (plsberaMult > 1) multiplierBreakdown.push({ name: 'plsBERA - Staked', multiplier: plsberaMult });
+        if (plskdkMult > 1) multiplierBreakdown.push({ name: 'plsKDK - Staked', multiplier: plskdkMult });
+        if (plvhedgeMult > 1) multiplierBreakdown.push({ name: 'plvHEDGE - Vault', multiplier: plvhedgeMult });
+        if (snrusdMult > 1) multiplierBreakdown.push({ name: 'snrUSD - Vault', multiplier: snrusdMult });
+        if (jnrusdMult > 1) multiplierBreakdown.push({ name: 'jnrUSD - Vault', multiplier: jnrusdMult });
+        if (honeybendMult > 1) multiplierBreakdown.push({ name: 'HONEY - Lent', multiplier: honeybendMult });
+        if (stakedberaMult > 1) multiplierBreakdown.push({ name: 'BERA - Staked', multiplier: stakedberaMult });
+        if (bgtMult > 1) multiplierBreakdown.push({ name: 'BGT', multiplier: bgtMult });
+        if (bullasMult > 1) multiplierBreakdown.push({ name: 'Bullas - NFT', multiplier: bullasMult });
+        if (boogaBullasMult > 1) multiplierBreakdown.push({ name: 'Booga Bullas - NFT', multiplier: boogaBullasMult });
+        if (raidsharkMult > 1) multiplierBreakdown.push({ name: 'Raider - Monthly', multiplier: raidsharkMult });
+        if (swapperMult > 0) multiplierBreakdown.push({ name: 'Swapper', multiplier: swapperMult });
+        if (telegramModMult > 0) multiplierBreakdown.push({ name: 'Telegram Mod', multiplier: telegramModMult });
+        if (discordModMult > 0) multiplierBreakdown.push({ name: 'Discord Mod', multiplier: discordModMult });
+        if (emberMult > 0) multiplierBreakdown.push({ name: 'Ember', multiplier: emberMult });
+        if (genesisMult > 0) multiplierBreakdown.push({ name: 'Genesis', multiplier: genesisMult });
+        if (referralMult > 0) multiplierBreakdown.push({ name: 'Referral', multiplier: referralMult });
 
         // Calculate effective points per hour (base * multiplier)
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
@@ -1889,6 +1915,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 ...pointsData,
                 tierInfo: POINTS_TIERS[pointsData.currentTier] || POINTS_TIERS['none'],
                 totalMultiplier: totalMultiplier,
+                multiplierBreakdown: multiplierBreakdown,
                 effectivePointsPerHour: effectivePointsPerHour,
                 sailrMultiplier: sailrMult > 1 ? sailrMult : 0,
                 plvhedgeMultiplier: plvhedgeMult > 1 ? plvhedgeMult : 0,
@@ -1963,12 +1990,15 @@ app.post('/api/points/update-balance', async (req, res) => {
             }
         });
 
-        (async () => {
+        // NOTE: Token multipliers in amy_points are managed exclusively by the hourly cron job
+        // (which uses live on-chain data + correct tier calculations). Do NOT overwrite them
+        // here — doing so with snapshot data causes inconsistent multiplier values across pages.
+
+        if (false) { // disabled — cron is sole writer of token multipliers
+            (async () => {
             try {
                 if (!pointsDb) return;
 
-                // Requirement: No live strategy checks on frontend
-                // Prioritize the hourly backend snapshot
                 const snapshotRes = await database.pool.query(
                     'SELECT snapshot_data FROM strategy_snapshots WHERE LOWER(wallet) = LOWER($1)',
                     [wallet]
@@ -2055,7 +2085,8 @@ app.post('/api/points/update-balance', async (req, res) => {
             } catch (err) {
                 console.error('Async token refresh failed:', err.message);
             }
-        })();
+            })();
+        } // end disabled block
 
     } catch (error) {
         console.error('❌ Error updating points balance:', error);
@@ -5040,32 +5071,31 @@ async function awardHourlyPoints() {
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
 
-                // Build human-readable description
-                let description = 'Hourly points earned from holding $AMY';
-                if (totalMultiplier > 1) {
-                    const boostParts = [];
-                    if (lpMult > 1) boostParts.push(`AMY/HONEY LP ${lpMult}x`);
-                    if (sailrMult > 1) boostParts.push(`SAIL.r ${sailrMult}x`);
-                    if (plvhedgeMult > 1) boostParts.push(`plvHEDGE ${plvhedgeMult}x`);
-                    if (plsberaMult > 1) boostParts.push(`plsBERA ${plsberaMult}x`);
-                    if (plskdkMult > 1) boostParts.push(`plsKDK ${plskdkMult}x`);
-                    if (honeybendMult > 1) boostParts.push(`HONEY-Bend ${honeybendMult}x`);
-                    if (stakedberaMult > 1) boostParts.push(`stBERA ${stakedberaMult}x`);
-                    if (bgtMult > 1) boostParts.push(`BGT ${bgtMult}x`);
-                    if (snrusdMult > 1) boostParts.push(`snrUSD ${snrusdMult}x`);
-                    if (jnrusdMult > 1) boostParts.push(`jnrUSD ${jnrusdMult}x`);
-                    if (bullasMult > 1) boostParts.push(`Bullas ${bullasMult}x`);
-                    if (boogaBullasMult > 1) boostParts.push(`Booga Bullas ${boogaBullasMult}x`);
-                    if (raidsharkMult > 1) boostParts.push(`RaidShark ${raidsharkMult}x`);
-                    if (onchainConvictionMult > 1) boostParts.push(`Onchain Conviction ${onchainConvictionMult}x`);
-                    if (swapperMult > 1) boostParts.push(`Swapper ${swapperMult}x`);
-                    if (dawnReferralMultiplier > 1) boostParts.push(`Dawn Referral ${dawnReferralMultiplier}x`);
-                    if (telegramModMult > 1) boostParts.push(`TG Mod ${telegramModMult}x`);
-                    if (discordModMult > 1) boostParts.push(`Discord Mod ${discordModMult}x`);
-                    if (emberMult > 1) boostParts.push(`Ember ${emberMult}x`);
-                    if (genesisMult > 1) boostParts.push(`Genesis ${genesisMult}x`);
-                    description = `Hourly earning with ${totalMultiplier}x multiplier (${boostParts.join(' + ')})`;
-                }
+                // Build canonical multiplier breakdown (stored as JSON for structured rendering)
+                const breakdown = [];
+                if (lpMult > 1) breakdown.push({ name: 'AMY/HONEY - LP', multiplier: lpMult });
+                if (amyusdt0Mult > 1) breakdown.push({ name: 'AMY/USDT0 - LP', multiplier: amyusdt0Mult });
+                if (onchainConvictionMult > 1) breakdown.push({ name: 'Conviction - Monthly', multiplier: onchainConvictionMult });
+                if (sailrMult > 1) breakdown.push({ name: 'SAIL.r - Royalty', multiplier: sailrMult });
+                if (dawnReferralMultiplier > 0) breakdown.push({ name: 'Dawn - Legacy', multiplier: dawnReferralMultiplier });
+                if (plsberaMult > 1) breakdown.push({ name: 'plsBERA - Staked', multiplier: plsberaMult });
+                if (plskdkMult > 1) breakdown.push({ name: 'plsKDK - Staked', multiplier: plskdkMult });
+                if (plvhedgeMult > 1) breakdown.push({ name: 'plvHEDGE - Vault', multiplier: plvhedgeMult });
+                if (snrusdMult > 1) breakdown.push({ name: 'snrUSD - Vault', multiplier: snrusdMult });
+                if (jnrusdMult > 1) breakdown.push({ name: 'jnrUSD - Vault', multiplier: jnrusdMult });
+                if (honeybendMult > 1) breakdown.push({ name: 'HONEY - Lent', multiplier: honeybendMult });
+                if (stakedberaMult > 1) breakdown.push({ name: 'BERA - Staked', multiplier: stakedberaMult });
+                if (bgtMult > 1) breakdown.push({ name: 'BGT', multiplier: bgtMult });
+                if (bullasMult > 1) breakdown.push({ name: 'Bullas - NFT', multiplier: bullasMult });
+                if (boogaBullasMult > 1) breakdown.push({ name: 'Booga Bullas - NFT', multiplier: boogaBullasMult });
+                if (raidsharkMult > 1) breakdown.push({ name: 'Raider - Monthly', multiplier: raidsharkMult });
+                if (swapperMult > 0) breakdown.push({ name: 'Swapper', multiplier: swapperMult });
+                if (telegramModMult > 0) breakdown.push({ name: 'Telegram Mod', multiplier: telegramModMult });
+                if (discordModMult > 0) breakdown.push({ name: 'Discord Mod', multiplier: discordModMult });
+                if (emberMult > 0) breakdown.push({ name: 'Ember', multiplier: emberMult });
+                if (genesisMult > 0) breakdown.push({ name: 'Genesis', multiplier: genesisMult });
+                if (referralMult > 0) breakdown.push({ name: 'Referral', multiplier: referralMult });
+                const description = JSON.stringify({ total_multiplier: totalMultiplier, multiplier_breakdown: breakdown });
 
                 const result = await pointsDb.awardPoints(
                     user.wallet,
