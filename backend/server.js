@@ -2169,6 +2169,41 @@ app.get('/api/points/tiers', (req, res) => {
 
 
 // Add bonus points to user (admin only - for giveaways)
+// Temporary admin endpoint: set test token multipliers for a wallet (testing only)
+app.post('/api/admin/set-test-multipliers', isAdmin, async (req, res) => {
+    try {
+        const { wallet, clear } = req.body;
+        if (!wallet) return res.status(400).json({ error: 'wallet required' });
+        if (!pointsDb) return res.status(500).json({ error: 'DB not available' });
+
+        if (clear) {
+            // Reset everything to 0/1
+            await pointsDb.updateTokenData(wallet, 0,1, 0,1, 0,1, 0,1, 0,1, 0,1, 0,1, 0,1, 0,1, 0,1, 0,1, 0,1);
+            return res.json({ success: true, action: 'cleared', wallet });
+        }
+
+        // Set realistic test values that produce a variety of tiers
+        await pointsDb.updateTokenData(
+            wallet,
+            150, 5,   // sailr: $150 → x5
+            50,  3,   // plvhedge: $50 → x3
+            600, 10,  // plsbera: $600 → x10
+            0,   1,   // honeybend
+            120, 5,   // stakedbera: $120 → x5
+            0,   1,   // bgt
+            30,  3,   // snrusd: $30 → x3
+            0,   1,   // jnrusd
+            200, 10,  // amyusdt0: $200 → x10
+            80,  3,   // plskdk: $80 → x3
+            3,   3,   // bullas: 3 NFTs → x3
+            0,   1    // boogaBullas
+        );
+        return res.json({ success: true, action: 'set', wallet, note: 'sailr x5, plvhedge x3, plsbera x10, stakedbera x5, snrusd x3, amyusdt0 x10, plskdk x3, bullas x3' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/points/add-bonus', isAdmin, async (req, res) => {
     try {
         const { xUsername, points, reason } = req.body;
