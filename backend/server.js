@@ -2942,15 +2942,15 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                 snrusd: mapPos(p.snrusd, standardTiers),
                 jnrusd: mapPos(p.jnrusd, standardTiers),
                 amyusdt0: { ...mapPos(p.lp_amy_usdt0, lpTiers), count: p.lp_amy_usdt0?.count || 0, inRangeCount: p.lp_amy_usdt0?.in_range_count ?? p.lp_amy_usdt0?.count ?? 0 },
-                bullas: { 
-                    count: snap.positions.bullas || 0, 
-                    multiplier: (snap.positions.bullas > 0) ? 3 : 1,
-                    isActive: (snap.positions.bullas > 0)
+                bullas: {
+                    count: snap.positions.bullas || 0,
+                    multiplier: getBullasMultiplier(snap.positions.bullas || 0),
+                    isActive: getBullasMultiplier(snap.positions.bullas || 0) > 1
                 },
-                boogaBullas: { 
-                    count: snap.positions.boogaBullas || 0, 
-                    multiplier: (snap.positions.boogaBullas > 0) ? 3 : 1,
-                    isActive: (snap.positions.boogaBullas > 0)
+                boogaBullas: {
+                    count: snap.positions.boogaBullas || 0,
+                    multiplier: getBoogaBullasMultiplier(snap.positions.boogaBullas || 0),
+                    isActive: getBoogaBullasMultiplier(snap.positions.boogaBullas || 0) > 1
                 },
                 tiers: TOKEN_MULTIPLIER_TIERS
             };
@@ -3197,12 +3197,157 @@ app.use((error, req, res, next) => {
 // BADGE ENDPOINTS
 // ============================================
 
+// Canonical badge family definitions — single source of truth for images and titles
+const BADGE_FAMILIES = {
+    amy_honey_lp:  { title: 'AMY/HONEY – LP',      image: '/image/amy_honey.png' },
+    amy_usdt0_lp:  { title: 'AMY/USDT0 – LP',      image: '/image/amy_usdto.png' },
+    sailr:         { title: 'SAIL.r – Royalty',     image: '/image/sailr.png' },
+    plvhedge:      { title: 'plvHEDGE – Vault',     image: '/image/plvhedge.png' },
+    plsbera:       { title: 'plsBERA – Staked',     image: '/image/plsbera.png' },
+    plskdk:        { title: 'plsKDK – Staked',      image: '/image/plskdk.png' },
+    honeybend:     { title: 'HONEY – Lent',         image: '/image/honey.png' },
+    stakedbera:    { title: 'BERA – Staked',        image: '/image/swebera.png' },
+    bgt:           { title: 'BGT – Holder',         image: '/image/bgt.png' },
+    snrusd:        { title: 'snrUSD – Vault',       image: '/image/snrusd.png' },
+    jnrusd:        { title: 'jnrUSD – Vault',       image: '/image/jnrusd.png' },
+    bullas:        { title: 'Bullas – NFT',         image: '/image/bulla.png' },
+    booga_bullas:  { title: 'Booga Bullas – NFT',   image: '/image/booga_bulla.png' },
+    raider:        { title: 'Raider – Monthly',     image: '/image/raider.png' },
+    conviction:    { title: 'Conviction – Monthly', image: '/image/conviction_monthly.png' },
+    swapper:       { title: 'Swapper',              image: '/image/swapper.png' },
+    telegram_mod:  { title: 'Telegram – Mod',       image: '/image/telegram.png' },
+    discord_mod:   { title: 'Discord – Mod',        image: '/image/discord.png' },
+    ember:         { title: 'Ember',                image: '/image/ember.png' },
+    genesis:       { title: 'Genesis',              image: '/image/genesis.png' },
+    dawn:          { title: 'Dawn – Legacy',        image: '/image/dawn.png' },
+};
+
+const TIER_NAMES = ['inactive', 'bronze', 'silver', 'gold'];
+
+// Build normalised active-badge list for a wallet from snapshot + DB.
+// Used by GET /api/badges/:wallet/active and the equip endpoint.
+async function buildActiveBadges(wallet) {
+    const walletLower = wallet.toLowerCase();
+
+    const snapRes = await database.pool.query(
+        'SELECT snapshot_data FROM strategy_snapshots WHERE wallet = $1',
+        [walletLower]
+    );
+    const p = snapRes.rows[0]?.snapshot_data?.positions || {};
+
+    const badgeMults = await database.points.getMultiplierBadges(walletLower);
+
+    const badge = (id, level, mult) => ({
+        badge_id:           id,
+        badge_title:        BADGE_FAMILIES[id].title,
+        badge_image:        BADGE_FAMILIES[id].image,
+        is_active:          level > 0,
+        current_tier_level: level,
+        current_tier_name:  TIER_NAMES[level],
+        current_multiplier: level > 0 ? mult : 0,
+    });
+
+    // USD value → tier level for LP tokens (x5 / x10 / x100)
+    const lpLevel = (v) => v >= 500 ? 3 : v >= 100 ? 2 : v >= 10 ? 1 : 0;
+    const lpMult  = (l) => [0, 5, 10, 100][l];
+
+    // USD value → tier level for standard tokens (x3 / x5 / x10)
+    const stdLevel = (v) => v >= 500 ? 3 : v >= 100 ? 2 : v >= 10 ? 1 : 0;
+    const stdMult  = (l) => [0, 3, 5, 10][l];
+
+    // Multiplier → tier level for role/manual badges (x3 = bronze, x5-x9 = silver, x10+ = gold)
+    const roleLevel = (m, bronzeMin = 3) => m >= 10 ? 3 : m >= 5 ? 2 : m >= bronzeMin ? 1 : 0;
+
+    const snapVal = (pos) => (typeof pos === 'object' ? pos?.value_usd : pos) || 0;
+
+    const list = [
+        // LP badges
+        badge('amy_honey_lp', lpLevel(snapVal(p.lp_amy_honey)),  lpMult(lpLevel(snapVal(p.lp_amy_honey)))),
+        badge('amy_usdt0_lp', lpLevel(snapVal(p.lp_amy_usdt0)),  lpMult(lpLevel(snapVal(p.lp_amy_usdt0)))),
+
+        // Token badges (all standard tiers)
+        badge('sailr',      stdLevel(snapVal(p.sailr)),      stdMult(stdLevel(snapVal(p.sailr)))),
+        badge('plvhedge',   stdLevel(snapVal(p.plvhedge)),   stdMult(stdLevel(snapVal(p.plvhedge)))),
+        badge('plsbera',    stdLevel(snapVal(p.plsbera)),    stdMult(stdLevel(snapVal(p.plsbera)))),
+        badge('plskdk',     stdLevel(snapVal(p.plskdk)),     stdMult(stdLevel(snapVal(p.plskdk)))),
+        badge('honeybend',  stdLevel(snapVal(p.honey_bend)), stdMult(stdLevel(snapVal(p.honey_bend)))),
+        badge('stakedbera', stdLevel(snapVal(p.swbera)),     stdMult(stdLevel(snapVal(p.swbera)))),
+        badge('bgt',        stdLevel(snapVal(p.bgt)),        stdMult(stdLevel(snapVal(p.bgt)))),
+        badge('snrusd',     stdLevel(snapVal(p.snrusd)),     stdMult(stdLevel(snapVal(p.snrusd)))),
+        badge('jnrusd',     stdLevel(snapVal(p.jnrusd)),     stdMult(stdLevel(snapVal(p.jnrusd)))),
+
+        // NFT badges
+        (() => {
+            const c = p.bullas || 0;
+            const l = c >= 28 ? 3 : c >= 8 ? 2 : c >= 2 ? 1 : 0;
+            return badge('bullas', l, [0, 3, 5, 15][l]);
+        })(),
+        (() => {
+            const c = p.boogaBullas || 0;
+            const l = c >= 42 ? 3 : c >= 13 ? 2 : c >= 3 ? 1 : 0;
+            return badge('booga_bullas', l, [0, 3, 5, 15][l]);
+        })(),
+
+        // Manual / role badges
+        (() => {
+            const m = badgeMults.raidsharkMultiplier || 0;
+            const l = m >= 15 ? 3 : m >= 7 ? 2 : m >= 3 ? 1 : 0;
+            return badge('raider', l, l > 0 ? m : 0);
+        })(),
+        (() => {
+            const m = badgeMults.onchainConvictionMultiplier || 0;
+            return badge('conviction', roleLevel(m), roleLevel(m) > 0 ? m : 0);
+        })(),
+        (() => {
+            const m = badgeMults.swapperMultiplier || 0;
+            return badge('swapper', m >= 3 ? 1 : 0, m >= 3 ? m : 0);
+        })(),
+        (() => {
+            const m = badgeMults.telegramModMultiplier || 0;
+            return badge('telegram_mod', roleLevel(m, 1), m > 0 ? m : 0);
+        })(),
+        (() => {
+            const m = badgeMults.discordModMultiplier || 0;
+            return badge('discord_mod', roleLevel(m, 1), m > 0 ? m : 0);
+        })(),
+        (() => {
+            const m = badgeMults.emberMultiplier || 0;
+            return badge('ember', roleLevel(m), roleLevel(m) > 0 ? m : 0);
+        })(),
+        (() => {
+            const m = badgeMults.genesisMultiplier || 0;
+            return badge('genesis', roleLevel(m), roleLevel(m) > 0 ? m : 0);
+        })(),
+        (() => {
+            const m = badgeMults.dawnReferralMultiplier || 0;
+            return badge('dawn', roleLevel(m), roleLevel(m) > 0 ? m : 0);
+        })(),
+    ];
+
+    return list;
+}
+
 // Get all badge definitions
 app.get('/api/badges/available', (req, res) => {
     res.json({
         success: true,
         data: database.BADGE_DEFINITIONS
     });
+});
+
+// Get active badges for a wallet — single source of truth for modal + equip validation
+app.get('/api/badges/:wallet/active', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        if (!ethers.utils.isAddress(wallet)) {
+            return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+        }
+        const badges = await buildActiveBadges(wallet);
+        res.json({ success: true, data: badges });
+    } catch (error) {
+        console.error('❌ Error getting active badges:', error);
+        res.status(500).json({ success: false, error: 'Failed to get active badges' });
+    }
 });
 
 // Get user's badges (earned and equipped)
@@ -3249,9 +3394,9 @@ app.post('/api/badges/:wallet/equip', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Badge ID is required' });
         }
 
-        // Verify user has earned this badge
-        const earned = await database.badges.getEarned(wallet);
-        const hasEarned = earned.some(b => b.id === badgeId);
+        // Verify badge is currently active for this wallet (same source as the modal)
+        const activeBadges = await buildActiveBadges(wallet);
+        const hasEarned = activeBadges.some(b => b.badge_id === badgeId && b.is_active);
         if (!hasEarned) {
             return res.status(400).json({ success: false, error: 'You have not earned this badge' });
         }
@@ -4159,6 +4304,122 @@ app.post('/api/admin/referrals/set-dawn-multiplier', isAdmin, async (req, res) =
     } catch (error) {
         console.error('❌ Error setting Dawn multiplier:', error);
         res.status(500).json({ success: false, error: 'Failed to set Dawn multiplier' });
+    }
+});
+
+// ============================================
+// ADMIN: TEST BADGE INJECTION
+// ============================================
+
+// POST /api/admin/set-test-multipliers  { wallet: "0x...", clear?: bool }
+// clear=false (default): inject a gold-tier test snapshot + set all manual multipliers to max.
+// clear=true: remove the test snapshot and reset all manual multipliers to 0.
+app.post('/api/admin/set-test-multipliers', isAdmin, async (req, res) => {
+    try {
+        const { wallet, clear } = req.body;
+        const targetWallet = (wallet || '').toLowerCase();
+
+        if (!targetWallet || !ethers.utils.isAddress(targetWallet)) {
+            return res.status(400).json({ success: false, error: 'Valid wallet required in body.wallet' });
+        }
+
+        if (clear) {
+            // Reset manual multipliers
+            await database.pool.query(
+                `UPDATE amy_points SET
+                    raidshark_multiplier = 0,
+                    onchain_conviction_multiplier = 0,
+                    swapper_multiplier = 0,
+                    telegram_mod_multiplier = 0,
+                    discord_mod_multiplier = 0,
+                    ember_multiplier = 0,
+                    genesis_multiplier = 0
+                 WHERE LOWER(wallet) = $1`,
+                [targetWallet]
+            );
+            // Reset dawn referral
+            await database.pool.query(
+                `UPDATE referrals SET dawn_referral_count = 0, dawn_referral_multiplier = 0
+                 WHERE LOWER(wallet) = LOWER($1)`,
+                [targetWallet]
+            );
+            // Delete snapshot only if it was injected by this endpoint
+            await database.pool.query(
+                `DELETE FROM strategy_snapshots
+                 WHERE LOWER(wallet) = $1 AND snapshot_data->>'_test' = 'true'`,
+                [targetWallet]
+            );
+            return res.json({ success: true, message: `Test data cleared for ${wallet}` });
+        }
+
+        // ── Inject fake snapshot: all position-based badges at gold tier ──
+        const testSnapshot = {
+            _test: 'true',
+            positions: {
+                lp_amy_honey: { value_usd: 600 },
+                lp_amy_usdt0: { value_usd: 600, count: 1, in_range_count: 1 },
+                sailr:        { value_usd: 600 },
+                plvhedge:     { value_usd: 600 },
+                plsbera:      { value_usd: 600 },
+                plskdk:       { value_usd: 600 },
+                honey_bend:   { value_usd: 600 },
+                swbera:       { value_usd: 600 },
+                bgt:          { value_usd: 600 },
+                snrusd:       { value_usd: 600 },
+                jnrusd:       { value_usd: 600 },
+                bullas:       30,
+                boogaBullas:  45,
+            }
+        };
+
+        await database.pool.query(
+            `INSERT INTO strategy_snapshots (wallet, snapshot_data, last_updated)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (wallet) DO UPDATE
+             SET snapshot_data = $2, last_updated = NOW()`,
+            [targetWallet, JSON.stringify(testSnapshot)]
+        );
+
+        // ── Set all manual multipliers to max ──
+        await database.pool.query(
+            `INSERT INTO amy_points (wallet, raidshark_multiplier, onchain_conviction_multiplier,
+                swapper_multiplier, telegram_mod_multiplier, discord_mod_multiplier,
+                ember_multiplier, genesis_multiplier)
+             VALUES ($1, 15, 10, 3, 10, 10, 10, 10)
+             ON CONFLICT (wallet) DO UPDATE SET
+                raidshark_multiplier         = 15,
+                onchain_conviction_multiplier = 10,
+                swapper_multiplier           = 3,
+                telegram_mod_multiplier      = 10,
+                discord_mod_multiplier       = 10,
+                ember_multiplier             = 10,
+                genesis_multiplier           = 10`,
+            [targetWallet]
+        );
+
+        // ── Set dawn referral multiplier ──
+        await database.pool.query(
+            `INSERT INTO referrals (wallet, dawn_referral_count, dawn_referral_multiplier)
+             VALUES ($1, 3, 10)
+             ON CONFLICT (wallet) DO UPDATE SET
+                dawn_referral_count      = 3,
+                dawn_referral_multiplier = 10`,
+            [targetWallet]
+        );
+
+        const allBadges    = await buildActiveBadges(wallet);
+        const activeBadges = allBadges.filter(b => b.is_active);
+
+        console.log(`🧪 Test badges injected for ${wallet}: ${activeBadges.length}/21 active`);
+        return res.json({
+            success: true,
+            message: `${activeBadges.length} badges activated for ${wallet}`,
+            data: { activeBadges }
+        });
+
+    } catch (error) {
+        console.error('❌ set-test-multipliers error:', error);
+        res.status(500).json({ success: false, error: 'Failed to inject test data' });
     }
 });
 

@@ -402,6 +402,72 @@ async function createTables() {
             );
         `);
 
+        // Migrate old tier-based badge IDs to family-based IDs
+        await client.query(`
+            UPDATE user_badges SET badge_id = CASE badge_id
+                WHEN 'lp_x3'           THEN 'amy_honey_lp'
+                WHEN 'lp_x5'           THEN 'amy_honey_lp'
+                WHEN 'lp_x10'          THEN 'amy_honey_lp'
+                WHEN 'amyusdt0_x5'     THEN 'amy_usdt0_lp'
+                WHEN 'amyusdt0_x10'    THEN 'amy_usdt0_lp'
+                WHEN 'amyusdt0_x100'   THEN 'amy_usdt0_lp'
+                WHEN 'sailr_x3'        THEN 'sailr'
+                WHEN 'sailr_x5'        THEN 'sailr'
+                WHEN 'sailr_x10'       THEN 'sailr'
+                WHEN 'plvhedge_x3'     THEN 'plvhedge'
+                WHEN 'plvhedge_x5'     THEN 'plvhedge'
+                WHEN 'plvhedge_x10'    THEN 'plvhedge'
+                WHEN 'plsbera_x3'      THEN 'plsbera'
+                WHEN 'plsbera_x5'      THEN 'plsbera'
+                WHEN 'plsbera_x10'     THEN 'plsbera'
+                WHEN 'plskdk_x3'       THEN 'plskdk'
+                WHEN 'plskdk_x5'       THEN 'plskdk'
+                WHEN 'plskdk_x10'      THEN 'plskdk'
+                WHEN 'honeybend_x3'    THEN 'honeybend'
+                WHEN 'honeybend_x5'    THEN 'honeybend'
+                WHEN 'honeybend_x10'   THEN 'honeybend'
+                WHEN 'stakedbera_x3'   THEN 'stakedbera'
+                WHEN 'stakedbera_x5'   THEN 'stakedbera'
+                WHEN 'stakedbera_x10'  THEN 'stakedbera'
+                WHEN 'bgt_x3'          THEN 'bgt'
+                WHEN 'bgt_x5'          THEN 'bgt'
+                WHEN 'bgt_x10'         THEN 'bgt'
+                WHEN 'snrusd_x3'       THEN 'snrusd'
+                WHEN 'snrusd_x5'       THEN 'snrusd'
+                WHEN 'snrusd_x10'      THEN 'snrusd'
+                WHEN 'jnrusd_x3'       THEN 'jnrusd'
+                WHEN 'jnrusd_x5'       THEN 'jnrusd'
+                WHEN 'jnrusd_x10'      THEN 'jnrusd'
+                WHEN 'bullas_x3'       THEN 'bullas'
+                WHEN 'bullas_x5'       THEN 'bullas'
+                WHEN 'bullas_x15'      THEN 'bullas'
+                WHEN 'booga_bullas_x3' THEN 'booga_bullas'
+                WHEN 'booga_bullas_x5' THEN 'booga_bullas'
+                WHEN 'booga_bullas_x15' THEN 'booga_bullas'
+                WHEN 'raidshark_x3'    THEN 'raider'
+                WHEN 'raidshark_x7'    THEN 'raider'
+                WHEN 'raidshark_x15'   THEN 'raider'
+                WHEN 'conviction_x3'   THEN 'conviction'
+                WHEN 'conviction_x5'   THEN 'conviction'
+                WHEN 'conviction_x10'  THEN 'conviction'
+                WHEN 'swapper_x3'      THEN 'swapper'
+                WHEN 'ember_x3'        THEN 'ember'
+                WHEN 'ember_x5'        THEN 'ember'
+                WHEN 'ember_x10'       THEN 'ember'
+                WHEN 'genesis_x3'      THEN 'genesis'
+                WHEN 'genesis_x5'      THEN 'genesis'
+                WHEN 'genesis_x10'     THEN 'genesis'
+                WHEN 'referral_x3'     THEN 'dawn'
+                WHEN 'referral_x5'     THEN 'dawn'
+                WHEN 'referral_x10'    THEN 'dawn'
+                ELSE badge_id
+            END
+            WHERE badge_id ~ '_x[0-9]'
+               OR badge_id LIKE 'raidshark_%'
+               OR badge_id LIKE 'telegram_mod_x%'
+               OR badge_id LIKE 'discord_mod_x%';
+        `);
+
         // Create customization_items table for purchasable items
         await client.query(`
             CREATE TABLE IF NOT EXISTS customization_items (
