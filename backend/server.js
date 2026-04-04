@@ -2039,9 +2039,11 @@ app.post('/api/points/update-balance', async (req, res) => {
                             valueUsd: snap.positions.jnrusd?.value_usd || 0,
                             multiplier: (snap.positions.jnrusd?.value_usd > 0) ? 3 : 1 
                         },
-                        amyusdt0: { 
+                        amyusdt0: {
                             valueUsd: snap.positions.lp_amy_usdt0?.value_usd || 0,
-                            multiplier: (snap.positions.lp_amy_usdt0?.value_usd > 0) ? 10 : 1
+                            multiplier: (snap.positions.lp_amy_usdt0?.value_usd > 0) ? 10 : 1,
+                            count: snap.positions.lp_amy_usdt0?.count || 0,
+                            inRangeCount: snap.positions.lp_amy_usdt0?.in_range_count ?? snap.positions.lp_amy_usdt0?.count ?? 0
                         },
                         plskdk: { 
                             valueUsd: snap.positions.plskdk?.value_usd || 0,
@@ -2939,7 +2941,7 @@ app.get('/api/tokens/:wallet', async (req, res) => {
                 bgt: mapPos(p.bgt, standardTiers),
                 snrusd: mapPos(p.snrusd, standardTiers),
                 jnrusd: mapPos(p.jnrusd, standardTiers),
-                amyusdt0: { ...mapPos(p.lp_amy_usdt0, lpTiers), count: p.lp_amy_usdt0?.count || 0 },
+                amyusdt0: { ...mapPos(p.lp_amy_usdt0, lpTiers), count: p.lp_amy_usdt0?.count || 0, inRangeCount: p.lp_amy_usdt0?.in_range_count ?? p.lp_amy_usdt0?.count ?? 0 },
                 bullas: { 
                     count: snap.positions.bullas || 0, 
                     multiplier: (snap.positions.bullas > 0) ? 3 : 1,
@@ -4208,7 +4210,7 @@ app.post('/api/admin/trigger-points-wallet', isAdmin, async (req, res) => {
                 bgt:        mp(p.bgt,         stdT),
                 snrusd:     mp(p.snrusd,      stdT),
                 jnrusd:     mp(p.jnrusd,      stdT),
-                amyusdt0:   { ...mp(p.lp_amy_usdt0, lpT), count: p.lp_amy_usdt0?.count || 0 },
+                amyusdt0:   { ...mp(p.lp_amy_usdt0, lpT), count: p.lp_amy_usdt0?.count || 0, inRangeCount: p.lp_amy_usdt0?.in_range_count ?? p.lp_amy_usdt0?.count ?? 0 },
                 bullas:     { count: bullasCount, multiplier: getBullasMultiplier(bullasCount) },
                 boogaBullas:{ count: boogaCount,  multiplier: getBoogaBullasMultiplier(boogaCount) },
             };
@@ -5166,7 +5168,7 @@ async function awardHourlyPoints() {
                             bgt:        mp(p.bgt,          stdT),
                             snrusd:     mp(p.snrusd,       stdT),
                             jnrusd:     mp(p.jnrusd,       stdT),
-                            amyusdt0:   { ...mp(p.lp_amy_usdt0, lpT), count: p.lp_amy_usdt0?.count || 0 },
+                            amyusdt0:   { ...mp(p.lp_amy_usdt0, lpT), count: p.lp_amy_usdt0?.count || 0, inRangeCount: p.lp_amy_usdt0?.in_range_count ?? p.lp_amy_usdt0?.count ?? 0 },
                             bullas:     { count: bullasCount, multiplier: getBullasMultiplier(bullasCount) },
                             boogaBullas:{ count: boogaCount,  multiplier: getBoogaBullasMultiplier(boogaCount) },
                         };

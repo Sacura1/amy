@@ -216,11 +216,21 @@ class StrategyService {
         try {
             const res = await axios.post(url, query);
             const pos = res.data.data.positions;
-            if (!pos || pos.length === 0) return { value_usd: 0, count: 0 };
-            let total = 0;
-            for (const p of pos) { total += this.calculateValue(p, amyPrice); }
-            return { value_usd: total, count: pos.length };
-        } catch (e) { return { value_usd: 0, count: 0 }; }
+            if (!pos || pos.length === 0) return { value_usd: 0, count: 0, in_range_count: 0 };
+            let inRangeValue = 0;
+            let inRangeCount = 0;
+            for (const p of pos) {
+                const currentTick = parseInt(p.pool.tick);
+                const tickLower = parseInt(p.tickLower?.tickIdx || 0);
+                const tickUpper = parseInt(p.tickUpper?.tickIdx || 0);
+                const isInRange = currentTick >= tickLower && currentTick < tickUpper;
+                if (isInRange) {
+                    inRangeValue += this.calculateValue(p, amyPrice);
+                    inRangeCount++;
+                }
+            }
+            return { value_usd: inRangeValue, count: pos.length, in_range_count: inRangeCount };
+        } catch (e) { return { value_usd: 0, count: 0, in_range_count: 0 }; }
     }
 
     async runEarnDataUpdate() {
