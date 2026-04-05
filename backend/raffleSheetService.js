@@ -272,6 +272,8 @@ class RaffleSheetService {
             val = this._fmtTs(r.ends_at);
           } else if (normalizedKey.includes('winner_wallet') || normalizedKey.includes('winner_address')) {
             val = r.winner_wallet;
+          } else if (normalizedKey.includes('winner_ticket') || normalizedKey.includes('tickets_bought')) {
+            val = r.winner_tickets;
           } else if (normalizedKey.includes('unique_participants')) {
             val = r.unique_participants;
           } else if (normalizedKey.includes('total_points_committed')) {

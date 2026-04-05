@@ -4058,6 +4058,23 @@ app.get('/api/admin/ember/list', isAdmin, async (req, res) => {
 });
 
 // ============================================
+// Bulk assign Ember multipliers from CSV (used when campaign ends)
+app.post('/api/admin/ember/bulk', isAdmin, async (req, res) => {
+    try {
+        const { assignments } = req.body;
+        if (!Array.isArray(assignments) || assignments.length === 0) {
+            return res.status(400).json({ success: false, error: 'assignments array required' });
+        }
+        const result = await database.points.bulkUpdateEmberMultipliers(assignments);
+        console.log(`🔥 Ember bulk update: ${result.updated} updated, ${result.failed} failed`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating Ember:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update Ember' });
+    }
+});
+
+// ============================================
 // GENESIS BADGE MANAGEMENT (Admin)
 // ============================================
 

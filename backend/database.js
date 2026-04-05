@@ -695,7 +695,19 @@ async function createTables() {
                 ADD COLUMN IF NOT EXISTS draw_block         BIGINT,
                 ADD COLUMN IF NOT EXISTS draw_block_hash    VARCHAR(66),
                 ADD COLUMN IF NOT EXISTS winning_ticket     BIGINT,
-                ADD COLUMN IF NOT EXISTS total_tickets_at_draw BIGINT;
+                ADD COLUMN IF NOT EXISTS total_tickets_at_draw BIGINT,
+                ADD COLUMN IF NOT EXISTS winner_tickets     INTEGER;
+        `);
+
+        // Backfill winner_tickets for already-completed raffles that have a winner
+        await client.query(`
+            UPDATE raffles r
+            SET winner_tickets = re.tickets
+            FROM raffle_entries re
+            WHERE r.winner_wallet IS NOT NULL
+              AND r.winner_tickets IS NULL
+              AND re.raffle_id = r.id
+              AND LOWER(re.wallet) = LOWER(r.winner_wallet);
         `);
 
         // Create raffle_entries table
@@ -2123,6 +2135,24 @@ const points = {
             [wallet, multiplier]
         );
         return { wallet, emberMultiplier: multiplier };
+    },
+
+    // Bulk upsert Ember multipliers (CSV import)
+    bulkUpdateEmberMultipliers: async (assignments) => {
+        if (!pool) return { updated: 0, failed: 0 };
+        let updated = 0, failed = 0;
+        for (const { wallet, multiplier } of assignments) {
+            try {
+                await pool.query(
+                    `INSERT INTO amy_points (wallet, ember_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET ember_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+                updated++;
+            } catch { failed++; }
+        }
+        return { updated, failed };
     },
 
     // Update Genesis multiplier for a user (admin only)
@@ -3901,15 +3931,17 @@ const raffles = {
                 cursor = end + BigInt(1);
             }
 
+            const winnerTickets = walletMap.get(winner) || 0;
             await pool.query(
                 `UPDATE raffles
                  SET status = 'COMPLETED',
-                     winner_wallet       = LOWER($1),
-                     draw_block_hash     = $2,
-                     winning_ticket      = $3,
-                     total_tickets_at_draw = $4
-                 WHERE id = $5`,
-                [winner, blockHash, winningTicket.toString(), totalTickets, raffleId]
+                     winner_wallet         = LOWER($1),
+                     draw_block_hash       = $2,
+                     winning_ticket        = $3,
+                     total_tickets_at_draw = $4,
+                     winner_tickets        = $5
+                 WHERE id = $6`,
+                [winner, blockHash, winningTicket.toString(), totalTickets, winnerTickets, raffleId]
             );
 
             console.log(`[raffle ${raffleId}] completeDraw winner=${winner} (ticket ${winningTicket}/${totalTickets}, block ${drawBlock})`);

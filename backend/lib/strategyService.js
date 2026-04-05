@@ -45,6 +45,7 @@ class StrategyService {
     }
 
     // Precise math for multiplier value calculation
+    // Assumes token0=AMY (18dp), token1=stable ($1, 18dp)
     calculateValue(p, amyPrice) {
         try {
             const Q96 = Math.pow(2, 96);
@@ -60,6 +61,37 @@ class StrategyService {
             else if (tickCurrent < tickUpper) { a0 = liq * (sqrtU - sqrtP) / (sqrtP * sqrtU); a1 = liq * (sqrtP - sqrtL); }
             else a1 = liq * (sqrtU - sqrtL);
             return ((a0 / 1e18) * amyPrice) + (a1 / 1e18);
+        } catch (e) { return 0; }
+    }
+
+    // Value calculation for AMY/USDT0 pool — detects token ordering via pool.token0.id
+    // and uses correct decimals (USDT0 = 6dp, AMY = 18dp)
+    calculateValueUsdt0(p, amyPrice) {
+        try {
+            const Q96 = Math.pow(2, 96);
+            const liq = parseFloat(p.liquidity);
+            const sqrtP = parseFloat(p.pool.sqrtPrice) / Q96;
+            const tickLower = parseInt(p.tickLower?.tickIdx || 0);
+            const tickUpper = parseInt(p.tickUpper?.tickIdx || 0);
+            const sqrtL = Math.sqrt(Math.pow(1.0001, tickLower));
+            const sqrtU = Math.sqrt(Math.pow(1.0001, tickUpper));
+            let a0 = 0, a1 = 0;
+            const tickCurrent = parseInt(p.pool.tick);
+            if (tickCurrent < tickLower) a0 = liq * (sqrtU - sqrtL) / (sqrtL * sqrtU);
+            else if (tickCurrent < tickUpper) { a0 = liq * (sqrtU - sqrtP) / (sqrtP * sqrtU); a1 = liq * (sqrtP - sqrtL); }
+            else a1 = liq * (sqrtU - sqrtL);
+
+            const token0Id = (p.pool.token0?.id || '').toLowerCase();
+            const dec0 = parseInt(p.pool.token0?.decimals || 18);
+            const dec1 = parseInt(p.pool.token1?.decimals || 18);
+            const amyIsToken0 = token0Id === AMY_TOKEN.toLowerCase();
+            if (amyIsToken0) {
+                // token0=AMY(18dp), token1=USDT0(6dp,$1)
+                return ((a0 / Math.pow(10, dec0)) * amyPrice) + (a1 / Math.pow(10, dec1));
+            } else {
+                // token0=USDT0(6dp,$1), token1=AMY(18dp)
+                return (a0 / Math.pow(10, dec0)) + ((a1 / Math.pow(10, dec1)) * amyPrice);
+            }
         } catch (e) { return 0; }
     }
 
@@ -104,7 +136,7 @@ class StrategyService {
                     wallet, timestamp: new Date().toISOString(),
                     positions: {
                         lp_amy_honey: await this.fetchGoldskyPositions(wallet, AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice),
-                        lp_amy_usdt0: await this.fetchGoldskyPositions(wallet, AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice),
+                        lp_amy_usdt0: await this.fetchGoldskyPositionsUsdt0(wallet, AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice),
                         snrusd: await this.fetchStakedBalance(wallet, TOKENS.SNRUSD_VAULT),
                         jnrusd: await this.fetchTokenBalance(wallet, TOKENS.JNRUSD),
                         honey_bend: await this.fetchStakedBalance(wallet, TOKENS.HONEY_BEND_VAULT),
@@ -233,6 +265,30 @@ class StrategyService {
         } catch (e) { return { value_usd: 0, count: 0, in_range_count: 0 }; }
     }
 
+    // Like fetchGoldskyPositions but fetches token0/token1 info so calculateValueUsdt0
+    // can detect ordering and apply correct decimals (USDT0=6dp vs AMY=18dp)
+    async fetchGoldskyPositionsUsdt0(wallet, poolId, url, amyPrice) {
+        const query = { query: `{ positions(where: { owner: "${wallet.toLowerCase()}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) { liquidity tickLower { tickIdx } tickUpper { tickIdx } pool { tick sqrtPrice token0 { id decimals } token1 { id decimals } } } }` };
+        try {
+            const res = await axios.post(url, query);
+            const pos = res.data.data.positions;
+            if (!pos || pos.length === 0) return { value_usd: 0, count: 0, in_range_count: 0 };
+            let inRangeValue = 0;
+            let inRangeCount = 0;
+            for (const p of pos) {
+                const currentTick = parseInt(p.pool.tick);
+                const tickLower = parseInt(p.tickLower?.tickIdx || 0);
+                const tickUpper = parseInt(p.tickUpper?.tickIdx || 0);
+                const isInRange = currentTick >= tickLower && currentTick < tickUpper;
+                if (isInRange) {
+                    inRangeValue += this.calculateValueUsdt0(p, amyPrice);
+                    inRangeCount++;
+                }
+            }
+            return { value_usd: inRangeValue, count: pos.length, in_range_count: inRangeCount };
+        } catch (e) { return { value_usd: 0, count: 0, in_range_count: 0 }; }
+    }
+
     async runEarnDataUpdate() {
         console.log('📊 [Earn Update] Syncing Ground Truth APR/TVL...');
         try {
@@ -242,7 +298,7 @@ class StrategyService {
             const chartsData = charts.data.data;
 
             await this.syncAlgebraApr('amy-honey', AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice);
-            await this.syncAlgebraApr('amy-usdt0', AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice);
+            await this.syncKodiakUsdt0Apr(amyPrice);
             await this.syncSnrusdApr(beraPrice, chartsData.senior);
             await this.syncJnrusdApr(chartsData.junior);
             await this.syncSwberaApr(beraPrice);
@@ -266,6 +322,38 @@ class StrategyService {
             const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
             const apr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
             await this.saveMetric(id, tvl, apr);
+        } catch (e) {}
+    }
+
+    // TVL for the Kodiak AMY/USDT0 pool — queries token0/token1 info to detect ordering,
+    // then applies correct decimals (USDT0=6dp vs AMY=18dp) for TVL calculation
+    async syncKodiakUsdt0Apr(amyPrice) {
+        try {
+            const poolId = AMY_USDT0_POOL.toLowerCase();
+            const query = { query: `{ pool(id: "${poolId}") { token0 { id decimals } token1 { id decimals } totalValueLockedToken0 totalValueLockedToken1 } poolDayDatas(first: 7, orderBy: date, orderDirection: desc, where: { pool: "${poolId}" }) { feesUSD tvlUSD } }` };
+            const res = await axios.post(KODIAK_SUBGRAPH_URL, query);
+            const p = res.data.data.pool;
+            const days = res.data.data.poolDayDatas;
+
+            const token0Id = (p.token0?.id || '').toLowerCase();
+            const dec0 = parseInt(p.token0?.decimals || 18);
+            const dec1 = parseInt(p.token1?.decimals || 18);
+            const tvl0 = parseFloat(p.totalValueLockedToken0);
+            const tvl1 = parseFloat(p.totalValueLockedToken1);
+
+            let tvl;
+            if (token0Id === AMY_TOKEN.toLowerCase()) {
+                // token0=AMY, token1=USDT0
+                tvl = (tvl0 * amyPrice) + tvl1;
+            } else {
+                // token0=USDT0 (~$1, subgraph already in token units), token1=AMY
+                tvl = tvl0 + (tvl1 * amyPrice);
+            }
+
+            const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
+            const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
+            const apr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
+            await this.saveMetric('amy-usdt0', tvl, apr);
         } catch (e) {}
     }
 
