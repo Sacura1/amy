@@ -281,6 +281,12 @@ async function createTables() {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='discord_mod_multiplier') THEN
                     ALTER TABLE amy_points ADD COLUMN discord_mod_multiplier INTEGER DEFAULT 0;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='dawn_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN dawn_multiplier INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='kodiak_multiplier') THEN
+                    ALTER TABLE amy_points ADD COLUMN kodiak_multiplier INTEGER DEFAULT 0;
+                END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='amy_points' AND column_name='surfusd_value_usd') THEN
                     ALTER TABLE amy_points ADD COLUMN surfusd_value_usd DECIMAL(20, 2) DEFAULT 0;
                 END IF;
@@ -1986,23 +1992,81 @@ const points = {
         return { wallet, onchainConvictionMultiplier: multiplier };
     },
 
+    // Bulk update Raidshark multipliers (monthly sheet sync)
+    bulkUpdateRaidsharkMultipliers: async (assignments) => {
+        if (!pool) return { updated: 0, failed: 0 };
+        let updated = 0, failed = 0;
+        for (const { wallet, multiplier } of assignments) {
+            try {
+                await pool.query(
+                    `INSERT INTO amy_points (wallet, raidshark_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET raidshark_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+                updated++;
+            } catch { failed++; }
+        }
+        return { updated, failed };
+    },
+
+    // Bulk update Swapper multipliers (monthly sheet sync)
+    bulkUpdateSwapperMultipliers: async (assignments) => {
+        if (!pool) return { updated: 0, failed: 0 };
+        let updated = 0, failed = 0;
+        for (const { wallet, multiplier } of assignments) {
+            try {
+                await pool.query(
+                    `INSERT INTO amy_points (wallet, swapper_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET swapper_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+                updated++;
+            } catch { failed++; }
+        }
+        return { updated, failed };
+    },
+
+    // Bulk update Conviction multipliers (monthly sheet sync)
+    bulkUpdateConvictionMultipliers: async (assignments) => {
+        if (!pool) return { updated: 0, failed: 0 };
+        let updated = 0, failed = 0;
+        for (const { wallet, multiplier } of assignments) {
+            try {
+                await pool.query(
+                    `INSERT INTO amy_points (wallet, onchain_conviction_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET onchain_conviction_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+                updated++;
+            } catch { failed++; }
+        }
+        return { updated, failed };
+    },
+
     // Get all multiplier badges for a wallet
     getMultiplierBadges: async (wallet) => {
         if (!pool) return null;
         const result = await pool.query(
-            `SELECT raidshark_multiplier, onchain_conviction_multiplier, swapper_multiplier, telegram_mod_multiplier, discord_mod_multiplier, ember_multiplier, genesis_multiplier
+            `SELECT raidshark_multiplier, onchain_conviction_multiplier, swapper_multiplier,
+                    telegram_mod_multiplier, discord_mod_multiplier, ember_multiplier,
+                    genesis_multiplier, dawn_multiplier, kodiak_multiplier
              FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
         const row = result.rows[0];
         return {
-            raidsharkMultiplier: row?.raidshark_multiplier || 0,
+            raidsharkMultiplier:        row?.raidshark_multiplier         || 0,
             onchainConvictionMultiplier: row?.onchain_conviction_multiplier || 0,
-            swapperMultiplier: row?.swapper_multiplier || 0,
-            telegramModMultiplier: row?.telegram_mod_multiplier || 0,
-            discordModMultiplier: row?.discord_mod_multiplier || 0,
-            emberMultiplier: row?.ember_multiplier || 0,
-            genesisMultiplier: row?.genesis_multiplier || 0
+            swapperMultiplier:          row?.swapper_multiplier            || 0,
+            telegramModMultiplier:      row?.telegram_mod_multiplier       || 0,
+            discordModMultiplier:       row?.discord_mod_multiplier        || 0,
+            emberMultiplier:            row?.ember_multiplier              || 0,
+            genesisMultiplier:          row?.genesis_multiplier            || 0,
+            dawnMultiplier:             row?.dawn_multiplier               || 0,
+            kodiakMultiplier:           row?.kodiak_multiplier             || 0,
         };
     },
 
@@ -2072,6 +2136,66 @@ const points = {
             [wallet, multiplier]
         );
         return { wallet, genesisMultiplier: multiplier };
+    },
+
+    // Update Dawn multiplier for a user (permanent CSV assignment)
+    updateDawnMultiplier: async (wallet, multiplier) => {
+        if (!pool) return null;
+        await pool.query(
+            `INSERT INTO amy_points (wallet, dawn_multiplier)
+             VALUES (LOWER($1), $2)
+             ON CONFLICT (wallet) DO UPDATE SET dawn_multiplier = $2`,
+            [wallet, multiplier]
+        );
+        return { wallet, dawnMultiplier: multiplier };
+    },
+
+    // Bulk upsert Dawn multipliers (CSV import)
+    bulkUpdateDawnMultipliers: async (assignments) => {
+        if (!pool) return { updated: 0, failed: 0 };
+        let updated = 0, failed = 0;
+        for (const { wallet, multiplier } of assignments) {
+            try {
+                await pool.query(
+                    `INSERT INTO amy_points (wallet, dawn_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET dawn_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+                updated++;
+            } catch { failed++; }
+        }
+        return { updated, failed };
+    },
+
+    // Update Kodiak multiplier for a user (permanent CSV assignment)
+    updateKodiakMultiplier: async (wallet, multiplier) => {
+        if (!pool) return null;
+        await pool.query(
+            `INSERT INTO amy_points (wallet, kodiak_multiplier)
+             VALUES (LOWER($1), $2)
+             ON CONFLICT (wallet) DO UPDATE SET kodiak_multiplier = $2`,
+            [wallet, multiplier]
+        );
+        return { wallet, kodiakMultiplier: multiplier };
+    },
+
+    // Bulk upsert Kodiak multipliers (CSV import)
+    bulkUpdateKodiakMultipliers: async (assignments) => {
+        if (!pool) return { updated: 0, failed: 0 };
+        let updated = 0, failed = 0;
+        for (const { wallet, multiplier } of assignments) {
+            try {
+                await pool.query(
+                    `INSERT INTO amy_points (wallet, kodiak_multiplier)
+                     VALUES (LOWER($1), $2)
+                     ON CONFLICT (wallet) DO UPDATE SET kodiak_multiplier = $2`,
+                    [wallet, multiplier]
+                );
+                updated++;
+            } catch { failed++; }
+        }
+        return { updated, failed };
     },
 
     // Look up wallet address by X username

@@ -3220,6 +3220,7 @@ const BADGE_FAMILIES = {
     ember:         { title: 'Ember',                image: '/image/ember.png' },
     genesis:       { title: 'Genesis',              image: '/image/genesis.png' },
     dawn:          { title: 'Dawn – Legacy',        image: '/image/dawn.png' },
+    kodiak:        { title: 'Kodiak – Legacy',      image: '/image/kodiak.png' },
 };
 
 const TIER_NAMES = ['inactive', 'bronze', 'silver', 'gold'];
@@ -3319,8 +3320,12 @@ async function buildActiveBadges(wallet) {
             return badge('genesis', roleLevel(m), roleLevel(m) > 0 ? m : 0);
         })(),
         (() => {
-            const m = badgeMults.dawnReferralMultiplier || 0;
+            const m = badgeMults.dawnMultiplier || 0;
             return badge('dawn', roleLevel(m), roleLevel(m) > 0 ? m : 0);
+        })(),
+        (() => {
+            const m = badgeMults.kodiakMultiplier || 0;
+            return badge('kodiak', roleLevel(m), roleLevel(m) > 0 ? m : 0);
         })(),
     ];
 
@@ -4092,6 +4097,77 @@ app.get('/api/admin/genesis/list', isAdmin, async (req, res) => {
     } catch (error) {
         console.error('Error listing Genesis users:', error);
         res.status(500).json({ success: false, error: 'Failed to list users' });
+    }
+});
+
+// ============================================
+// DAWN LEGACY BADGE MANAGEMENT (Admin)
+// ============================================
+
+// Bulk assign Dawn Legacy multipliers from CSV data
+app.post('/api/admin/dawn/bulk', isAdmin, async (req, res) => {
+    try {
+        const { assignments } = req.body;
+        // assignments: [{ wallet, multiplier }]
+        if (!Array.isArray(assignments) || assignments.length === 0) {
+            return res.status(400).json({ success: false, error: 'assignments array required' });
+        }
+        const result = await database.points.bulkUpdateDawnMultipliers(assignments);
+        console.log(`🌅 Dawn bulk update: ${result.updated} updated, ${result.failed} failed`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating Dawn:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update Dawn' });
+    }
+});
+
+app.get('/api/admin/dawn/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT p.wallet, v.x_username as "xUsername", p.dawn_multiplier as "multiplier"
+             FROM amy_points p
+             LEFT JOIN verified_users v ON LOWER(p.wallet) = LOWER(v.wallet)
+             WHERE p.dawn_multiplier > 0
+             ORDER BY p.dawn_multiplier DESC, p.wallet ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to list Dawn users' });
+    }
+});
+
+// ============================================
+// KODIAK LEGACY BADGE MANAGEMENT (Admin)
+// ============================================
+
+// Bulk assign Kodiak Legacy multipliers from CSV data
+app.post('/api/admin/kodiak/bulk', isAdmin, async (req, res) => {
+    try {
+        const { assignments } = req.body;
+        if (!Array.isArray(assignments) || assignments.length === 0) {
+            return res.status(400).json({ success: false, error: 'assignments array required' });
+        }
+        const result = await database.points.bulkUpdateKodiakMultipliers(assignments);
+        console.log(`🐻 Kodiak bulk update: ${result.updated} updated, ${result.failed} failed`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error bulk updating Kodiak:', error);
+        res.status(500).json({ success: false, error: 'Failed to bulk update Kodiak' });
+    }
+});
+
+app.get('/api/admin/kodiak/list', isAdmin, async (req, res) => {
+    try {
+        const result = await database.pool.query(
+            `SELECT p.wallet, v.x_username as "xUsername", p.kodiak_multiplier as "multiplier"
+             FROM amy_points p
+             LEFT JOIN verified_users v ON LOWER(p.wallet) = LOWER(v.wallet)
+             WHERE p.kodiak_multiplier > 0
+             ORDER BY p.kodiak_multiplier DESC, p.wallet ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to list Kodiak users' });
     }
 });
 
@@ -5841,6 +5917,80 @@ app.listen(PORT, () => {
     });
 
     console.log(`⏰ Leaderboard auto-update scheduled for 6:00 AM daily (${process.env.CRON_TIMEZONE || 'UTC'})`);
+
+    // ── Monthly badge cron jobs (2nd of each month) ──────────────────────────
+    // Sheet format: wallet_address, x_username, multiplier_level, multiplier_x
+    // Full overwrite: reset all → assign qualifying rows only
+
+    const RAIDER_SHEET_ID     = '17XS2rdEz9l7eiEZR7H_G5CJB8DN7piRSTp0NOdJlRdQ';
+    const SWAPPER_SHEET_ID    = '13lgzaeEE4tmwIggJg92Ll24DbvQ3-C4I-EpUtuHi1RI';
+    const CONVICTION_SHEET_ID = '1Yj2hd-bK6_El59MFMSNhJuIXTjwp04j5uNspx4V4Zgg';
+
+    async function runMonthlyBadgeSync(sheetId, label, resetSql, bulkFn) {
+        const start = Date.now();
+        console.log(`\n${'─'.repeat(50)}`);
+        console.log(`🔄 [${label}] Monthly badge sync started — ${new Date().toISOString()}`);
+        console.log(`   Sheet ID : ${sheetId}`);
+        try {
+            const assignments = await googleSheetsService.fetchBadgeAssignments(sheetId);
+            console.log(`   📥 Fetched ${assignments.length} qualifying assignments from sheet`);
+            if (assignments.length > 0) {
+                assignments.forEach(a => console.log(`      ${a.wallet} → x${a.multiplier}`));
+            }
+
+            await database.pool.query(resetSql);
+            console.log(`   🗑️  Reset all existing ${label} multipliers to 0`);
+
+            const result = await bulkFn(assignments);
+            const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+            console.log(`   ✅ Assigned : ${result.updated} wallets`);
+            if (result.failed > 0) console.log(`   ⚠️  Failed  : ${result.failed} wallets`);
+            console.log(`   ⏱️  Duration : ${elapsed}s`);
+            console.log(`✅ [${label}] Sync complete\n`);
+        } catch (err) {
+            console.error(`❌ [${label}] Monthly badge sync FAILED:`, err.message);
+            console.error(err);
+        }
+        console.log(`${'─'.repeat(50)}\n`);
+    }
+
+    // Raider – 2nd of month at 4:00 AM UTC
+    cron.schedule('0 4 2 * *', () => runMonthlyBadgeSync(
+        RAIDER_SHEET_ID, 'Raider',
+        'UPDATE amy_points SET raidshark_multiplier = 0',
+        (a) => database.points.bulkUpdateRaidsharkMultipliers(a)
+    ), { timezone: 'UTC' });
+
+    // Swapper – 2nd of month at 5:00 AM UTC
+    cron.schedule('0 5 2 * *', () => runMonthlyBadgeSync(
+        SWAPPER_SHEET_ID, 'Swapper',
+        'UPDATE amy_points SET swapper_multiplier = 0',
+        (a) => database.points.bulkUpdateSwapperMultipliers(a)
+    ), { timezone: 'UTC' });
+
+    // Conviction – 2nd of month at 6:00 AM UTC
+    cron.schedule('0 6 2 * *', () => runMonthlyBadgeSync(
+        CONVICTION_SHEET_ID, 'Conviction',
+        'UPDATE amy_points SET onchain_conviction_multiplier = 0',
+        (a) => database.points.bulkUpdateConvictionMultipliers(a)
+    ), { timezone: 'UTC' });
+
+    console.log('⏰ Monthly badge syncs scheduled: Raider 4AM, Swapper 5AM, Conviction 6AM UTC on the 2nd');
+
+    // Run immediately on startup (then monthly after that)
+    setTimeout(async () => {
+        console.log('\n🚀 Running initial monthly badge syncs on startup…');
+        await runMonthlyBadgeSync(RAIDER_SHEET_ID, 'Raider',
+            'UPDATE amy_points SET raidshark_multiplier = 0',
+            (a) => database.points.bulkUpdateRaidsharkMultipliers(a));
+        await runMonthlyBadgeSync(SWAPPER_SHEET_ID, 'Swapper',
+            'UPDATE amy_points SET swapper_multiplier = 0',
+            (a) => database.points.bulkUpdateSwapperMultipliers(a));
+        await runMonthlyBadgeSync(CONVICTION_SHEET_ID, 'Conviction',
+            'UPDATE amy_points SET onchain_conviction_multiplier = 0',
+            (a) => database.points.bulkUpdateConvictionMultipliers(a));
+        console.log('🏁 All startup badge syncs complete.');
+    }, 60 * 1000); // 60s delay to let DB finish initializing
 
     // Check every minute for expired LIVE raffles and auto-draw winner
     cron.schedule('* * * * *', async () => {

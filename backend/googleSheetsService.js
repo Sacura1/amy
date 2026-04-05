@@ -155,6 +155,38 @@ class GoogleSheetsService {
   }
 
   /**
+   * Fetch badge assignments from a badge-assignment sheet.
+   * Expected columns: wallet_address, x_username, multiplier_level, multiplier_x
+   * Rows with multiplier_x = 0 or 'none' are skipped.
+   * @param {string} spreadsheetId
+   * @returns {Promise<Array<{wallet, multiplier}>>}
+   */
+  async fetchBadgeAssignments(spreadsheetId) {
+    if (!this.sheets) {
+      const ok = await this.initialize();
+      if (!ok) throw new Error('Google Sheets not initialized');
+    }
+
+    const response = await this.sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Sheet1!A2:D', // skip header row
+    });
+
+    const rows = response.data.values || [];
+    const assignments = [];
+
+    for (const row of rows) {
+      const wallet     = (row[0] || '').trim().toLowerCase();
+      const multiplier = parseInt(row[3], 10); // column D = multiplier_x
+
+      if (!wallet || !multiplier || multiplier <= 0) continue;
+      assignments.push({ wallet, multiplier });
+    }
+
+    return assignments;
+  }
+
+  /**
    * Update local leaderboard.json file with data from Google Sheets
    * @param {string} leaderboardPath - Path to leaderboard.json file
    */
