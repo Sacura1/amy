@@ -1843,7 +1843,9 @@ const points = {
              telegram_mod_multiplier as "telegramModMultiplier",
              discord_mod_multiplier as "discordModMultiplier",
              ember_multiplier as "emberMultiplier",
-             genesis_multiplier as "genesisMultiplier"
+             genesis_multiplier as "genesisMultiplier",
+             dawn_multiplier as "dawnMultiplier",
+             kodiak_multiplier as "kodiakMultiplier"
              FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );

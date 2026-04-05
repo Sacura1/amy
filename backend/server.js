@@ -1848,6 +1848,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const discordModMult = bonusAboveZero(pointsData.discordModMultiplier);
         const emberMult = bonusAboveZero(pointsData.emberMultiplier);
         const genesisMult = bonusAboveZero(pointsData.genesisMultiplier);
+        const dawnMult = bonusAboveZero(pointsData.dawnMultiplier);
+        const kodiakMult = bonusAboveZero(pointsData.kodiakMultiplier);
 
         // Fetch referral multiplier for Season 2 (active season)
         // And Dawn season archived data (historical, no longer gives bonus)
@@ -1878,7 +1880,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const lpMult = parseInt(pointsData.lpMultiplier) > 1 ? parseInt(pointsData.lpMultiplier) : 0;
         const amyHoneyLpMult = bonusAboveOne(pointsData.amyHoneyLpMultiplier || pointsData.lpMultiplier);
         // Total multiplier: sum of active multipliers (standardized calculation)
-        const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+        const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnMult + kodiakMult);
 
         // Build canonical multiplier breakdown (one source of truth)
         const multiplierBreakdown = [];
@@ -1886,7 +1888,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         if (amyusdt0Mult > 1) multiplierBreakdown.push({ name: 'AMY/USDT0 - LP', multiplier: amyusdt0Mult });
         if (onchainConvictionMult > 1) multiplierBreakdown.push({ name: 'Conviction - Monthly', multiplier: onchainConvictionMult });
         if (sailrMult > 1) multiplierBreakdown.push({ name: 'SAIL.r - Royalty', multiplier: sailrMult });
-        if (dawnReferralMultiplier > 0) multiplierBreakdown.push({ name: 'Dawn - Legacy', multiplier: dawnReferralMultiplier });
+        if (dawnMult > 0) multiplierBreakdown.push({ name: 'Dawn – Legacy', multiplier: dawnMult });
+        if (kodiakMult > 0) multiplierBreakdown.push({ name: 'Kodiak – Legacy', multiplier: kodiakMult });
         if (plsberaMult > 1) multiplierBreakdown.push({ name: 'plsBERA - Staked', multiplier: plsberaMult });
         if (plskdkMult > 1) multiplierBreakdown.push({ name: 'plsKDK - Staked', multiplier: plskdkMult });
         if (plvhedgeMult > 1) multiplierBreakdown.push({ name: 'plvHEDGE - Vault', multiplier: plvhedgeMult });
@@ -1902,7 +1905,7 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         if (telegramModMult > 0) multiplierBreakdown.push({ name: 'Telegram Mod', multiplier: telegramModMult });
         if (discordModMult > 0) multiplierBreakdown.push({ name: 'Discord Mod', multiplier: discordModMult });
         if (emberMult > 0) multiplierBreakdown.push({ name: 'Ember', multiplier: emberMult });
-        if (genesisMult > 0) multiplierBreakdown.push({ name: 'Genesis', multiplier: genesisMult });
+        if (genesisMult > 0) multiplierBreakdown.push({ name: 'Genesis – Legacy', multiplier: genesisMult });
         // Note: referralMult (Season 2) is not added to totalMultiplier formula, so excluded from breakdown
 
         // Calculate effective points per hour (base * multiplier)
@@ -4598,13 +4601,8 @@ app.post('/api/admin/trigger-points-wallet', isAdmin, async (req, res) => {
         const discordModMult     = badgeMults.discordModMultiplier > 0 ? badgeMults.discordModMultiplier : 0;
         const emberMult          = badgeMults.emberMultiplier > 0 ? badgeMults.emberMultiplier : 0;
         const genesisMult        = badgeMults.genesisMultiplier > 0 ? badgeMults.genesisMultiplier : 0;
-
-        // ── Referral ──
-        let dawnReferralMultiplier = 0;
-        if (referralsDb) {
-            const dawnData = await referralsDb.getDawnReferralData(targetWallet);
-            if (dawnData) dawnReferralMultiplier = dawnData.dawnReferralMultiplier || 0;
-        }
+        const dawnMult           = badgeMults.dawnMultiplier > 0 ? badgeMults.dawnMultiplier : 0;
+        const kodiakMult         = badgeMults.kodiakMultiplier > 0 ? badgeMults.kodiakMultiplier : 0;
 
         // ── Calculate total ──
         const lpMult        = parseInt(userData.lpMultiplier) > 1 ? parseInt(userData.lpMultiplier) : 0;
@@ -4620,7 +4618,7 @@ app.post('/api/admin/trigger-points-wallet', isAdmin, async (req, res) => {
         const jnrusdMult    = tokenHoldings.jnrusd.multiplier > 1 ? tokenHoldings.jnrusd.multiplier : 0;
         const bullasMult    = tokenHoldings.bullas.multiplier > 1 ? tokenHoldings.bullas.multiplier : 0;
         const boogaMult     = tokenHoldings.boogaBullas.multiplier > 1 ? tokenHoldings.boogaBullas.multiplier : 0;
-        const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaMult + amyusdt0Mult + raidsharkMult + onchainConviction + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+        const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaMult + amyusdt0Mult + raidsharkMult + onchainConviction + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnMult + kodiakMult);
 
         // ── Build breakdown & write history ──
         const breakdown = [];
@@ -4628,7 +4626,8 @@ app.post('/api/admin/trigger-points-wallet', isAdmin, async (req, res) => {
         if (amyusdt0Mult > 1)    breakdown.push({ name: 'AMY/USDT0 - LP',        multiplier: amyusdt0Mult });
         if (onchainConviction > 1) breakdown.push({ name: 'Conviction - Monthly', multiplier: onchainConviction });
         if (sailrMult > 1)       breakdown.push({ name: 'SAIL.r - Royalty',       multiplier: sailrMult });
-        if (dawnReferralMultiplier > 0) breakdown.push({ name: 'Dawn - Legacy',   multiplier: dawnReferralMultiplier });
+        if (dawnMult > 0)        breakdown.push({ name: 'Dawn – Legacy',          multiplier: dawnMult });
+        if (kodiakMult > 0)      breakdown.push({ name: 'Kodiak – Legacy',        multiplier: kodiakMult });
         if (plsberaMult > 1)     breakdown.push({ name: 'plsBERA - Staked',       multiplier: plsberaMult });
         if (plskdkMult > 1)      breakdown.push({ name: 'plsKDK - Staked',        multiplier: plskdkMult });
         if (plvhedgeMult > 1)    breakdown.push({ name: 'plvHEDGE - Vault',       multiplier: plvhedgeMult });
@@ -5651,7 +5650,7 @@ async function awardHourlyPoints() {
                 if (telegramModMult > 0) breakdown.push({ name: 'Telegram Mod', multiplier: telegramModMult });
                 if (discordModMult > 0) breakdown.push({ name: 'Discord Mod', multiplier: discordModMult });
                 if (emberMult > 0) breakdown.push({ name: 'Ember', multiplier: emberMult });
-                if (genesisMult > 0) breakdown.push({ name: 'Genesis', multiplier: genesisMult });
+                if (genesisMult > 0) breakdown.push({ name: 'Genesis – Legacy', multiplier: genesisMult });
                 // Note: referralMult (Season 2) not in totalMultiplier formula, excluded from breakdown
                 const description = JSON.stringify({ total_multiplier: totalMultiplier, multiplier_breakdown: breakdown });
 

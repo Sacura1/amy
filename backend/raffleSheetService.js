@@ -293,7 +293,7 @@ class RaffleSheetService {
           if (val !== undefined) {
             // Even if val is null, we want to sync it to clear/set the cell
             const displayVal = val === null ? '' : val;
-            console.log(`📊 Sync: "${key}" (${normalizedKey}) <- ${displayVal}`);
+            // console.log(`📊 Sync: "${key}" (${normalizedKey}) <- ${displayVal}`);
             rowData[idx] = displayVal;
           }
         });
