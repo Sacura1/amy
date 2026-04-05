@@ -174,7 +174,8 @@ class StrategyService {
             const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.provider);
             const bal = await contract.balanceOf(wallet);
             const balance = parseFloat(ethers.utils.formatUnits(bal, 18));
-            const price = (customPrice != null && customPrice > 0) ? customPrice : 1.0;
+            // Only apply price if explicitly provided and > 0; don't default to $1 for unknown prices
+            const price = (customPrice != null && customPrice > 0) ? customPrice : 0;
             return { value_usd: balance * price, balance };
         } catch (e) { return { value_usd: 0, balance: 0 }; }
     }
@@ -236,11 +237,20 @@ class StrategyService {
     }
 
     async getPlsKdkPrice() {
+        const addr = '0xc6173a3405fdb1f5c42004d2d71cba9bf1cfa522';
+        // Primary: GeckoTerminal token_price
         try {
-            const addr = '0xc6173a3405fdb1f5c42004d2d71cba9bf1cfa522';
             const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);
-            return parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0) || 0;
-        } catch (e) { return 0; }
+            const price = parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0);
+            if (price > 0) return price;
+        } catch (e) {}
+        // Fallback: Plutus API (same source used for APR sync)
+        try {
+            const res = await axios.get(`https://plutus.fi/api/assets/80094/${addr}`);
+            const price = parseFloat(res.data?.price || res.data?.tokenPrice || 0);
+            if (price > 0) return price;
+        } catch (e) {}
+        return 0;
     }
 
     async fetchGoldskyPositions(wallet, poolId, url, amyPrice) {
