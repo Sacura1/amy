@@ -5586,6 +5586,8 @@ async function awardHourlyPoints() {
                 let discordModMult = 0;
                 let emberMult = 0;
                 let genesisMult = 0;
+                let dawnMult = 0;
+                let kodiakMult = 0;
                 try {
                     const badgeMultipliers = await database.points.getMultiplierBadges(user.wallet);
                     raidsharkMult = badgeMultipliers.raidsharkMultiplier > 1 ? badgeMultipliers.raidsharkMultiplier : 0;
@@ -5595,13 +5597,14 @@ async function awardHourlyPoints() {
                     discordModMult = badgeMultipliers.discordModMultiplier > 0 ? badgeMultipliers.discordModMultiplier : 0;
                     emberMult = badgeMultipliers.emberMultiplier > 0 ? badgeMultipliers.emberMultiplier : 0;
                     genesisMult = badgeMultipliers.genesisMultiplier > 0 ? badgeMultipliers.genesisMultiplier : 0;
+                    dawnMult = badgeMultipliers.dawnMultiplier > 0 ? badgeMultipliers.dawnMultiplier : 0;
+                    kodiakMult = badgeMultipliers.kodiakMultiplier > 0 ? badgeMultipliers.kodiakMultiplier : 0;
                 } catch (err) {
                     // If badge query fails, continue without these multipliers
                 }
 
-                // Fetch referral multiplier (1 ref = x3, 2 refs = x5, 3+ refs = x10)
+                // Fetch referral multiplier (1 ref = x3, 2 refs = x5, 3+ refs = x10) — Season 2 only
                 let referralMult = 0;
-                let dawnReferralMultiplier = 0;
                 try {
                     if (referralsDb) {
                         const referralEntry = await referralsDb.getByWallet(user.wallet);
@@ -5611,11 +5614,6 @@ async function awardHourlyPoints() {
                             else if (validReferralCount >= 2) referralMult = 5;
                             else if (validReferralCount >= 1) referralMult = 3;
                         }
-                        // Fetch Dawn season referral multiplier (active for existing holders)
-                        const dawnData = await referralsDb.getDawnReferralData(user.wallet);
-                        if (dawnData) {
-                            dawnReferralMultiplier = dawnData.dawnReferralMultiplier || 0;
-                        }
                     }
                 } catch (err) {
                     // If referral query fails, continue without this multiplier
@@ -5623,7 +5621,7 @@ async function awardHourlyPoints() {
 
                 // Calculate total multiplier from all badges (additive)
                 const lpMult = parseInt(user.lpMultiplier) > 1 ? parseInt(user.lpMultiplier) : 0;
-                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnReferralMultiplier);
+                const totalMultiplier = Math.max(1, lpMult + sailrMult + plvhedgeMult + plsberaMult + plskdkMult + honeybendMult + stakedberaMult + bgtMult + snrusdMult + jnrusdMult + bullasMult + boogaBullasMult + amyusdt0Mult + raidsharkMult + onchainConvictionMult + swapperMult + telegramModMult + discordModMult + emberMult + genesisMult + dawnMult + kodiakMult);
 
                 const basePoints = parseFloat(user.pointsPerHour);
                 const finalPoints = basePoints * totalMultiplier;
@@ -5634,7 +5632,8 @@ async function awardHourlyPoints() {
                 if (amyusdt0Mult > 1) breakdown.push({ name: 'AMY/USDT0 - LP', multiplier: amyusdt0Mult });
                 if (onchainConvictionMult > 1) breakdown.push({ name: 'Conviction - Monthly', multiplier: onchainConvictionMult });
                 if (sailrMult > 1) breakdown.push({ name: 'SAIL.r - Royalty', multiplier: sailrMult });
-                if (dawnReferralMultiplier > 0) breakdown.push({ name: 'Dawn - Legacy', multiplier: dawnReferralMultiplier });
+                if (dawnMult > 0) breakdown.push({ name: 'Dawn – Legacy', multiplier: dawnMult });
+                if (kodiakMult > 0) breakdown.push({ name: 'Kodiak – Legacy', multiplier: kodiakMult });
                 if (plsberaMult > 1) breakdown.push({ name: 'plsBERA - Staked', multiplier: plsberaMult });
                 if (plskdkMult > 1) breakdown.push({ name: 'plsKDK - Staked', multiplier: plskdkMult });
                 if (plvhedgeMult > 1) breakdown.push({ name: 'plvHEDGE - Vault', multiplier: plvhedgeMult });
