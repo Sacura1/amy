@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { google } = require('googleapis');
 const { ethers } = require('ethers');
 
 // CONFIG
@@ -11,9 +12,10 @@ const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
 const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clols2c0p7fby2nww199i4pdx/subgraphs/algebra-berachain-mainnet/0.0.3/gn';
 const KODIAK_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clpx84oel0al201r78jsl0r3i/subgraphs/kodiak-v3-berachain-mainnet/latest/gn';
 const LR_CHARTS_API = 'https://lr-api-production.up.railway.app/api/v1/charts/vaults?days=all';
-const APR_TVL_SHEET_ID = '1FDsR0LmKIF63gcMsJ-sZQ-eAR-ssTK6Zqlq0DR8RiJo';
-const APR_TVL_SHEET_NAME = 'TVL';
-const APR_TVL_SHEET_URL = `https://docs.google.com/spreadsheets/d/${APR_TVL_SHEET_ID}/gviz/tq?tqx=out:json&sheet=${APR_TVL_SHEET_NAME}`;
+const APR_TVL_SHEET_NAME = process.env.APR_TVL_SHEET_NAME || 'TVL';
+const APR_TVL_SHEET_ID = process.env.APR_TVL_SHEET_ID || '1FDsR0LmKIF63gcMsJ-sZQ-eAR-ssTK6Zqlq0DR8RiJo';
+const APR_TVL_SHEET_RANGE = process.env.APR_TVL_SHEET_RANGE || `${APR_TVL_SHEET_NAME}!A2:C`;
+
 const SHEET_STRATEGY_MAP = {
     'honey - lent': 'honeybend',
     'bera - staked': 'stakedbera',
@@ -55,6 +57,26 @@ class StrategyService {
     constructor(db) {
         this.db = db;
         this.provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+        this.sheetsClient = null;
+    }
+
+    async getSheetsClient() {
+        if (this.sheetsClient) return this.sheetsClient;
+        const key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+        if (!key) {
+            throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY not configured for APR/TVL sheet sync');
+        }
+        try {
+            const credentials = JSON.parse(key);
+            const auth = new google.auth.GoogleAuth({
+                credentials,
+                scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
+            });
+            this.sheetsClient = google.sheets({ version: 'v4', auth });
+            return this.sheetsClient;
+        } catch (err) {
+            throw new Error(`Failed to initialize Google Sheets client: ${err.message}`);
+        }
     }
 
     // Precise math for AMY/HONEY pool value calculation (both tokens 18dp)
@@ -454,28 +476,31 @@ class StrategyService {
     }
 
     async fetchAprTvlSheet() {
+        if (!APR_TVL_SHEET_ID) {
+            console.warn('⚠️ [Earn Update] APR/TVL sheet ID is not configured.');
+            return null;
+        }
         try {
-            const res = await axios.get(APR_TVL_SHEET_URL, { timeout: 15000 });
-            const raw = res.data;
-            const start = raw.indexOf('{');
-            const end = raw.lastIndexOf('}');
-            if (start === -1 || end === -1) {
-                console.warn('⚠️ [Earn Update] APR/TVL sheet response could not be parsed.');
+            const sheets = await this.getSheetsClient();
+            const res = await sheets.spreadsheets.values.get({
+                spreadsheetId: APR_TVL_SHEET_ID,
+                range: APR_TVL_SHEET_RANGE,
+            });
+            const rows = res.data.values || [];
+            if (rows.length === 0) {
+                console.warn('⚠️ [Earn Update] APR/TVL sheet returned no rows.');
                 return null;
             }
-            const parsed = JSON.parse(raw.slice(start, end + 1));
-            const rows = parsed?.table?.rows || [];
             const map = {};
             for (const row of rows) {
-                const cells = row?.c || [];
-                const name = cells[0]?.v?.toString().trim().toLowerCase();
+                const name = (row[0] || '').toString().trim().toLowerCase();
                 if (!name) continue;
-                const apr = (cells[1]?.f ?? cells[1]?.v ?? '').toString().trim();
-                const tvl = (cells[2]?.f ?? cells[2]?.v ?? '').toString().trim();
+                const apr = (row[1] ?? '').toString().trim();
+                const tvl = (row[2] ?? '').toString().trim();
                 map[name] = { apr, tvl };
             }
             if (Object.keys(map).length === 0) {
-                console.warn('⚠️ [Earn Update] APR/TVL sheet returned no rows.');
+                console.warn('⚠️ [Earn Update] APR/TVL sheet returned no valid entries.');
                 return null;
             }
             console.log(`📈 [Earn Update] Loaded APR/TVL sheet with ${Object.keys(map).length} entries.`);
