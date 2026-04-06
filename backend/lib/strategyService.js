@@ -12,9 +12,8 @@ const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
 const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clols2c0p7fby2nww199i4pdx/subgraphs/algebra-berachain-mainnet/0.0.3/gn';
 const KODIAK_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clpx84oel0al201r78jsl0r3i/subgraphs/kodiak-v3-berachain-mainnet/latest/gn';
 const LR_CHARTS_API = 'https://lr-api-production.up.railway.app/api/v1/charts/vaults?days=all';
-const APR_TVL_SHEET_NAME = process.env.APR_TVL_SHEET_NAME || 'TVL';
 const APR_TVL_SHEET_ID = process.env.APR_TVL_SHEET_ID || '1FDsR0LmKIF63gcMsJ-sZQ-eAR-ssTK6Zqlq0DR8RiJo';
-const APR_TVL_SHEET_RANGE = process.env.APR_TVL_SHEET_RANGE || `${APR_TVL_SHEET_NAME}!A2:C`;
+const APR_TVL_SHEET_RANGE = process.env.APR_TVL_SHEET_RANGE || 'Sheet1!A2:C';
 
 const SHEET_STRATEGY_MAP = {
     'honey - lent': 'honeybend',
