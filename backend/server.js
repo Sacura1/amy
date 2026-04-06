@@ -1941,9 +1941,8 @@ app.get('/api/points/:wallet', async (req, res, next) => {
                 swapperMultiplier: swapperMult > 0 ? swapperMult : 0,
                 telegramModMultiplier: telegramModMult > 0 ? telegramModMult : 0,
                 discordModMultiplier: discordModMult > 0 ? discordModMult : 0,
-                // Dawn season (active for existing holders, registration closed for new users)
-                dawnReferralCount: dawnReferralCount,
-                dawnReferralMultiplier: dawnReferralMultiplier
+                dawnMultiplier: dawnMult,
+                kodiakMultiplier: kodiakMult
             }
         });
 
