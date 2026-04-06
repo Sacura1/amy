@@ -11,6 +11,19 @@ const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
 const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clols2c0p7fby2nww199i4pdx/subgraphs/algebra-berachain-mainnet/0.0.3/gn';
 const KODIAK_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clpx84oel0al201r78jsl0r3i/subgraphs/kodiak-v3-berachain-mainnet/latest/gn';
 const LR_CHARTS_API = 'https://lr-api-production.up.railway.app/api/v1/charts/vaults?days=all';
+const APR_TVL_SHEET_ID = '1FDsR0LmKIF63gcMsJ-sZQ-eAR-ssTK6Zqlq0DR8RiJo';
+const APR_TVL_SHEET_NAME = 'TVL';
+const APR_TVL_SHEET_URL = `https://docs.google.com/spreadsheets/d/${APR_TVL_SHEET_ID}/gviz/tq?tqx=out:json&sheet=${APR_TVL_SHEET_NAME}`;
+const SHEET_STRATEGY_MAP = {
+    'honey - lent': 'honeybend',
+    'bera - staked': 'stakedbera',
+    'plsbera - staked': 'plsbera',
+    'plskdk - staked': 'plskdk',
+    'plvhedge - vault': 'plvhedge',
+    'sail.r - royalty': 'sailr',
+    'snrusd - vault': 'snrusd',
+    'jnrusd - vault': 'jnrusd'
+};
 
 // Addresses
 const TOKENS = {
@@ -315,16 +328,27 @@ class StrategyService {
             const beraPrice = await this.getBeraPrice();
             const charts = await axios.get(LR_CHARTS_API);
             const chartsData = charts.data.data;
+            const sheetData = await this.fetchAprTvlSheet();
 
             await this.syncAlgebraApr('amy-honey', AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice);
             await this.syncKodiakUsdt0Apr(amyPrice);
-            await this.syncSnrusdApr(beraPrice, chartsData.senior);
-            await this.syncJnrusdApr(chartsData.junior);
-            await this.syncSwberaApr(beraPrice);
-            await this.syncPlutusApr('plsbera', '0xe8bEB147a93BB757DB15e468FaBD119CA087EfAE');
-            await this.syncPlutusApr('plskdk', '0x9e6B748d25Ed2600Aa0ce7Cbb42267adCF21Fd9B');
-            await this.syncPlutusApr('plvhedge', '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A');
-            await this.syncSailrApr();
+
+            let sheetApplied = false;
+            if (sheetData) {
+                const applied = await this.applySheetMetrics(sheetData);
+                sheetApplied = applied > 0;
+            }
+
+            if (!sheetApplied) {
+                console.warn('⚠️ [Earn Update] APR/TVL sheet missing, falling back to live metrics.');
+                await this.syncSnrusdApr(beraPrice, chartsData.senior);
+                await this.syncJnrusdApr(chartsData.junior);
+                await this.syncSwberaApr(beraPrice);
+                await this.syncPlutusApr('plsbera', '0xe8bEB147a93BB757DB15e468FaBD119CA087EfAE');
+                await this.syncPlutusApr('plskdk', '0x9e6B748d25Ed2600Aa0ce7Cbb42267adCF21Fd9B');
+                await this.syncPlutusApr('plvhedge', '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A');
+                await this.syncSailrApr();
+            }
 
             console.log('✅ [Earn Update] All ground truth stats synced.');
         } catch (err) { console.error('❌ [Earn Update] Master Error:', err.message); }
@@ -427,6 +451,64 @@ class StrategyService {
             const tvl = parseFloat(res.data.data.attributes.base_token_price_usd) * 1500000;
             await this.saveMetric('sailr', tvl, 8.5);
         } catch (e) {}
+    }
+
+    async fetchAprTvlSheet() {
+        try {
+            const res = await axios.get(APR_TVL_SHEET_URL, { timeout: 15000 });
+            const raw = res.data;
+            const start = raw.indexOf('{');
+            const end = raw.lastIndexOf('}');
+            if (start === -1 || end === -1) {
+                console.warn('⚠️ [Earn Update] APR/TVL sheet response could not be parsed.');
+                return null;
+            }
+            const parsed = JSON.parse(raw.slice(start, end + 1));
+            const rows = parsed?.table?.rows || [];
+            const map = {};
+            for (const row of rows) {
+                const cells = row?.c || [];
+                const name = cells[0]?.v?.toString().trim().toLowerCase();
+                if (!name) continue;
+                const apr = (cells[1]?.f ?? cells[1]?.v ?? '').toString().trim();
+                const tvl = (cells[2]?.f ?? cells[2]?.v ?? '').toString().trim();
+                map[name] = { apr, tvl };
+            }
+            if (Object.keys(map).length === 0) {
+                console.warn('⚠️ [Earn Update] APR/TVL sheet returned no rows.');
+                return null;
+            }
+            console.log(`📈 [Earn Update] Loaded APR/TVL sheet with ${Object.keys(map).length} entries.`);
+            return map;
+        } catch (err) {
+            console.error('❌ [Earn Update] Failed to fetch APR/TVL sheet:', err.message);
+            return null;
+        }
+    }
+
+    async applySheetMetrics(sheetData) {
+        let applied = 0;
+        for (const [strategyKey, positionId] of Object.entries(SHEET_STRATEGY_MAP)) {
+            const row = sheetData[strategyKey];
+            if (!row) {
+                console.warn(`⚠️ [Earn Update] APR/TVL sheet missing entry for "${strategyKey}".`);
+                continue;
+            }
+            const displayTvl = row.tvl || 'TBC';
+            const displayApr = row.apr || '0%';
+            await this.saveMetricFromSheet(positionId, displayTvl, displayApr);
+            console.log(`📈 [Earn Update] Sheet metric saved for ${strategyKey} -> ${positionId}: TVL=${displayTvl}, APR=${displayApr}`);
+            applied++;
+        }
+        console.log(`📈 [Earn Update] Sheet metrics applied for ${applied}/${Object.keys(SHEET_STRATEGY_MAP).length} strategies.`);
+        return applied;
+    }
+
+    async saveMetricFromSheet(id, tvl, apr) {
+        await this.db.pool.query(
+            'INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)',
+            [id, tvl, apr]
+        );
     }
 
     async saveMetric(id, tvl, apr) {
