@@ -494,8 +494,8 @@ class StrategyService {
                 console.warn(`⚠️ [Earn Update] APR/TVL sheet missing entry for "${strategyKey}".`);
                 continue;
             }
-            const displayTvl = row.tvl || 'TBC';
-            const displayApr = row.apr || '0%';
+            const displayTvl = row.tvl && row.tvl.trim() ? row.tvl.trim() : 'TBC';
+            const displayApr = row.apr && row.apr.trim() ? row.apr.trim() : '0%';
             await this.saveMetricFromSheet(positionId, displayTvl, displayApr);
             console.log(`📈 [Earn Update] Sheet metric saved for ${strategyKey} -> ${positionId}: TVL=${displayTvl}, APR=${displayApr}`);
             applied++;
