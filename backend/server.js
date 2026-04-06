@@ -2379,9 +2379,10 @@ app.get('/api/lp/:wallet', async (req, res) => {
 
         if (snapshotRes.rows.length > 0) {
             const snap = snapshotRes.rows[0].snapshot_data;
-            const honeyLp = snap.positions.lp_amy_honey || { value_usd: 0, count: 0 };
+            const honeyLp = snap.positions.lp_amy_honey || { value_usd: 0, count: 0, in_range_count: 0 };
+            const inRangeCount = honeyLp.in_range_count ?? honeyLp.count;
             console.log(`🧠 [API] LP status using snapshot for ${walletLower}`);
-            
+
             return res.json({
                 success: true,
                 data: {
@@ -2390,8 +2391,8 @@ app.get('/api/lp/:wallet', async (req, res) => {
                     totalLpValueUsd: honeyLp.value_usd,
                     lpMultiplier: (honeyLp.value_usd >= 500) ? 100 : (honeyLp.value_usd >= 100) ? 10 : (honeyLp.value_usd >= 10) ? 5 : 1,
                     positionsFound: honeyLp.count,
-                    inRangePositions: honeyLp.count,
-                    isInRange: honeyLp.count > 0,
+                    inRangePositions: inRangeCount,
+                    isInRange: inRangeCount > 0,
                     amyPriceUsd: 0.022,
                     cached: true,
                     tiers: LP_MULTIPLIER_TIERS
