@@ -549,18 +549,12 @@ class StrategyService {
                 console.warn(`⚠️ [Earn Update] APR/TVL sheet missing entry for "${strategyKey}".`);
                 continue;
             }
-            const hasNumeric = row.tvlValue !== null || row.aprValue !== null;
-            if (hasNumeric) {
-                const tvlValue = row.tvlValue !== null ? row.tvlValue : 0;
-                const aprValue = row.aprValue !== null ? row.aprValue : 0;
-                await this.saveMetric(positionId, tvlValue, aprValue);
-                console.log(`📈 [Earn Update] Sheet metric saved for ${strategyKey} -> ${positionId}: tvl=${tvlValue}, apr=${aprValue}`);
-            } else {
-                const displayTvl = row.rawTvl && row.rawTvl.trim() ? row.rawTvl.trim() : 'TBC';
-                const displayApr = row.rawApr && row.rawApr.trim() ? row.rawApr.trim() : '0%';
-                await this.saveMetricFromSheet(positionId, displayTvl, displayApr);
-                console.log(`📈 [Earn Update] Sheet metric saved for ${strategyKey} -> ${positionId}: TVL=${displayTvl}, APR=${displayApr}`);
-            }
+            const displayTvl = row.rawTvl && row.rawTvl.trim() ? row.rawTvl.trim() : 'TBC';
+            let displayApr = row.rawApr && row.rawApr.trim() ? row.rawApr.trim() : '';
+            if (displayApr && !displayApr.endsWith('%')) displayApr = `${displayApr}%`;
+            if (!displayApr) displayApr = '0%';
+            await this.saveMetricFromSheet(positionId, displayTvl, displayApr);
+            console.log(`📈 [Earn Update] Sheet metric saved for ${strategyKey} -> ${positionId}: TVL=${displayTvl}, APR=${displayApr}`);
             applied++;
         }
         console.log(`📈 [Earn Update] Sheet metrics applied for ${applied}/${Object.keys(SHEET_STRATEGY_MAP).length} strategies.`);
