@@ -23,10 +23,16 @@ const SHEET_STRATEGY_MAP = {
     'plvhedge - vault': 'plvhedge',
     'sail.r - royalty': 'sailr',
     'snrusd - vault': 'snrusd',
-    'jnrusd - vault': 'jnrusd'
+    'jnrusd - vault': 'jnrusd',
+    // LP pools: APR comes from sheet, TVL is computed from subgraph
+    'amy/honey - lp': 'amy-honey',
+    'amy/usdt0 - lp': 'amy-usdt0',
 };
 
 const STRATEGY_KEYS = Object.keys(SHEET_STRATEGY_MAP);
+
+// These positions use computed TVL (subgraph) but sheet APR — applySheetMetrics skips them
+const LP_APR_ONLY = new Set(['amy-honey', 'amy-usdt0']);
 
 function normalizeStrategyKey(rawName) {
     if (!rawName) return null;
@@ -377,8 +383,11 @@ class StrategyService {
             const chartsData = charts.data.data;
             const sheetData = await this.fetchAprTvlSheet();
 
-            await this.syncAlgebraApr('amy-honey', AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice);
-            await this.syncKodiakUsdt0Apr(amyPrice);
+            const amyHoneySheetApr = sheetData?.['amy/honey - lp']?.aprValue ?? null;
+            const amyUsdt0SheetApr = sheetData?.['amy/usdt0 - lp']?.aprValue ?? null;
+
+            await this.syncAlgebraApr('amy-honey', AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice, amyHoneySheetApr);
+            await this.syncKodiakUsdt0Apr(amyPrice, amyUsdt0SheetApr);
 
             let sheetApplied = false;
             if (sheetData) {
@@ -401,7 +410,7 @@ class StrategyService {
         } catch (err) { console.error('❌ [Earn Update] Master Error:', err.message); }
     }
 
-    async syncAlgebraApr(id, poolId, url, amyPrice) {
+    async syncAlgebraApr(id, poolId, url, amyPrice, aprOverride = null) {
         try {
             const query = { query: `{ pool(id: "${poolId.toLowerCase()}") { token0 { id } totalValueLockedToken0 totalValueLockedToken1 } poolDayDatas(first: 7, orderBy: date, orderDirection: desc, where: { pool: "${poolId.toLowerCase()}" }) { feesUSD tvlUSD } }`};
             const res = await axios.post(url, query);
@@ -416,14 +425,15 @@ class StrategyService {
                 : tvl0 + (tvl1 * amyPrice);
             const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
             const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
-            const apr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
+            const computedApr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
+            const apr = (aprOverride !== null && Number.isFinite(aprOverride)) ? aprOverride : computedApr;
             await this.saveMetric(id, tvl, apr);
         } catch (e) {}
     }
 
     // TVL for the Kodiak AMY/USDT0 pool — queries token0/token1 info to detect ordering,
     // then applies correct decimals (USDT0=6dp vs AMY=18dp) for TVL calculation
-    async syncKodiakUsdt0Apr(amyPrice) {
+    async syncKodiakUsdt0Apr(amyPrice, aprOverride = null) {
         try {
             const poolId = AMY_USDT0_POOL.toLowerCase();
             const query = { query: `{ pool(id: "${poolId}") { token0 { id decimals } token1 { id decimals } totalValueLockedToken0 totalValueLockedToken1 } poolDayDatas(first: 7, orderBy: date, orderDirection: desc, where: { pool: "${poolId}" }) { feesUSD tvlUSD } }` };
@@ -448,7 +458,8 @@ class StrategyService {
 
             const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
             const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
-            const apr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
+            const computedApr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
+            const apr = (aprOverride !== null && Number.isFinite(aprOverride)) ? aprOverride : computedApr;
             await this.saveMetric('amy-usdt0', tvl, apr);
         } catch (e) {}
     }
@@ -544,12 +555,29 @@ class StrategyService {
     async applySheetMetrics(sheetData) {
         let applied = 0;
         for (const [strategyKey, positionId] of Object.entries(SHEET_STRATEGY_MAP)) {
+            // LP positions use computed TVL from subgraph — APR is injected via syncAlgebraApr/syncKodiakUsdt0Apr
+            if (LP_APR_ONLY.has(positionId)) continue;
+
             const row = sheetData[strategyKey];
             if (!row) {
                 console.warn(`⚠️ [Earn Update] APR/TVL sheet missing entry for "${strategyKey}".`);
                 continue;
             }
-            const displayTvl = row.rawTvl && row.rawTvl.trim() ? row.rawTvl.trim() : 'TBC';
+
+            // Format TVL: if the sheet contains a raw number (e.g. "25070353.07"), format it properly
+            let displayTvl;
+            if (row.tvlValue !== null && Number.isFinite(row.tvlValue) && row.tvlValue > 0) {
+                if (row.tvlValue >= 1_000_000) {
+                    displayTvl = `$${(row.tvlValue / 1_000_000).toFixed(2)}M`;
+                } else if (row.tvlValue >= 1_000) {
+                    displayTvl = `$${(row.tvlValue / 1_000).toFixed(1)}K`;
+                } else {
+                    displayTvl = `$${row.tvlValue.toFixed(2)}`;
+                }
+            } else {
+                displayTvl = (row.rawTvl && row.rawTvl.trim()) ? row.rawTvl.trim() : 'TBC';
+            }
+
             let displayApr = row.rawApr && row.rawApr.trim() ? row.rawApr.trim() : '';
             if (displayApr && !displayApr.endsWith('%')) displayApr = `${displayApr}%`;
             if (!displayApr) displayApr = '0%';
