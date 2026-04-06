@@ -26,6 +26,32 @@ const SHEET_STRATEGY_MAP = {
     'jnrusd - vault': 'jnrusd'
 };
 
+const STRATEGY_KEYS = Object.keys(SHEET_STRATEGY_MAP);
+
+function normalizeStrategyKey(rawName) {
+    if (!rawName) return null;
+    const normalized = rawName.toString().trim().toLowerCase();
+    if (!normalized) return null;
+    if (SHEET_STRATEGY_MAP[normalized]) return normalized;
+    return STRATEGY_KEYS.find(key => normalized.includes(key) || key.includes(normalized)) || null;
+}
+
+function parseSheetCellValue(cell) {
+    const raw = (cell ?? '').toString().trim();
+    if (!raw) return { raw: '', number: null };
+    const parts = raw.split(/[\r\n]+/).map(p => p.trim()).filter(Boolean);
+    const part = parts.length ? parts[parts.length - 1] : raw;
+    const sanitized = part.replace(/[$,:%]/g, '').trim();
+    const match = sanitized.match(/(-?\d+(\.\d+)?)([kmbKMB])?/);
+    if (!match) return { raw: part, number: null };
+    let value = parseFloat(match[1]);
+    const suffix = match[3]?.toLowerCase();
+    if (suffix === 'k') value *= 1_000;
+    else if (suffix === 'm') value *= 1_000_000;
+    else if (suffix === 'b') value *= 1_000_000_000;
+    return { raw: part, number: value };
+}
+
 // Addresses
 const TOKENS = {
     SNRUSD_VAULT: '0x18e310dD4A6179D9600E95D18926AB7819B2A071',
@@ -492,11 +518,16 @@ class StrategyService {
             }
             const map = {};
             for (const row of rows) {
-                const name = (row[0] || '').toString().trim().toLowerCase();
-                if (!name) continue;
-                const apr = (row[1] ?? '').toString().trim();
-                const tvl = (row[2] ?? '').toString().trim();
-                map[name] = { apr, tvl };
+                const nameKey = normalizeStrategyKey(row[0]);
+                if (!nameKey) continue;
+                const aprParsed = parseSheetCellValue(row[1]);
+                const tvlParsed = parseSheetCellValue(row[2]);
+                map[nameKey] = {
+                    aprValue: Number.isFinite(aprParsed.number) ? aprParsed.number : null,
+                    tvlValue: Number.isFinite(tvlParsed.number) ? tvlParsed.number : null,
+                    rawApr: aprParsed.raw,
+                    rawTvl: tvlParsed.raw
+                };
             }
             if (Object.keys(map).length === 0) {
                 console.warn('⚠️ [Earn Update] APR/TVL sheet returned no valid entries.');
@@ -518,10 +549,18 @@ class StrategyService {
                 console.warn(`⚠️ [Earn Update] APR/TVL sheet missing entry for "${strategyKey}".`);
                 continue;
             }
-            const displayTvl = row.tvl && row.tvl.trim() ? row.tvl.trim() : 'TBC';
-            const displayApr = row.apr && row.apr.trim() ? row.apr.trim() : '0%';
-            await this.saveMetricFromSheet(positionId, displayTvl, displayApr);
-            console.log(`📈 [Earn Update] Sheet metric saved for ${strategyKey} -> ${positionId}: TVL=${displayTvl}, APR=${displayApr}`);
+            const hasNumeric = row.tvlValue !== null || row.aprValue !== null;
+            if (hasNumeric) {
+                const tvlValue = row.tvlValue !== null ? row.tvlValue : 0;
+                const aprValue = row.aprValue !== null ? row.aprValue : 0;
+                await this.saveMetric(positionId, tvlValue, aprValue);
+                console.log(`📈 [Earn Update] Sheet metric saved for ${strategyKey} -> ${positionId}: tvl=${tvlValue}, apr=${aprValue}`);
+            } else {
+                const displayTvl = row.rawTvl && row.rawTvl.trim() ? row.rawTvl.trim() : 'TBC';
+                const displayApr = row.rawApr && row.rawApr.trim() ? row.rawApr.trim() : '0%';
+                await this.saveMetricFromSheet(positionId, displayTvl, displayApr);
+                console.log(`📈 [Earn Update] Sheet metric saved for ${strategyKey} -> ${positionId}: TVL=${displayTvl}, APR=${displayApr}`);
+            }
             applied++;
         }
         console.log(`📈 [Earn Update] Sheet metrics applied for ${applied}/${Object.keys(SHEET_STRATEGY_MAP).length} strategies.`);
