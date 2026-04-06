@@ -4428,14 +4428,10 @@ app.post('/api/admin/set-test-multipliers', isAdmin, async (req, res) => {
                     telegram_mod_multiplier = 0,
                     discord_mod_multiplier = 0,
                     ember_multiplier = 0,
-                    genesis_multiplier = 0
+                    genesis_multiplier = 0,
+                    dawn_multiplier = 0,
+                    kodiak_multiplier = 0
                  WHERE LOWER(wallet) = $1`,
-                [targetWallet]
-            );
-            // Reset dawn referral
-            await database.pool.query(
-                `UPDATE referrals SET dawn_referral_count = 0, dawn_referral_multiplier = 0
-                 WHERE LOWER(wallet) = LOWER($1)`,
                 [targetWallet]
             );
             // Delete snapshot only if it was injected by this endpoint
@@ -4479,8 +4475,8 @@ app.post('/api/admin/set-test-multipliers', isAdmin, async (req, res) => {
         await database.pool.query(
             `INSERT INTO amy_points (wallet, raidshark_multiplier, onchain_conviction_multiplier,
                 swapper_multiplier, telegram_mod_multiplier, discord_mod_multiplier,
-                ember_multiplier, genesis_multiplier)
-             VALUES ($1, 15, 10, 3, 10, 10, 10, 10)
+                ember_multiplier, genesis_multiplier, dawn_multiplier, kodiak_multiplier)
+             VALUES ($1, 15, 10, 3, 10, 10, 10, 10, 5, 5)
              ON CONFLICT (wallet) DO UPDATE SET
                 raidshark_multiplier         = 15,
                 onchain_conviction_multiplier = 10,
@@ -4488,17 +4484,9 @@ app.post('/api/admin/set-test-multipliers', isAdmin, async (req, res) => {
                 telegram_mod_multiplier      = 10,
                 discord_mod_multiplier       = 10,
                 ember_multiplier             = 10,
-                genesis_multiplier           = 10`,
-            [targetWallet]
-        );
-
-        // ── Set dawn referral multiplier ──
-        await database.pool.query(
-            `INSERT INTO referrals (wallet, dawn_referral_count, dawn_referral_multiplier)
-             VALUES ($1, 3, 10)
-             ON CONFLICT (wallet) DO UPDATE SET
-                dawn_referral_count      = 3,
-                dawn_referral_multiplier = 10`,
+                genesis_multiplier           = 10,
+                dawn_multiplier              = 5,
+                kodiak_multiplier            = 5`,
             [targetWallet]
         );
 
