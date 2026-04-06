@@ -44,8 +44,8 @@ class StrategyService {
         this.provider = new ethers.providers.JsonRpcProvider(RPC_URL);
     }
 
-    // Precise math for multiplier value calculation
-    // Assumes token0=AMY (18dp), token1=stable ($1, 18dp)
+    // Precise math for AMY/HONEY pool value calculation (both tokens 18dp)
+    // Detects token ordering via pool.token0.id — works whether AMY is token0 or token1
     calculateValue(p, amyPrice) {
         try {
             const Q96 = Math.pow(2, 96);
@@ -60,7 +60,15 @@ class StrategyService {
             if (tickCurrent < tickLower) a0 = liq * (sqrtU - sqrtL) / (sqrtL * sqrtU);
             else if (tickCurrent < tickUpper) { a0 = liq * (sqrtU - sqrtP) / (sqrtP * sqrtU); a1 = liq * (sqrtP - sqrtL); }
             else a1 = liq * (sqrtU - sqrtL);
-            return ((a0 / 1e18) * amyPrice) + (a1 / 1e18);
+            const token0Id = (p.pool.token0?.id || '').toLowerCase();
+            const amyIsToken0 = token0Id === AMY_TOKEN.toLowerCase();
+            if (amyIsToken0) {
+                // token0=AMY, token1=HONEY (both 18dp, HONEY ~$1)
+                return ((a0 / 1e18) * amyPrice) + (a1 / 1e18);
+            } else {
+                // token0=HONEY, token1=AMY (both 18dp, HONEY ~$1)
+                return (a0 / 1e18) + ((a1 / 1e18) * amyPrice);
+            }
         } catch (e) { return 0; }
     }
 
@@ -254,7 +262,8 @@ class StrategyService {
     }
 
     async fetchGoldskyPositions(wallet, poolId, url, amyPrice) {
-        const query = { query: `{ positions(where: { owner: "${wallet.toLowerCase()}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) { liquidity tickLower { tickIdx } tickUpper { tickIdx } pool { tick sqrtPrice } } }` };
+        // Fetch token0.id so calculateValue can detect whether AMY is token0 or token1
+        const query = { query: `{ positions(where: { owner: "${wallet.toLowerCase()}", pool: "${poolId.toLowerCase()}", liquidity_gt: "0" }) { liquidity tickLower { tickIdx } tickUpper { tickIdx } pool { tick sqrtPrice token0 { id } } } }` };
         try {
             const res = await axios.post(url, query);
             const pos = res.data.data.positions;
@@ -323,11 +332,17 @@ class StrategyService {
 
     async syncAlgebraApr(id, poolId, url, amyPrice) {
         try {
-            const query = { query: `{ pool(id: "${poolId.toLowerCase()}") { totalValueLockedToken0 totalValueLockedToken1 } poolDayDatas(first: 7, orderBy: date, orderDirection: desc, where: { pool: "${poolId.toLowerCase()}" }) { feesUSD tvlUSD } }`};
+            const query = { query: `{ pool(id: "${poolId.toLowerCase()}") { token0 { id } totalValueLockedToken0 totalValueLockedToken1 } poolDayDatas(first: 7, orderBy: date, orderDirection: desc, where: { pool: "${poolId.toLowerCase()}" }) { feesUSD tvlUSD } }`};
             const res = await axios.post(url, query);
             const p = res.data.data.pool;
             const days = res.data.data.poolDayDatas;
-            const tvl = (parseFloat(p.totalValueLockedToken0) * amyPrice) + parseFloat(p.totalValueLockedToken1);
+            const token0Id = (p.token0?.id || '').toLowerCase();
+            const amyIsToken0 = token0Id === AMY_TOKEN.toLowerCase();
+            const tvl0 = parseFloat(p.totalValueLockedToken0);
+            const tvl1 = parseFloat(p.totalValueLockedToken1);
+            const tvl = amyIsToken0
+                ? (tvl0 * amyPrice) + tvl1
+                : tvl0 + (tvl1 * amyPrice);
             const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
             const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
             const apr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
