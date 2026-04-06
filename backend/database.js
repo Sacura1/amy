@@ -3642,7 +3642,14 @@ const raffles = {
     getHistory: async (wallet = null) => {
         if (!pool) return [];
         const result = await pool.query(
-            `SELECT * FROM raffles WHERE status IN ('COMPLETED','CANCELLED') ORDER BY ends_at DESC LIMIT 50`
+            `SELECT r.*, COALESCE(r.winner_tickets, re.tickets) AS winner_tickets_at_draw
+             FROM raffles r
+             LEFT JOIN raffle_entries re
+               ON re.raffle_id = r.id
+               AND r.winner_wallet IS NOT NULL
+               AND LOWER(re.wallet) = LOWER(r.winner_wallet)
+             WHERE r.status IN ('COMPLETED','CANCELLED')
+             ORDER BY r.ends_at DESC LIMIT 50`
         );
         const rows = result.rows;
         const history = rows.map(row => ({
@@ -3666,7 +3673,8 @@ const raffles = {
         return history.map((row) => {
             const userTickets = entryMap.get(row.id) ?? 0;
             const totalTickets = row.total_tickets_at_draw ?? row.total_tickets ?? 0;
-            const probability = totalTickets > 0 ? (userTickets / totalTickets) * 100 : 0;
+            const winningTickets = row.winner_tickets_at_draw ?? row.winner_tickets ?? 0;
+            const probability = totalTickets > 0 ? (winningTickets / totalTickets) * 100 : 0;
             return {
                 ...row,
                 user_tickets: userTickets,
