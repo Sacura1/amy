@@ -5698,7 +5698,8 @@ app.get('/api/raffles', async (req, res) => {
 app.get('/api/raffles/history', async (req, res) => {
     try {
         if (!rafflesDb) return res.json({ success: true, data: [] });
-        const history = await rafflesDb.getHistory();
+        const walletQuery = Array.isArray(req.query.wallet) ? req.query.wallet[0] : req.query.wallet;
+        const history = await rafflesDb.getHistory(walletQuery);
         res.json({ success: true, data: history });
     } catch (err) {
         console.error('GET /api/raffles/history error:', err);

@@ -3639,12 +3639,40 @@ const raffles = {
         return result.rows[0] || null;
     },
 
-    getHistory: async () => {
+    getHistory: async (wallet = null) => {
         if (!pool) return [];
         const result = await pool.query(
             `SELECT * FROM raffles WHERE status IN ('COMPLETED','CANCELLED') ORDER BY ends_at DESC LIMIT 50`
         );
-        return result.rows;
+        const rows = result.rows;
+        const history = rows.map(row => ({
+            ...row,
+            user_tickets: 0,
+            winner_probability: 0
+        }));
+
+        const normalizedWallet = wallet ? String(wallet).trim() : null;
+        if (!normalizedWallet || rows.length === 0) {
+            return history;
+        }
+
+        const raffleIds = rows.map(row => row.id);
+        const entriesResult = await pool.query(
+            `SELECT raffle_id, tickets FROM raffle_entries WHERE LOWER(wallet) = LOWER($1) AND raffle_id = ANY($2)`,
+            [normalizedWallet, raffleIds]
+        );
+        const entryMap = new Map(entriesResult.rows.map(entry => [entry.raffle_id, entry.tickets]));
+
+        return history.map((row) => {
+            const userTickets = entryMap.get(row.id) ?? 0;
+            const totalTickets = row.total_tickets_at_draw ?? row.total_tickets ?? 0;
+            const probability = totalTickets > 0 ? (userTickets / totalTickets) * 100 : 0;
+            return {
+                ...row,
+                user_tickets: userTickets,
+                winner_probability: probability
+            };
+        });
     },
 
     clearAllRaffles: async () => {
