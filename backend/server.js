@@ -1720,36 +1720,21 @@ app.get('/api/earn-data', async (req, res) => {
             return res.json({ success: true, data: {}, error: 'Database not available' });
         }
         
-        // Query to get the latest TVL and the 7-day AVERAGE APR
+        // Query to get the latest row per strategy (use the exact sheet values).
         const result = await database.pool.query(`
-            WITH latest_tvl AS (
-                SELECT DISTINCT ON (position_id) position_id, tvl, timestamp
+            WITH latest AS (
+                SELECT DISTINCT ON (position_id) position_id, tvl, apr, timestamp
                 FROM earn_data_history
                 ORDER BY position_id, timestamp DESC
-            ),
-            avg_apr AS (
-                SELECT 
-                    position_id, 
-                    AVG(NULLIF(regexp_replace(apr, '[^0-9.]', '', 'g'), '')::float) as avg_val
-                FROM earn_data_history
-                WHERE timestamp > CURRENT_TIMESTAMP - INTERVAL '7 days'
-                AND NULLIF(regexp_replace(apr, '[^0-9.]', '', 'g'), '')::float < 500
-                GROUP BY position_id
             )
-            SELECT 
-                l.position_id, 
-                l.tvl, 
-                COALESCE(a.avg_val, 0) as standardized_apr,
-                l.timestamp
-            FROM latest_tvl l
-            LEFT JOIN avg_apr a ON l.position_id = a.position_id
+            SELECT position_id, tvl, apr, timestamp FROM latest;
         `);
         
         const data = {};
         result.rows.forEach(row => {
-            data[row.position_id] = {
+          data[row.position_id] = {
                 tvl: row.tvl || 'TBC',
-                apr: `${parseFloat(row.standardized_apr || 0).toFixed(1)}%`
+                apr: row.apr || '0%'
             };
         });
 
@@ -5042,8 +5027,11 @@ async function queryKodiakLpPositions(walletAddress) {
                     currentTick
                 );
 
-                const amount0Decimal = amount0 / 1e18;
-                const amount1Decimal = amount1 / 1e18;
+                // USDT0 has 6 decimals, AMY has 18
+                const dec0 = posToken0 === TOKENS.USDT0 ? 1e6 : 1e18;
+                const dec1 = posToken1 === TOKENS.USDT0 ? 1e6 : 1e18;
+                const amount0Decimal = amount0 / dec0;
+                const amount1Decimal = amount1 / dec1;
 
                 let positionUsd;
                 if (posToken0 === TOKENS.AMY) {
