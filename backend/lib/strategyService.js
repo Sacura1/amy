@@ -383,9 +383,9 @@ class StrategyService {
             const chartsData = charts.data.data;
             const sheetData = await this.fetchAprTvlSheet();
 
-            const amyHoneySheetApr = sheetData?.['amy/honey - lp']?.aprValue ?? null;
-            const amyUsdt0SheetApr = sheetData?.['amy/usdt0 - lp']?.aprValue ?? null;
-            console.log(`📋 [Earn Update] LP sheet APRs — AMY/HONEY: ${amyHoneySheetApr !== null ? `${amyHoneySheetApr}% (from sheet)` : 'null (will use computed)'}, AMY/USDT0: ${amyUsdt0SheetApr !== null ? `${amyUsdt0SheetApr}% (from sheet)` : 'null (will use computed)'}`);
+            const amyHoneySheetApr = sheetData?.['amy/honey - lp']?.rawApr ?? null;
+            const amyUsdt0SheetApr = sheetData?.['amy/usdt0 - lp']?.rawApr ?? null;
+            console.log(`📋 [Earn Update] LP sheet APRs — AMY/HONEY: ${amyHoneySheetApr !== null ? `${amyHoneySheetApr} (from sheet)` : 'null (will use computed)'}, AMY/USDT0: ${amyUsdt0SheetApr !== null ? `${amyUsdt0SheetApr} (from sheet)` : 'null (will use computed)'}`);
 
             await this.syncAlgebraApr('amy-honey', AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice, amyHoneySheetApr);
             await this.syncKodiakUsdt0Apr(amyPrice, amyUsdt0SheetApr);
@@ -411,7 +411,7 @@ class StrategyService {
         } catch (err) { console.error('❌ [Earn Update] Master Error:', err.message); }
     }
 
-    async syncAlgebraApr(id, poolId, url, amyPrice, aprOverride = null) {
+    async syncAlgebraApr(id, poolId, url, amyPrice, aprRawStr = null) {
         try {
             const query = { query: `{ pool(id: "${poolId.toLowerCase()}") { token0 { id } totalValueLockedToken0 totalValueLockedToken1 } poolDayDatas(first: 7, orderBy: date, orderDirection: desc, where: { pool: "${poolId.toLowerCase()}" }) { feesUSD tvlUSD } }`};
             const res = await axios.post(url, query);
@@ -424,18 +424,27 @@ class StrategyService {
             const tvl = amyIsToken0
                 ? (tvl0 * amyPrice) + tvl1
                 : tvl0 + (tvl1 * amyPrice);
-            const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
-            const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
-            const computedApr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
-            const apr = (aprOverride !== null && Number.isFinite(aprOverride)) ? aprOverride : computedApr;
-            console.log(`📊 [Earn Update] ${id}: TVL=$${tvl.toFixed(2)}, APR=${apr.toFixed(2)}% [source: ${aprOverride !== null && Number.isFinite(aprOverride) ? 'SHEET' : 'COMPUTED'}]`);
-            await this.saveMetric(id, tvl, apr);
+            const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
+
+            let aprStr, aprSource;
+            if (aprRawStr && aprRawStr.trim()) {
+                aprStr = aprRawStr.trim().endsWith('%') ? aprRawStr.trim() : `${aprRawStr.trim()}%`;
+                aprSource = 'SHEET';
+            } else {
+                const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
+                const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
+                const computedApr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
+                aprStr = `${computedApr < 1 ? computedApr.toFixed(2) : computedApr.toFixed(1)}%`;
+                aprSource = 'COMPUTED';
+            }
+            console.log(`📊 [Earn Update] ${id}: TVL=${tvlStr}, APR=${aprStr} [source: ${aprSource}]`);
+            await this.saveMetricFromSheet(id, tvlStr, aprStr);
         } catch (e) { console.error(`❌ [Earn Update] syncAlgebraApr(${id}) failed:`, e.message); }
     }
 
     // TVL for the Kodiak AMY/USDT0 pool — queries token0/token1 info to detect ordering,
     // then applies correct decimals (USDT0=6dp vs AMY=18dp) for TVL calculation
-    async syncKodiakUsdt0Apr(amyPrice, aprOverride = null) {
+    async syncKodiakUsdt0Apr(amyPrice, aprRawStr = null) {
         try {
             const poolId = AMY_USDT0_POOL.toLowerCase();
             const query = { query: `{ pool(id: "${poolId}") { token0 { id decimals } token1 { id decimals } totalValueLockedToken0 totalValueLockedToken1 } poolDayDatas(first: 7, orderBy: date, orderDirection: desc, where: { pool: "${poolId}" }) { feesUSD tvlUSD } }` };
@@ -444,26 +453,30 @@ class StrategyService {
             const days = res.data.data.poolDayDatas;
 
             const token0Id = (p.token0?.id || '').toLowerCase();
-            const dec0 = parseInt(p.token0?.decimals || 18);
-            const dec1 = parseInt(p.token1?.decimals || 18);
             const tvl0 = parseFloat(p.totalValueLockedToken0);
             const tvl1 = parseFloat(p.totalValueLockedToken1);
 
             let tvl;
             if (token0Id === AMY_TOKEN.toLowerCase()) {
-                // token0=AMY, token1=USDT0
                 tvl = (tvl0 * amyPrice) + tvl1;
             } else {
-                // token0=USDT0 (~$1, subgraph already in token units), token1=AMY
                 tvl = tvl0 + (tvl1 * amyPrice);
             }
+            const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
 
-            const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
-            const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
-            const computedApr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
-            const apr = (aprOverride !== null && Number.isFinite(aprOverride)) ? aprOverride : computedApr;
-            console.log(`📊 [Earn Update] amy-usdt0: TVL=$${tvl.toFixed(2)}, APR=${apr.toFixed(2)}% [source: ${aprOverride !== null && Number.isFinite(aprOverride) ? 'SHEET' : 'COMPUTED'}]`);
-            await this.saveMetric('amy-usdt0', tvl, apr);
+            let aprStr, aprSource;
+            if (aprRawStr && aprRawStr.trim()) {
+                aprStr = aprRawStr.trim().endsWith('%') ? aprRawStr.trim() : `${aprRawStr.trim()}%`;
+                aprSource = 'SHEET';
+            } else {
+                const sumFees = days.reduce((a, b) => a + parseFloat(b.feesUSD), 0);
+                const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
+                const computedApr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
+                aprStr = `${computedApr < 1 ? computedApr.toFixed(2) : computedApr.toFixed(1)}%`;
+                aprSource = 'COMPUTED';
+            }
+            console.log(`📊 [Earn Update] amy-usdt0: TVL=${tvlStr}, APR=${aprStr} [source: ${aprSource}]`);
+            await this.saveMetricFromSheet('amy-usdt0', tvlStr, aprStr);
         } catch (e) { console.error('❌ [Earn Update] syncKodiakUsdt0Apr failed:', e.message); }
     }
 
@@ -601,7 +614,8 @@ class StrategyService {
 
     async saveMetric(id, tvl, apr) {
         const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
-        await this.db.pool.query('INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)', [id, tvlStr, `${apr.toFixed(1)}%`]);
+        const aprStr = `${apr < 1 ? apr.toFixed(2) : apr.toFixed(1)}%`;
+        await this.db.pool.query('INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)', [id, tvlStr, aprStr]);
     }
 }
 
