@@ -385,6 +385,7 @@ class StrategyService {
 
             const amyHoneySheetApr = sheetData?.['amy/honey - lp']?.aprValue ?? null;
             const amyUsdt0SheetApr = sheetData?.['amy/usdt0 - lp']?.aprValue ?? null;
+            console.log(`📋 [Earn Update] LP sheet APRs — AMY/HONEY: ${amyHoneySheetApr !== null ? `${amyHoneySheetApr}% (from sheet)` : 'null (will use computed)'}, AMY/USDT0: ${amyUsdt0SheetApr !== null ? `${amyUsdt0SheetApr}% (from sheet)` : 'null (will use computed)'}`);
 
             await this.syncAlgebraApr('amy-honey', AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice, amyHoneySheetApr);
             await this.syncKodiakUsdt0Apr(amyPrice, amyUsdt0SheetApr);
@@ -427,8 +428,9 @@ class StrategyService {
             const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
             const computedApr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
             const apr = (aprOverride !== null && Number.isFinite(aprOverride)) ? aprOverride : computedApr;
+            console.log(`📊 [Earn Update] ${id}: TVL=$${tvl.toFixed(2)}, APR=${apr.toFixed(2)}% [source: ${aprOverride !== null && Number.isFinite(aprOverride) ? 'SHEET' : 'COMPUTED'}]`);
             await this.saveMetric(id, tvl, apr);
-        } catch (e) {}
+        } catch (e) { console.error(`❌ [Earn Update] syncAlgebraApr(${id}) failed:`, e.message); }
     }
 
     // TVL for the Kodiak AMY/USDT0 pool — queries token0/token1 info to detect ordering,
@@ -460,8 +462,9 @@ class StrategyService {
             const avgTvl = days.reduce((a, b) => a + parseFloat(b.tvlUSD), 0) / (days.length || 1);
             const computedApr = (avgTvl > 0) ? (sumFees / avgTvl) * (365 / 7) * 100 : 0;
             const apr = (aprOverride !== null && Number.isFinite(aprOverride)) ? aprOverride : computedApr;
+            console.log(`📊 [Earn Update] amy-usdt0: TVL=$${tvl.toFixed(2)}, APR=${apr.toFixed(2)}% [source: ${aprOverride !== null && Number.isFinite(aprOverride) ? 'SHEET' : 'COMPUTED'}]`);
             await this.saveMetric('amy-usdt0', tvl, apr);
-        } catch (e) {}
+        } catch (e) { console.error('❌ [Earn Update] syncKodiakUsdt0Apr failed:', e.message); }
     }
 
     async syncSnrusdApr(beraPrice, seniorData) {
