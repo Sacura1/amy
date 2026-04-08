@@ -5807,6 +5807,37 @@ app.post('/api/raffles/draw', isAdmin, async (req, res) => {
     }
 });
 
+// GET /api/admin/raffles/status — diagnostic: all raffles grouped by slot with status
+app.get('/api/admin/raffles/status', isAdmin, async (req, res) => {
+    try {
+        if (!database.pool) return res.status(503).json({ success: false, error: 'Database not available' });
+        const result = await database.pool.query(`
+            SELECT slot_id, status, COUNT(*) as count,
+                   array_agg(id ORDER BY id) as raffle_ids
+            FROM raffles
+            GROUP BY slot_id, status
+            ORDER BY slot_id, status
+        `);
+        const consumed = await database.pool.query(`
+            SELECT slot_id, COUNT(*) as consumed FROM consumed_queue_items GROUP BY slot_id ORDER BY slot_id
+        `);
+        res.json({ success: true, bySlot: result.rows, consumedQueue: consumed.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/admin/raffles/process-queue — manually trigger queue processing for a slot
+app.post('/api/admin/raffles/process-queue', isAdmin, async (req, res) => {
+    try {
+        const { slotId } = req.body;
+        await raffleSheetService.processQueue(slotId || null);
+        res.json({ success: true, message: `Queue processed for ${slotId || 'ALL slots'}` });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // ============================================
 // CAROUSEL SETTINGS
 // ============================================
@@ -5988,7 +6019,13 @@ app.listen(PORT, () => {
     cron.schedule('* * * * *', async () => {
         if (rafflesDb) {
             try {
-                await rafflesDb.checkAndDraw();
+                const completedSlots = await rafflesDb.checkAndDraw();
+                if (completedSlots && completedSlots.length > 0) {
+                    for (const slotId of completedSlots) {
+                        console.log(`🎟️ Raffle completed for slot ${slotId} — triggering processQueue immediately`);
+                        await raffleSheetService.processQueue(slotId);
+                    }
+                }
             } catch (err) {
                 console.error('Raffle auto-draw error:', err);
             }

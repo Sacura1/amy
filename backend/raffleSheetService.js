@@ -90,7 +90,7 @@ class RaffleSheetService {
         if (!slotId) continue;
         const slotRows = queueRows.filter(row => (row[slotIdx] || '').toString().trim().toLowerCase() === slotId);
         if (slotRows.length === 0) {
-          console.log(`ℹ️ No queue rows available for slot ${slotId}`);
+          console.log(`⚠️ [Queue] slot ${slotId}: NO ROWS IN QUEUE SHEET — add items to the queue sheet for this slot`);
           continue;
         }
 
@@ -110,6 +110,10 @@ class RaffleSheetService {
         const consumedPositions = new Set(
           consumedRes.rows.map(r => parseInt(r.queue_position, 10)).filter(n => !Number.isNaN(n))
         );
+
+        const allPositions = slotRows.map(r => parseInt(r[queueIdx], 10)).filter(n => !Number.isNaN(n));
+        const unusedPositions = allPositions.filter(p => !consumedPositions.has(p));
+        console.log(`📋 [Queue] slot ${slotId}: ${slotRows.length} rows in sheet, ${consumedPositions.size} consumed, ${unusedPositions.length} unused. Positions in sheet: [${allPositions.join(',')}], consumed: [${[...consumedPositions].join(',')}]`);
 
         slotRows.sort((a, b) => {
           const aPos = parseInt(a[queueIdx], 10);
@@ -133,7 +137,7 @@ class RaffleSheetService {
         }
 
         if (!created) {
-          console.log(`ℹ️ Queue for slot ${slotId} has no unused row, skipping`);
+          console.log(`⚠️ [Queue] slot ${slotId}: ALL ${slotRows.length} queue rows are consumed — add more items to the queue sheet for this slot`);
         }
       }
     } catch (err) {

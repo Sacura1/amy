@@ -3997,15 +3997,21 @@ const raffles = {
     },
 
     checkAndDraw: async () => {
-        if (!pool) return;
+        if (!pool) return [];
 
-        // Phase 1: expire LIVE raffles → DRAW_PENDING
+        const completedSlots = [];
+
+        // Phase 1: expire LIVE raffles → DRAW_PENDING (or immediately COMPLETED if no entries)
         const expired = await pool.query(
-            `SELECT id FROM raffles WHERE status = 'LIVE' AND ends_at <= NOW()`
+            `SELECT id, slot_id FROM raffles WHERE status = 'LIVE' AND ends_at <= NOW()`
         );
         for (const row of expired.rows) {
             try {
-                await raffles.initiateDraw(row.id);
+                const result = await raffles.initiateDraw(row.id);
+                // initiateDraw completes immediately (no entries) — queue next raffle right away
+                if (result && result.success && result.winner === null && !result.drawBlock) {
+                    if (row.slot_id) completedSlots.push(row.slot_id);
+                }
             } catch (err) {
                 console.error(`Error initiating draw for raffle ${row.id}:`, err);
             }
@@ -4013,18 +4019,21 @@ const raffles = {
 
         // Phase 2: complete pending draws where draw_block is ready
         const pending = await pool.query(
-            `SELECT id, draw_block FROM raffles WHERE status = 'DRAW_PENDING' AND draw_block IS NOT NULL`
+            `SELECT id, draw_block, slot_id FROM raffles WHERE status = 'DRAW_PENDING' AND draw_block IS NOT NULL`
         );
         for (const row of pending.rows) {
             try {
                 const result = await raffles.completeDraw(row.id, row.draw_block);
                 if (result.success && !result.notReady) {
                     console.log(`🎟️ Draw completed for raffle ${row.id}, winner: ${result.winner}`);
+                    if (row.slot_id) completedSlots.push(row.slot_id);
                 }
             } catch (err) {
                 console.error(`Error completing draw for raffle ${row.id}:`, err);
             }
         }
+
+        return completedSlots;
     },
 
     deleteRaffle: async (raffleId) => {
