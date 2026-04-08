@@ -61,7 +61,7 @@ function parseSheetCellValue(cell) {
 // Addresses
 const TOKENS = {
     SNRUSD_VAULT: '0x18e310dD4A6179D9600E95D18926AB7819B2A071',
-    JNRUSD: '0x3a0A97DcA5e6CaCC258490d5ece453412f8E1883',
+    JNRUSD_VAULT: '0x5f6eE0cc57862EAfAD1a572819B6Dc1485B95E46', // jnrUSD vault — use balanceOf+convertToAssets like his script
     SWBERA: '0x118D2cEeE9785eaf70C15Cd74CD84c9f8c3EeC9a', // sWBERA staking vault
     BGT: '0x656b95e550c07a9ffe548bd4085c72418ceb1dba',
     SAILR: '0x59a61B8d3064A51a95a5D6393c03e2152b1a2770',
@@ -81,7 +81,8 @@ const VAULT_ABI = [
     'function totalSupply() view returns (uint256)',
     'function rewardRate() view returns (uint256)',
     'function totalAssets() view returns (uint256)',
-    'function balanceOf(address) view returns (uint256)'
+    'function balanceOf(address) view returns (uint256)',
+    'function convertToAssets(uint256 shares) view returns (uint256)'
 ];
 
 class StrategyService {
@@ -212,7 +213,7 @@ class StrategyService {
                         lp_amy_honey: await this.fetchGoldskyPositions(wallet, AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice),
                         lp_amy_usdt0: await this.fetchGoldskyPositionsUsdt0(wallet, AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice),
                         snrusd: await this.fetchStakedBalance(wallet, TOKENS.SNRUSD_VAULT),
-                        jnrusd: await this.fetchTokenBalance(wallet, TOKENS.JNRUSD),
+                        jnrusd: await this.fetchJnrusdBalance(wallet),
                         honey_bend: await this.fetchStakedBalance(wallet, TOKENS.HONEY_BEND_VAULT),
                         swbera: await this.fetchTokenBalance(wallet, TOKENS.SWBERA, beraPrice),
                         bgt: await this.fetchTokenBalance(wallet, TOKENS.BGT, 1.0),
@@ -260,6 +261,19 @@ class StrategyService {
             const bal = await vault.balanceOf(wallet);
             const balance = parseFloat(ethers.utils.formatUnits(bal, 18));
             return { value_usd: balance, balance };
+        } catch (e) { return { value_usd: 0, balance: 0 }; }
+    }
+
+    // jnrUSD: calls convertToAssets(balance) to get accurate USDe value (1 USDe = $1)
+    async fetchJnrusdBalance(wallet) {
+        try {
+            const vault = new ethers.Contract(TOKENS.JNRUSD_VAULT, VAULT_ABI, this.provider);
+            const sharesBN = await vault.balanceOf(wallet);
+            if (sharesBN.isZero()) return { value_usd: 0, balance: 0 };
+            const assetsBN = await vault.convertToAssets(sharesBN);
+            const balance = parseFloat(ethers.utils.formatUnits(sharesBN, 18));
+            const value_usd = parseFloat(ethers.utils.formatUnits(assetsBN, 18)); // USDe ≈ $1
+            return { value_usd, balance };
         } catch (e) { return { value_usd: 0, balance: 0 }; }
     }
 
@@ -390,21 +404,10 @@ class StrategyService {
             await this.syncAlgebraApr('amy-honey', AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice, amyHoneySheetApr);
             await this.syncKodiakUsdt0Apr(amyPrice, amyUsdt0SheetApr);
 
-            let sheetApplied = false;
             if (sheetData) {
-                const applied = await this.applySheetMetrics(sheetData);
-                sheetApplied = applied > 0;
-            }
-
-            if (!sheetApplied) {
-                console.warn('⚠️ [Earn Update] APR/TVL sheet missing, falling back to live metrics.');
-                await this.syncSnrusdApr(beraPrice, chartsData.senior);
-                await this.syncJnrusdApr(chartsData.junior);
-                await this.syncSwberaApr(beraPrice);
-                await this.syncPlutusApr('plsbera', '0xe8bEB147a93BB757DB15e468FaBD119CA087EfAE');
-                await this.syncPlutusApr('plskdk', '0x9e6B748d25Ed2600Aa0ce7Cbb42267adCF21Fd9B');
-                await this.syncPlutusApr('plvhedge', '0x28602B1ae8cA0ff5CD01B96A36f88F72FeBE727A');
-                await this.syncSailrApr();
+                await this.applySheetMetrics(sheetData);
+            } else {
+                console.warn('⚠️ [Earn Update] Sheet unavailable after retries — skipping strategy update, existing DB values preserved.');
             }
 
             console.log('✅ [Earn Update] All ground truth stats synced.');
@@ -424,7 +427,7 @@ class StrategyService {
             const tvl = amyIsToken0
                 ? (tvl0 * amyPrice) + tvl1
                 : tvl0 + (tvl1 * amyPrice);
-            const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
+            const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl >= 1_000_000) ? `$${parseFloat((tvl/1_000_000).toFixed(2))}M` : `$${parseFloat((tvl/1_000).toFixed(2))}K`;
 
             let aprStr, aprSource;
             if (aprRawStr && aprRawStr.trim()) {
@@ -462,7 +465,7 @@ class StrategyService {
             } else {
                 tvl = tvl0 + (tvl1 * amyPrice);
             }
-            const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
+            const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl >= 1_000_000) ? `$${parseFloat((tvl/1_000_000).toFixed(2))}M` : `$${parseFloat((tvl/1_000).toFixed(2))}K`;
 
             let aprStr, aprSource;
             if (aprRawStr && aprRawStr.trim()) {
@@ -527,45 +530,51 @@ class StrategyService {
         } catch (e) {}
     }
 
-    async fetchAprTvlSheet() {
+    async fetchAprTvlSheet(retries = 3, delayMs = 5000) {
         if (!APR_TVL_SHEET_ID) {
             console.warn('⚠️ [Earn Update] APR/TVL sheet ID is not configured.');
             return null;
         }
-        try {
-            const sheets = await this.getSheetsClient();
-            const res = await sheets.spreadsheets.values.get({
-                spreadsheetId: APR_TVL_SHEET_ID,
-                range: APR_TVL_SHEET_RANGE,
-            });
-            const rows = res.data.values || [];
-            if (rows.length === 0) {
-                console.warn('⚠️ [Earn Update] APR/TVL sheet returned no rows.');
-                return null;
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                const sheets = await this.getSheetsClient();
+                const res = await sheets.spreadsheets.values.get({
+                    spreadsheetId: APR_TVL_SHEET_ID,
+                    range: APR_TVL_SHEET_RANGE,
+                });
+                const rows = res.data.values || [];
+                if (rows.length === 0) {
+                    console.warn(`⚠️ [Earn Update] APR/TVL sheet returned no rows (attempt ${attempt}/${retries}).`);
+                    if (attempt < retries) await new Promise(r => setTimeout(r, delayMs));
+                    continue;
+                }
+                const map = {};
+                for (const row of rows) {
+                    const nameKey = normalizeStrategyKey(row[0]);
+                    if (!nameKey) continue;
+                    const aprParsed = parseSheetCellValue(row[1]);
+                    const tvlParsed = parseSheetCellValue(row[2]);
+                    map[nameKey] = {
+                        aprValue: Number.isFinite(aprParsed.number) ? aprParsed.number : null,
+                        tvlValue: Number.isFinite(tvlParsed.number) ? tvlParsed.number : null,
+                        rawApr: aprParsed.raw,
+                        rawTvl: tvlParsed.raw
+                    };
+                }
+                if (Object.keys(map).length === 0) {
+                    console.warn(`⚠️ [Earn Update] APR/TVL sheet returned no valid entries (attempt ${attempt}/${retries}).`);
+                    if (attempt < retries) await new Promise(r => setTimeout(r, delayMs));
+                    continue;
+                }
+                console.log(`📈 [Earn Update] Loaded APR/TVL sheet with ${Object.keys(map).length} entries.`);
+                return map;
+            } catch (err) {
+                console.error(`❌ [Earn Update] Failed to fetch APR/TVL sheet (attempt ${attempt}/${retries}): ${err.message}`);
+                if (attempt < retries) await new Promise(r => setTimeout(r, delayMs));
             }
-            const map = {};
-            for (const row of rows) {
-                const nameKey = normalizeStrategyKey(row[0]);
-                if (!nameKey) continue;
-                const aprParsed = parseSheetCellValue(row[1]);
-                const tvlParsed = parseSheetCellValue(row[2]);
-                map[nameKey] = {
-                    aprValue: Number.isFinite(aprParsed.number) ? aprParsed.number : null,
-                    tvlValue: Number.isFinite(tvlParsed.number) ? tvlParsed.number : null,
-                    rawApr: aprParsed.raw,
-                    rawTvl: tvlParsed.raw
-                };
-            }
-            if (Object.keys(map).length === 0) {
-                console.warn('⚠️ [Earn Update] APR/TVL sheet returned no valid entries.');
-                return null;
-            }
-            console.log(`📈 [Earn Update] Loaded APR/TVL sheet with ${Object.keys(map).length} entries.`);
-            return map;
-        } catch (err) {
-            console.error('❌ [Earn Update] Failed to fetch APR/TVL sheet:', err.message);
-            return null;
         }
+        console.error('❌ [Earn Update] All sheet fetch attempts failed — skipping update to preserve existing DB values.');
+        return null;
     }
 
     async applySheetMetrics(sheetData) {
@@ -584,11 +593,11 @@ class StrategyService {
             let displayTvl;
             if (row.tvlValue !== null && Number.isFinite(row.tvlValue) && row.tvlValue > 0) {
                 if (row.tvlValue >= 1_000_000) {
-                    displayTvl = `$${(row.tvlValue / 1_000_000).toFixed(2)}M`;
+                    displayTvl = `$${parseFloat((row.tvlValue / 1_000_000).toFixed(2))}M`;
                 } else if (row.tvlValue >= 1_000) {
-                    displayTvl = `$${(row.tvlValue / 1_000).toFixed(1)}K`;
+                    displayTvl = `$${parseFloat((row.tvlValue / 1_000).toFixed(2))}K`;
                 } else {
-                    displayTvl = `$${row.tvlValue.toFixed(2)}`;
+                    displayTvl = `$${parseFloat(row.tvlValue.toFixed(2))}`;
                 }
             } else {
                 displayTvl = (row.rawTvl && row.rawTvl.trim()) ? row.rawTvl.trim() : 'TBC';
@@ -613,7 +622,9 @@ class StrategyService {
     }
 
     async saveMetric(id, tvl, apr) {
-        const tvlStr = (tvl <= 0 || !tvl) ? 'TBC' : (tvl > 1000000) ? `$${(tvl/1000000).toFixed(2)}M` : `$${(tvl/1000).toFixed(1)}k`;
+        const tvlStr = (tvl <= 0 || !tvl) ? 'TBC'
+            : (tvl >= 1_000_000) ? `$${parseFloat((tvl/1_000_000).toFixed(2))}M`
+            : `$${parseFloat((tvl/1_000).toFixed(2))}K`;
         const aprStr = `${apr < 1 ? apr.toFixed(2) : apr.toFixed(1)}%`;
         await this.db.pool.query('INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)', [id, tvlStr, aprStr]);
     }
