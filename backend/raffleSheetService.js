@@ -2,23 +2,17 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
-/**
- * Raffle Ledger & Queue Service
- * Handles automatic creation from Queue sheet and syncing to Ledger sheet.
- */
 class RaffleSheetService {
   constructor() {
     this.sheets = null;
     this.spreadsheetId = process.env.RAFFLE_SHEET_SPREADSHEET_ID;
-    this.ledgerSheetName = process.env.RAFFLE_SHEET_NAME || 'Amy_Raffle_Ledger';
+    this.ledgerSheetName = process.env.RAFFLE_SHEET_NAME || 'Sheet1';
     this.queueSpreadsheetId = process.env.RAFFLE_QUEUE_SPREADSHEET_ID || '1IRRbE4NQU-t5UgjbmB2hiWYbpj_UYsWhGny1-WfJiBw';
-    this.queueSheetName = process.env.RAFFLE_QUEUE_SHEET_NAME || 'Sheet1';
+    this.queueSheetName = process.env.RAFFLE_QUEUE_SHEET_NAME || 'Amy_Raffle_Queue';
     this.pool = null;
-  }
-
-  _sanitizeHeader(key) {
-    if (!key) return '';
-    return key.replace(/\s*\(.*?\)$/, '').trim().toLowerCase().replace(/\s+/g, '_');
+    this.pipelineTarget = parseInt(process.env.RAFFLE_QUEUE_PIPELINE_TARGET, 10) || 3;
+    const slotEnv = process.env.RAFFLE_SLOT_IDS || 'slot_1,slot_2,slot_3,slot_4,slot_5';
+    this.defaultSlots = slotEnv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   }
 
   async initialize(pool) {
@@ -63,78 +57,122 @@ class RaffleSheetService {
     return s;
   }
 
-  /**
-   * Reads Queue and creates new raffles if slots are empty
-   */
-  async processQueue() {
+  async processQueue(targetSlotId = null) {
     if (!this.sheets || !this.pool || !this.queueSpreadsheetId) return;
+    const normalizedTargetSlot = targetSlotId ? targetSlotId.toString().trim().toLowerCase() : null;
+
     try {
-      console.log('🔄 Checking Raffle Queue...');
+      console.log(`🔄 Checking Queue for slot: ${normalizedTargetSlot || 'ALL'}...`);
       const res = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.queueSpreadsheetId,
-        range: `${this.queueSheetName}!A1:Z100`,
+        range: `'${this.queueSheetName}'!A1:Z200`,
       });
       const rows = res.data.values;
       if (!rows || rows.length < 2) return;
 
       const headerMap = this._mapHeaders(rows);
-      const queueData = rows.slice(1);
+      const slotIdx = headerMap['slot_id'];
+      const queueIdx = headerMap['queue_position'];
+      if (slotIdx === undefined || queueIdx === undefined) {
+        console.warn('❌ Queue sheet missing slot_id or queue_position columns');
+        return;
+      }
 
-      // Check current active/pending raffles in DB
-      const activeRes = await this.pool.query("SELECT slot_id FROM raffles WHERE status IN ('TNM', 'LIVE', 'DRAW_PENDING')");
-      const occupiedSlots = new Set(activeRes.rows.map(r => r.slot_id).filter(s => s));
+      const queueRows = rows.slice(1)
+        .map(row => row.map(cell => (typeof cell === 'string' ? cell.trim() : cell)));
 
-      for (let i = 0; i < queueData.length; i++) {
-        const row = queueData[i];
-        const slotId = row[headerMap['slot_id']];
-        const raffleIdInSheet = row[headerMap['raffle_id']];
+      const slotsFromQueue = [...new Set(queueRows.map(row => (row[slotIdx] || '').toString().trim().toLowerCase()).filter(Boolean))];
+      const slotsToProcess = normalizedTargetSlot
+        ? [normalizedTargetSlot]
+        : (slotsFromQueue.length ? slotsFromQueue : this.defaultSlots);
 
-        // If slot is not occupied and no raffle_id assigned yet
-        if (slotId && !occupiedSlots.has(slotId) && !raffleIdInSheet) {
-          console.log(`✨ Creating new raffle from Queue for slot: ${slotId}`);
-          
-          const title = row[headerMap['raffle_title']];
-          const desc = row[headerMap['raffle_description']];
-          const asset = row[headerMap['prize_asset']];
-          const img = asset ? `/prizes/${asset.trim()}` : '/prizes/prize-default.png';
-          const points = parseInt(row[headerMap['threshold_points']]) || 5000;
-          const users = parseInt(row[headerMap['threshold_users']]) || 10;
-          const hours = parseInt(row[headerMap['countdown_hours']]) || 24;
-          const novelty = row[headerMap['novelty_name']];
-
-          // Create in DB
-          const result = await this.pool.query(
-            `INSERT INTO raffles (title, prize_description, image_url, countdown_hours, threshold_points, threshold_participants, slot_id, novelty_name, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'TNM') RETURNING id`,
-            [title, desc, img, hours, points, users, slotId, novelty]
-          );
-          
-          const newId = result.rows[0].id;
-
-          // Write back the raffle_id to the Queue sheet
-          const rowNum = i + 2;
-          const colIndex = headerMap['raffle_id'];
-          const colLetter = String.fromCharCode(65 + colIndex);
-          
-          await this.sheets.spreadsheets.values.update({
-            spreadsheetId: this.queueSpreadsheetId,
-            range: `${this.queueSheetName}!${colLetter}${rowNum}`,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: [[newId]] },
-          });
-
-          occupiedSlots.add(slotId);
-          console.log(`✅ Created raffle ID ${newId} for ${slotId}`);
+      for (const slotId of slotsToProcess) {
+        if (!slotId) continue;
+        const slotRows = queueRows.filter(row => (row[slotIdx] || '').toString().trim().toLowerCase() === slotId);
+        if (slotRows.length === 0) {
+          console.log(`⚠️ [Queue] slot ${slotId}: NO ROWS IN QUEUE SHEET — add items to the queue sheet for this slot`);
+          continue;
         }
+
+        const activeRes = await this.pool.query(
+          "SELECT id FROM raffles WHERE slot_id = $1 AND status IN ('TNM','LIVE','DRAW_PENDING')",
+          [slotId]
+        );
+        if (activeRes.rows.length > 0) {
+          console.log(`ℹ️ Slot ${slotId} already has active raffle (count=${activeRes.rows.length}), skipping`);
+          continue;
+        }
+
+        // Always use queue_position = 1 — bot guarantees this is always a fresh raffle
+        const pos1Row = slotRows.find(row => parseInt(row[queueIdx], 10) === 1);
+        if (!pos1Row) {
+          console.log(`⚠️ [Queue] slot ${slotId}: no queue_position=1 row found in sheet`);
+          continue;
+        }
+
+        console.log(`📋 [Queue] slot ${slotId}: picking queue_position=1`);
+        await this._createRaffleFromQueueRow(slotId, 1, pos1Row, headerMap);
       }
     } catch (err) {
       console.error('❌ Error processing queue:', err.message);
     }
   }
 
-  /**
-   * Syncs DB entries to Ledger sheet
-   */
+  _getQueueCell(row, headerMap, key) {
+    const idx = headerMap[key];
+    if (idx === undefined) return '';
+    const value = row[idx];
+    if (value === undefined || value === null) return '';
+    return typeof value === 'string' ? value.trim() : String(value).trim();
+  }
+
+  _parseInt(value, fallback = 0) {
+    const parsed = parseInt(value, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  }
+
+  _parseFloat(value, fallback = 0) {
+    const parsed = parseFloat(value);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  }
+
+  async _createRaffleFromQueueRow(slotId, queuePosition, row, headerMap) {
+    const title = this._getQueueCell(row, headerMap, 'raffle_title') || 'Untitled Prize';
+    const desc = this._getQueueCell(row, headerMap, 'raffle_description') || '';
+    const countdownHours = this._parseInt(this._getQueueCell(row, headerMap, 'countdown_hours'), 24);
+    const thresholdPoints = this._parseInt(this._getQueueCell(row, headerMap, 'threshold_points'), 5000);
+    const thresholdUsers = this._parseInt(this._getQueueCell(row, headerMap, 'threshold_users'), 10);
+    const assetValue = this._getQueueCell(row, headerMap, 'prize_asset');
+    const normalizedAsset = assetValue.replace(/^\/+/, '');
+    const imageUrl = normalizedAsset ? `/prizes/${normalizedAsset}` : '/prizes/prize-default.png';
+    const novelty = this._getQueueCell(row, headerMap, 'novelty_name') || null;
+    const partner = this._getQueueCell(row, headerMap, 'partner') || null;
+    const campaign = this._getQueueCell(row, headerMap, 'campaign') || null;
+    const prizeType = this._getQueueCell(row, headerMap, 'prize_type') || null;
+    const prizeValueUsd = this._parseFloat(this._getQueueCell(row, headerMap, 'prize_value_usd'), 0);
+    const pointsPerTicket = this._parseInt(this._getQueueCell(row, headerMap, 'points_per_ticket'), 50);
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const insertRes = await client.query(
+        `INSERT INTO raffles (title, prize_description, image_url, countdown_hours, threshold_points, threshold_participants, slot_id, novelty_name, partner, campaign, prize_type, prize_asset, prize_value_usd, points_per_ticket, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'TNM')
+         RETURNING id`,
+        [title, desc, imageUrl, countdownHours, thresholdPoints, thresholdUsers, slotId, novelty, partner, campaign, prizeType, normalizedAsset || null, prizeValueUsd, pointsPerTicket]
+      );
+      await client.query('COMMIT');
+      console.log(`✅ Created raffle for slot=${slotId} queue_position=1 (raffle id=${insertRes.rows[0].id})`);
+      return true;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('❌ Error creating raffle from queue row:', err.message);
+      return false;
+    } finally {
+      client.release();
+    }
+  }
+
   async sync() {
     if (!this.sheets || !this.spreadsheetId || !this.pool) return;
     try {
@@ -144,12 +182,15 @@ class RaffleSheetService {
 
       const res = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.ledgerSheetName}!A1:AD1000`,
+        range: `'${this.ledgerSheetName}'!A1:AD1000`,
       });
       const rows = res.data.values || [];
-      const headerMap = this._mapHeaders(rows);
+      if (rows.length === 0) {
+        console.warn('⚠️ Ledger sheet is empty, cannot map headers');
+        return;
+      }
 
-      // Map existing raffle_id to row index
+      const headerMap = this._mapHeaders(rows);
       const existingRows = {};
       rows.forEach((row, i) => {
         const id = row[headerMap['raffle_id']];
@@ -158,46 +199,88 @@ class RaffleSheetService {
 
       for (const r of raffles) {
         const rowData = [];
-        // Fill row based on headers
         Object.keys(headerMap).forEach(key => {
           const idx = headerMap[key];
-          const normalizedKey = this._sanitizeHeader(key);
-          let val = '';
-          switch(normalizedKey) {
-            case 'raffle_id': val = r.id; break;
-            case 'slot_id': val = r.slot_id; break;
-            case 'novelty_name': val = r.novelty_name; break;
-            case 'raffle_title': val = r.title; break;
-            case 'raffle_description': val = r.prize_description; break;
-            case 'raffle_state': val = this._mapStatus(r.status); break;
-            case 'threshold_points': val = r.threshold_points; break;
-            case 'threshold_users': val = r.threshold_participants; break;
-            case 'countdown_hours': val = r.countdown_hours; break;
-            case 'raffle_created_at': val = this._fmtTs(r.created_at); break;
-            case 'tnm_completed_at': val = this._fmtTs(r.live_at); break;
-            case 'winner_drawn_at': val = this._fmtTs(r.ends_at); break;
-            case 'winner_wallet': val = r.winner_wallet; break;
-            case 'unique_participants': val = r.unique_participants; break;
-            case 'total_points_committed': val = r.total_points_committed; break;
-            case 'total_tickets_at_draw': val = r.total_tickets; break;
+          const normalizedKey = (key || '').toString().toLowerCase().replace(/\s+/g, '_');
+          let val = undefined;
+
+          // Mapping logic
+          if (normalizedKey.includes('raffle_id')) {
+            val = r.id;
+          } else if (normalizedKey.includes('slot_id')) {
+            val = r.slot_id;
+          } else if (normalizedKey.includes('raffle_title')) {
+            val = r.title;
+          } else if (normalizedKey.includes('raffle_description')) {
+            val = r.prize_description;
+          } else if (normalizedKey.includes('novelty_name')) {
+            val = r.novelty_name;
+          } else if (normalizedKey.includes('partner')) {
+            val = r.partner;
+          } else if (normalizedKey.includes('campaign')) {
+            val = r.campaign;
+          } else if (normalizedKey.includes('prize_type')) {
+            val = r.prize_type;
+          } else if (normalizedKey.includes('prize_asset')) {
+            val = r.prize_asset;
+          } else if (normalizedKey.includes('prize_value_usd')) {
+            val = r.prize_value_usd;
+          } else if (normalizedKey.includes('points_per_ticket')) {
+            val = r.points_per_ticket;
+          } else if (normalizedKey.includes('threshold_points')) {
+            val = r.threshold_points;
+          } else if (normalizedKey.includes('threshold_users')) {
+            val = r.threshold_participants;
+          } else if (normalizedKey.includes('countdown_hours')) {
+            val = r.countdown_hours;
+          } else if (normalizedKey.includes('raffle_state') || normalizedKey.includes('raffle_status')) {
+            val = this._mapStatus(r.status);
+          } else if (normalizedKey.includes('raffle_created_at')) {
+            val = this._fmtTs(r.created_at);
+          } else if (normalizedKey.includes('tnm_completed_at')) {
+            val = this._fmtTs(r.live_at);
+          } else if (normalizedKey.includes('winner_drawn_at')) {
+            val = this._fmtTs(r.ends_at);
+          } else if (normalizedKey.includes('winner_wallet') || normalizedKey.includes('winner_address')) {
+            val = r.winner_wallet;
+          } else if (normalizedKey.includes('winner_ticket') || normalizedKey.includes('tickets_bought')) {
+            val = r.winner_tickets;
+          } else if (normalizedKey.includes('unique_participants')) {
+            val = r.unique_participants;
+          } else if (normalizedKey.includes('total_points_committed')) {
+            val = r.total_points_committed;
+          } else if (normalizedKey.includes('total_tickets_at_draw') || normalizedKey.includes('total_tickets')) {
+            val = r.total_tickets;
+          } else if (normalizedKey.includes('draw_block_number')) {
+            val = r.draw_block;
+          } else if (normalizedKey.includes('draw_block_hash')) {
+            val = r.draw_block_hash;
+          } else if (normalizedKey.includes('winning_ticket_number') || normalizedKey.includes('winning_ticket')) {
+            val = r.winning_ticket;
+          } else if (normalizedKey.includes('source_of_randomness')) {
+            val = r.draw_block ? `Berachain block ${r.draw_block}` : '';
           }
-          if (val !== undefined) rowData[idx] = val;
+
+          if (val !== undefined) {
+            // Even if val is null, we want to sync it to clear/set the cell
+            const displayVal = val === null ? '' : val;
+            // console.log(`📊 Sync: "${key}" (${normalizedKey}) <- ${displayVal}`);
+            rowData[idx] = displayVal;
+          }
         });
 
         const rowNum = existingRows[r.id];
         if (rowNum) {
-          // Update existing row
           await this.sheets.spreadsheets.values.update({
             spreadsheetId: this.spreadsheetId,
-            range: `${this.ledgerSheetName}!A${rowNum}`,
+            range: `'${this.ledgerSheetName}'!A${rowNum}`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [rowData] },
           });
         } else {
-          // Append new row
           await this.sheets.spreadsheets.values.append({
             spreadsheetId: this.spreadsheetId,
-            range: `${this.ledgerSheetName}!A1`,
+            range: `'${this.ledgerSheetName}'!A1`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [rowData] },
           });
