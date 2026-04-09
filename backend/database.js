@@ -3652,15 +3652,18 @@ const raffles = {
              ORDER BY r.ends_at DESC LIMIT 50`
         );
         const rows = result.rows;
-        const history = rows.map(row => ({
-            ...row,
-            user_tickets: 0,
-            winner_probability: 0
-        }));
+
+        // winner_probability is always calculable — it's the winner's share, not the user's
+        const historyWithProbability = rows.map(row => {
+            const totalTickets = row.total_tickets_at_draw ?? row.total_tickets ?? 0;
+            const winningTickets = row.winner_tickets_at_draw ?? row.winner_tickets ?? 0;
+            const probability = totalTickets > 0 ? (winningTickets / totalTickets) * 100 : 0;
+            return { ...row, user_tickets: null, winner_probability: probability };
+        });
 
         const normalizedWallet = wallet ? String(wallet).trim() : null;
         if (!normalizedWallet || rows.length === 0) {
-            return history;
+            return historyWithProbability;
         }
 
         const raffleIds = rows.map(row => row.id);
@@ -3670,17 +3673,10 @@ const raffles = {
         );
         const entryMap = new Map(entriesResult.rows.map(entry => [entry.raffle_id, entry.tickets]));
 
-        return history.map((row) => {
-            const userTickets = entryMap.get(row.id) ?? 0;
-            const totalTickets = row.total_tickets_at_draw ?? row.total_tickets ?? 0;
-            const winningTickets = row.winner_tickets_at_draw ?? row.winner_tickets ?? 0;
-            const probability = totalTickets > 0 ? (winningTickets / totalTickets) * 100 : 0;
-            return {
-                ...row,
-                user_tickets: userTickets,
-                winner_probability: probability
-            };
-        });
+        return historyWithProbability.map(row => ({
+            ...row,
+            user_tickets: entryMap.get(row.id) ?? 0
+        }));
     },
 
     clearAllRaffles: async () => {
