@@ -483,12 +483,10 @@ class StrategyService {
     }
 
     async saveMetricFromSheet(id, tvl, apr) {
-        // Delete all existing rows for this position and insert a fresh one.
-        // This keeps earn_data_history as a single-row-per-strategy store instead of
-        // growing unboundedly, and ensures stale computed values can never linger.
-        await this.db.pool.query('DELETE FROM earn_data_history WHERE position_id = $1', [id]);
         await this.db.pool.query(
-            'INSERT INTO earn_data_history (position_id, tvl, apr) VALUES ($1, $2, $3)',
+            `INSERT INTO earn_data_history (position_id, tvl, apr, timestamp)
+             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+             ON CONFLICT (position_id) DO UPDATE SET tvl = EXCLUDED.tvl, apr = EXCLUDED.apr, timestamp = EXCLUDED.timestamp`,
             [id, tvl, apr]
         );
     }

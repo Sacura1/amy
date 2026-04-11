@@ -756,6 +756,26 @@ async function createTables() {
             CREATE INDEX IF NOT EXISTS idx_earn_history_pos_time ON earn_data_history(position_id, timestamp);
         `);
 
+        // Ensure unique constraint on position_id so upserts are atomic (one row per strategy)
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'earn_data_history_position_id_unique'
+                ) THEN
+                    -- Remove duplicates first, keeping the most recent row per position_id
+                    DELETE FROM earn_data_history
+                    WHERE id NOT IN (
+                        SELECT DISTINCT ON (position_id) id
+                        FROM earn_data_history
+                        ORDER BY position_id, timestamp DESC
+                    );
+                    ALTER TABLE earn_data_history ADD CONSTRAINT earn_data_history_position_id_unique UNIQUE (position_id);
+                END IF;
+            END $$;
+        `);
+
         // User base build table for 15-min AMY checks
         await client.query(`
             CREATE TABLE IF NOT EXISTS user_base_build (
