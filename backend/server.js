@@ -429,17 +429,10 @@ function generateCodeChallenge(verifier) {
 
 // Middleware to check if wallet is admin
 function isAdmin(req, res, next) {
-    // Check header first (preferred), then query params, then body.adminWallet (avoid conflict with body.wallet which may be target user)
-    const wallet = req.headers['x-wallet-address'] || req.query.wallet || req.body.adminWallet;
-
-    if (!wallet) {
-        return res.status(401).json({ error: 'Wallet address required' });
+    const apiKey = req.headers['x-admin-key'];
+    if (!apiKey || !process.env.ADMIN_API_KEY || apiKey !== process.env.ADMIN_API_KEY) {
+        return res.status(403).json({ error: 'Unauthorized' });
     }
-
-    if (!ADMIN_WALLETS.includes(wallet.toLowerCase())) {
-        return res.status(403).json({ error: 'Unauthorized: Not an admin wallet' });
-    }
-
     next();
 }
 
@@ -1940,29 +1933,33 @@ app.get('/api/points/:wallet', async (req, res, next) => {
 // Update user's balance and tier for points system (called when loading profile/points page)
 app.post('/api/points/update-balance', async (req, res) => {
     try {
-        const { wallet, amyBalance, xUsername } = req.body;
+        const { wallet, xUsername } = req.body;
 
-        if (!wallet || amyBalance === undefined) {
-            return res.status(400).json({ success: false, error: 'Wallet and amyBalance required' });
+        if (!wallet) {
+            return res.status(400).json({ success: false, error: 'Wallet required' });
         }
 
         if (!pointsDb) {
             return res.status(500).json({ success: false, error: 'Points system not available' });
         }
 
+        // Always fetch the real balance from chain — never trust the client-supplied value
+        const onChainBalance = await fetchAmyBalance(wallet);
+        if (onChainBalance === null) {
+            return res.status(500).json({ success: false, error: 'Failed to fetch on-chain balance' });
+        }
+
         // Update balance and recalculate tier
-        const result = await pointsDb.updateBalance(wallet, parseFloat(amyBalance), xUsername);
+        const result = await pointsDb.updateBalance(wallet, onChainBalance, xUsername);
 
         // Also update holders table for check-in eligibility
         if (holdersDb) {
             try {
-                // Get existing holder to preserve xUsername if not provided
                 const existingHolder = await holdersDb.getByWallet(wallet);
                 const holderUsername = xUsername || existingHolder?.xUsername || null;
-                await holdersDb.addOrUpdate(wallet, holderUsername, parseFloat(amyBalance));
+                await holdersDb.addOrUpdate(wallet, holderUsername, onChainBalance);
             } catch (holderErr) {
                 console.error('Error updating holder status:', holderErr);
-                // Don't fail the request if holder update fails
             }
         }
 
