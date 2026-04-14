@@ -13,6 +13,7 @@ class RaffleSheetService {
     this.pipelineTarget = parseInt(process.env.RAFFLE_QUEUE_PIPELINE_TARGET, 10) || 3;
     const slotEnv = process.env.RAFFLE_SLOT_IDS || 'slot_1,slot_2,slot_3,slot_4,slot_5';
     this.defaultSlots = slotEnv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    this._isSyncing = false;
   }
 
   async initialize(pool) {
@@ -175,6 +176,11 @@ class RaffleSheetService {
 
   async sync() {
     if (!this.sheets || !this.spreadsheetId || !this.pool) return;
+    if (this._isSyncing) {
+      console.log('⏭️ Ledger sync already in progress, skipping concurrent call');
+      return;
+    }
+    this._isSyncing = true;
     try {
       console.log('🔄 Syncing Raffle Ledger...');
       const dbResult = await this.pool.query("SELECT * FROM raffles ORDER BY id ASC");
@@ -191,10 +197,12 @@ class RaffleSheetService {
       }
 
       const headerMap = this._mapHeaders(rows);
+      // Normalize key: sheets headers may use spaces ("raffle id") or underscores ("raffle_id")
+      const raffleIdCol = headerMap['raffle_id'] ?? headerMap['raffle id'];
       const existingRows = {};
       rows.forEach((row, i) => {
-        const id = row[headerMap['raffle_id']];
-        if (id) existingRows[id] = i + 1;
+        const id = row[raffleIdCol];
+        if (id) existingRows[String(id)] = i + 1;
       });
 
       for (const r of raffles) {
@@ -269,7 +277,7 @@ class RaffleSheetService {
           }
         });
 
-        const rowNum = existingRows[r.id];
+        const rowNum = existingRows[String(r.id)];
         if (rowNum) {
           await this.sheets.spreadsheets.values.update({
             spreadsheetId: this.spreadsheetId,
@@ -284,11 +292,15 @@ class RaffleSheetService {
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [rowData] },
           });
+          // Track appended rows so a second raffle in this same run doesn't double-append
+          existingRows[String(r.id)] = true;
         }
       }
       console.log('✅ Ledger sync complete');
     } catch (err) {
       console.error('❌ Error syncing ledger:', err.message);
+    } finally {
+      this._isSyncing = false;
     }
   }
 }
