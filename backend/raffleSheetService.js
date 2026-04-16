@@ -197,13 +197,24 @@ class RaffleSheetService {
       }
 
       const headerMap = this._mapHeaders(rows);
-      // Normalize key: sheets headers may use spaces ("raffle id") or underscores ("raffle_id")
+      // Normalize key: sheet headers may use spaces ("raffle id") or underscores ("raffle_id")
       const raffleIdCol = headerMap['raffle_id'] ?? headerMap['raffle id'];
+      if (raffleIdCol === undefined) {
+        console.error('❌ [Sync] Cannot find raffle_id column in sheet headers — aborting sync');
+        return;
+      }
+
+      // Build map of raffle_id → sheet row number (1-indexed) from existing sheet data
       const existingRows = {};
       rows.forEach((row, i) => {
         const id = row[raffleIdCol];
-        if (id) existingRows[String(id)] = i + 1;
+        if (id && i > 0) existingRows[String(id)] = i + 1; // skip header row (i=0)
       });
+
+      // Next free row is right after all currently read rows.
+      // Using explicit row numbers instead of the sheets `append` API, which can
+      // place data at wrong positions when leading columns in a row are empty.
+      let nextRow = rows.length + 1;
 
       for (const r of raffles) {
         const rowData = [];
@@ -212,7 +223,6 @@ class RaffleSheetService {
           const normalizedKey = (key || '').toString().toLowerCase().replace(/\s+/g, '_');
           let val = undefined;
 
-          // Mapping logic
           if (normalizedKey.includes('raffle_id')) {
             val = r.id;
           } else if (normalizedKey.includes('slot_id')) {
@@ -270,15 +280,13 @@ class RaffleSheetService {
           }
 
           if (val !== undefined) {
-            // Even if val is null, we want to sync it to clear/set the cell
-            const displayVal = val === null ? '' : val;
-            // console.log(`📊 Sync: "${key}" (${normalizedKey}) <- ${displayVal}`);
-            rowData[idx] = displayVal;
+            rowData[idx] = val === null ? '' : val;
           }
         });
 
         const rowNum = existingRows[String(r.id)];
         if (rowNum) {
+          // Existing row — update in place
           await this.sheets.spreadsheets.values.update({
             spreadsheetId: this.spreadsheetId,
             range: `'${this.ledgerSheetName}'!A${rowNum}`,
@@ -286,14 +294,15 @@ class RaffleSheetService {
             requestBody: { values: [rowData] },
           });
         } else {
-          await this.sheets.spreadsheets.values.append({
+          // New row — write at explicit row number instead of using append API
+          await this.sheets.spreadsheets.values.update({
             spreadsheetId: this.spreadsheetId,
-            range: `'${this.ledgerSheetName}'!A1`,
+            range: `'${this.ledgerSheetName}'!A${nextRow}`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [rowData] },
           });
-          // Track appended rows so a second raffle in this same run doesn't double-append
-          existingRows[String(r.id)] = true;
+          existingRows[String(r.id)] = nextRow;
+          nextRow++;
         }
       }
       console.log('✅ Ledger sync complete');
