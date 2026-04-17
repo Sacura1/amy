@@ -87,6 +87,23 @@ class StrategyService {
         this.db = db;
         this.provider = new ethers.providers.JsonRpcProvider(RPC_URL);
         this.sheetsClient = null;
+        // Cache last known good prices so 429s never fall back to stale hardcoded values
+        this._priceCache = {
+            amy:      { price: 0.05,  ts: 0 },
+            bera:     { price: 0.60,  ts: 0 },
+            sailr:    { price: 0,     ts: 0 },
+            plsbera:  { price: 0,     ts: 0 },
+            plvhedge: { price: 0,     ts: 0 },
+            plskdk:   { price: 0,     ts: 0 },
+        };
+    }
+
+    _cachedPrice(key, freshPrice) {
+        if (freshPrice > 0) {
+            this._priceCache[key] = { price: freshPrice, ts: Date.now() };
+            return freshPrice;
+        }
+        return this._priceCache[key].price;
     }
 
     async getSheetsClient() {
@@ -192,14 +209,15 @@ class StrategyService {
         try {
             const holders = await this.db.pool.query('SELECT wallet FROM user_base_build WHERE amy_balance >= 300');
             if (holders.rows.length === 0) return;
-            const [amyPrice, beraPrice, sailrPrice, plsBeraPrice, plvHedgePrice, plsKdkPrice] = await Promise.all([
-                this.getAmyPrice(),
-                this.getBeraPrice(),
-                this.getSailrPrice(),
-                this.getPlsBeraPrice(),
-                this.getPlvHedgePrice(),
-                this.getPlsKdkPrice(),
-            ]);
+            // Sequential with 1s gaps to avoid GeckoTerminal 429 rate limiting.
+            // _cachedPrice() returns the last known good value if the fresh fetch returns 0.
+            const delay = (ms) => new Promise(r => setTimeout(r, ms));
+            const amyPrice      = this._cachedPrice('amy',      await this.getAmyPrice());      await delay(1000);
+            const beraPrice     = this._cachedPrice('bera',     await this.getBeraPrice());     await delay(1000);
+            const sailrPrice    = this._cachedPrice('sailr',    await this.getSailrPrice());    await delay(1000);
+            const plsBeraPrice  = this._cachedPrice('plsbera',  await this.getPlsBeraPrice());  await delay(1000);
+            const plvHedgePrice = this._cachedPrice('plvhedge', await this.getPlvHedgePrice()); await delay(1000);
+            const plsKdkPrice   = this._cachedPrice('plskdk',   await this.getPlsKdkPrice());
             console.log(`💰 [Full Strategy] Prices: AMY=$${amyPrice.toFixed(4)}, BERA=$${beraPrice.toFixed(4)}, SAILR=$${sailrPrice.toFixed(4)}, plsBERA=$${plsBeraPrice.toFixed(4)}, plvHEDGE=$${plvHedgePrice.toFixed(4)}, plsKDK=$${plsKdkPrice.toFixed(4)}`);
 
             for (const row of holders.rows) {
