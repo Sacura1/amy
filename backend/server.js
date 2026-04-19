@@ -4426,21 +4426,23 @@ app.post('/api/admin/set-test-multipliers', isAdmin, async (req, res) => {
             return res.json({ success: true, message: `Test data cleared for ${wallet}` });
         }
 
-        // ── Inject fake snapshot: all position-based badges at gold tier ──
+        // ── Inject fake snapshot: spread across all tiers so every multiplier value is visible ──
+        // LP tiers:       $10-$99 → x5 bronze | $100-$499 → x10 silver | $500+ → x100 gold
+        // Standard tiers: $10-$99 → x3 bronze | $100-$499 → x5  silver | $500+ → x10  gold
         const testSnapshot = {
             _test: 'true',
             positions: {
-                lp_amy_honey: { value_usd: 600 },
-                lp_amy_usdt0: { value_usd: 600, count: 1, in_range_count: 1 },
-                sailr:        { value_usd: 600 },
-                plvhedge:     { value_usd: 600 },
-                plsbera:      { value_usd: 600 },
-                plskdk:       { value_usd: 600 },
-                honey_bend:   { value_usd: 600 },
-                swbera:       { value_usd: 600 },
-                bgt:          { value_usd: 600 },
-                snrusd:       { value_usd: 600 },
-                jnrusd:       { value_usd: 600 },
+                lp_amy_honey: { value_usd: 50  },                             // LP bronze → x5
+                lp_amy_usdt0: { value_usd: 200, count: 1, in_range_count: 1 },// LP silver → x10
+                sailr:        { value_usd: 600 },  // standard gold   → x10
+                plvhedge:     { value_usd: 200 },  // standard silver → x5
+                plsbera:      { value_usd: 50  },  // standard bronze → x3
+                plskdk:       { value_usd: 600 },  // standard gold   → x10
+                honey_bend:   { value_usd: 200 },  // standard silver → x5
+                swbera:       { value_usd: 50  },  // standard bronze → x3
+                bgt:          { value_usd: 600 },  // standard gold   → x10
+                snrusd:       { value_usd: 200 },  // standard silver → x5
+                jnrusd:       { value_usd: 50  },  // standard bronze → x3
                 bullas:       30,
                 boogaBullas:  45,
             }
