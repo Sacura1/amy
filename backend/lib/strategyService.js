@@ -215,8 +215,8 @@ class StrategyService {
             const amyPrice      = this._cachedPrice('amy',      await this.getAmyPrice());      await delay(1000);
             const beraPrice     = this._cachedPrice('bera',     await this.getBeraPrice());     await delay(1000);
             const sailrPrice    = this._cachedPrice('sailr',    await this.getSailrPrice());    await delay(1000);
-            const plsBeraPrice  = this._cachedPrice('plsbera',  await this.getPlsBeraPrice());  await delay(1000);
-            const plvHedgePrice = this._cachedPrice('plvhedge', await this.getPlvHedgePrice()); await delay(1000);
+            const plsBeraPrice  = this._cachedPrice('plsbera',  await this.getPlsBeraPrice());  await delay(1500);
+            const plvHedgePrice = this._cachedPrice('plvhedge', await this.getPlvHedgePrice()); await delay(1500);
             const plsKdkPrice   = this._cachedPrice('plskdk',   await this.getPlsKdkPrice());
             console.log(`💰 [Full Strategy] Prices: AMY=$${amyPrice.toFixed(4)}, BERA=$${beraPrice.toFixed(4)}, SAILR=$${sailrPrice.toFixed(4)}, plsBERA=$${plsBeraPrice.toFixed(4)}, plvHEDGE=$${plvHedgePrice.toFixed(4)}, plsKDK=$${plsKdkPrice.toFixed(4)}`);
 
@@ -341,16 +341,17 @@ class StrategyService {
 
     async getPlsKdkPrice() {
         const addr = '0xc6173a3405fdb1f5c42004d2d71cba9bf1cfa522';
-        // Primary: GeckoTerminal token_price
+        // Primary: DexScreener — separate rate limit from GeckoTerminal
+        try {
+            const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${addr}`, { timeout: 8000 });
+            const pairs = res.data?.pairs || [];
+            const beraPair = pairs.find(p => p.chainId === 'berachain' && parseFloat(p.priceUsd || 0) > 0);
+            if (beraPair) return parseFloat(beraPair.priceUsd);
+        } catch (e) {}
+        // Fallback: GeckoTerminal token_price
         try {
             const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);
             const price = parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0);
-            if (price > 0) return price;
-        } catch (e) {}
-        // Fallback: Plutus API (same source used for APR sync)
-        try {
-            const res = await axios.get(`https://plutus.fi/api/assets/80094/${addr}`);
-            const price = parseFloat(res.data?.price || res.data?.tokenPrice || 0);
             if (price > 0) return price;
         } catch (e) {}
         return 0;
