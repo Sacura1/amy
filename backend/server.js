@@ -3091,6 +3091,36 @@ async function fetchTokenPrice(tokenKey) {
                     console.error(`❌ Error fetching BERA fallback price:`, fallbackError.message);
                 }
             }
+        } else if (tokenKey === 'PLSKDK') {
+            // plsKDK: DexScreener primary (more reliable), GeckoTerminal fallback
+            const kdkAddr = (token.tokenAddress || token.address).toLowerCase();
+            try {
+                const dsRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${kdkAddr}`, { headers: { 'Accept': 'application/json' } });
+                if (dsRes.ok) {
+                    const dsData = await dsRes.json();
+                    const pairs = dsData?.pairs || [];
+                    const beraPair = pairs.find(p => p.chainId === 'berachain' && parseFloat(p.priceUsd || 0) > 0);
+                    if (beraPair) {
+                        price = parseFloat(beraPair.priceUsd);
+                        console.log(`💰 plsKDK: DexScreener price $${price.toFixed(6)}`);
+                    }
+                }
+            } catch (dsErr) {
+                console.error('❌ plsKDK DexScreener fetch failed:', dsErr.message);
+            }
+            // GeckoTerminal fallback
+            if (price === 0) {
+                try {
+                    const gtRes = await fetch(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${kdkAddr}`, { headers: { 'Accept': 'application/json' } });
+                    if (gtRes.ok) {
+                        const gtData = await gtRes.json();
+                        price = parseFloat(gtData?.data?.attributes?.token_prices?.[kdkAddr] || 0);
+                        if (price > 0) console.log(`💰 plsKDK: GeckoTerminal fallback $${price.toFixed(6)}`);
+                    }
+                } catch (gtErr) {
+                    console.error('❌ plsKDK GeckoTerminal fallback failed:', gtErr.message);
+                }
+            }
         } else {
             // Standard token price lookup (use tokenAddress if available, else address)
             const priceAddress = (token.tokenAddress || token.address).toLowerCase();
