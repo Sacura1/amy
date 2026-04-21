@@ -1815,6 +1815,10 @@ const JNRUSD_ALLOWED_TIERS  = ['bronze', 'silver', 'gold', 'platinum'];
 
 async function getUserTier(wallet) {
     if (!database.pool) return null;
+    const adminWallets = (process.env.ADMIN_WALLETS || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+    if (process.env.ADMIN_TIER_OVERRIDE && adminWallets.includes(wallet.toLowerCase())) {
+        return process.env.ADMIN_TIER_OVERRIDE.toLowerCase();
+    }
     const result = await database.pool.query(
         `SELECT current_tier as tier FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
         [wallet]
