@@ -163,6 +163,123 @@ async function createTables() {
             END $$;
         `);
 
+        // Add Season 2 referral reward tracking columns
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='initial_reward_given') THEN
+                    ALTER TABLE referrals ADD COLUMN initial_reward_given BOOLEAN DEFAULT false;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='full_reward_given') THEN
+                    ALTER TABLE referrals ADD COLUMN full_reward_given BOOLEAN DEFAULT false;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='hold_start_timestamp') THEN
+                    ALTER TABLE referrals ADD COLUMN hold_start_timestamp BIGINT DEFAULT NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='referrals' AND column_name='referred_by_at') THEN
+                    ALTER TABLE referrals ADD COLUMN referred_by_at TIMESTAMP DEFAULT NULL;
+                END IF;
+            END $$;
+        `);
+
+        // Create Exclusive Perks: SAIL.r purchases table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS sailr_purchases (
+                purchase_id VARCHAR(36) PRIMARY KEY,
+                quote_id VARCHAR(36),
+                wallet VARCHAR(42) NOT NULL,
+                qualification_tier VARCHAR(20),
+                live_sail_price DECIMAL(20, 8),
+                discount_percent DECIMAL(5, 2) DEFAULT 18,
+                discounted_sail_price DECIMAL(20, 8),
+                honey_amount_input DECIMAL(20, 8),
+                sail_amount_output DECIMAL(20, 8),
+                sail_margin_to_amy DECIMAL(20, 8),
+                payment_tx_hash VARCHAR(66),
+                payment_confirmed_at_utc TIMESTAMP,
+                earning_start_date_utc TIMESTAMP,
+                lock_end_date_utc TIMESTAMP,
+                purchase_status VARCHAR(20) DEFAULT 'confirmed',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.indexes WHERE indexname = 'idx_sailr_purchases_wallet') THEN
+                    CREATE INDEX idx_sailr_purchases_wallet ON sailr_purchases(LOWER(wallet));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.indexes WHERE indexname = 'idx_sailr_purchases_tx') THEN
+                    CREATE UNIQUE INDEX idx_sailr_purchases_tx ON sailr_purchases(payment_tx_hash) WHERE payment_tx_hash IS NOT NULL;
+                END IF;
+            END $$;
+        `);
+
+        // Create Exclusive Perks: jnrUSDE positions table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS jnrusd_positions (
+                position_id VARCHAR(36) PRIMARY KEY,
+                wallet VARCHAR(42) NOT NULL,
+                qualification_tier VARCHAR(20),
+                amount DECIMAL(20, 8),
+                deposit_tx_hash VARCHAR(66),
+                created_at_utc TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                earning_start_date_utc TIMESTAMP,
+                status VARCHAR(20) DEFAULT 'active',
+                exit_requested_at_utc TIMESTAMP,
+                exit_available_at_utc TIMESTAMP,
+                stops_earning_at_utc TIMESTAMP,
+                withdrawn_at_utc TIMESTAMP
+            );
+        `);
+
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.indexes WHERE indexname = 'idx_jnrusd_positions_wallet') THEN
+                    CREATE INDEX idx_jnrusd_positions_wallet ON jnrusd_positions(LOWER(wallet));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.indexes WHERE indexname = 'idx_jnrusd_positions_tx') THEN
+                    CREATE UNIQUE INDEX idx_jnrusd_positions_tx ON jnrusd_positions(deposit_tx_hash) WHERE deposit_tx_hash IS NOT NULL;
+                END IF;
+            END $$;
+        `);
+
+        // Add jnrUSDE share-price tracking columns (unit-based model)
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jnrusd_positions' AND column_name='deposit_usde') THEN
+                    ALTER TABLE jnrusd_positions ADD COLUMN deposit_usde DECIMAL(20, 8);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jnrusd_positions' AND column_name='entry_share_price') THEN
+                    ALTER TABLE jnrusd_positions ADD COLUMN entry_share_price DECIMAL(20, 8) DEFAULT 1;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jnrusd_positions' AND column_name='unit_quantity') THEN
+                    ALTER TABLE jnrusd_positions ADD COLUMN unit_quantity DECIMAL(20, 8);
+                END IF;
+            END $$;
+        `);
+
+        // App config table — stores key/value settings (e.g. jnrusd share price, allocation caps)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS app_config (
+                key VARCHAR(100) PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Seed default config values if not present
+        await client.query(`
+            INSERT INTO app_config (key, value) VALUES
+                ('jnrusd_share_price', '1.0'),
+                ('sailr_allocation_cap', '0'),
+                ('jnrusd_allocation_cap', '0')
+            ON CONFLICT (key) DO NOTHING;
+        `);
+
         // Create holders table (tracks users with 300+ AMY who connected wallet + X)
         await client.query(`
             CREATE TABLE IF NOT EXISTS holders (
@@ -1382,7 +1499,11 @@ const referrals = {
 
         // Check if exists
         const existing = await pool.query(
-            'SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount", last_known_balance as "lastKnownBalance" FROM referrals WHERE LOWER(wallet) = LOWER($1)',
+            `SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy",
+             referral_count as "referralCount", last_known_balance as "lastKnownBalance", created_at as "createdAt",
+             initial_reward_given as "initialRewardGiven", full_reward_given as "fullRewardGiven",
+             hold_start_timestamp as "holdStartTimestamp", referred_by_at as "referredByAt"
+             FROM referrals WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
 
@@ -1410,7 +1531,11 @@ const referrals = {
             referralCode: null,
             referredBy: null,
             referralCount: 0,
-            lastKnownBalance: 0
+            lastKnownBalance: 0,
+            initialRewardGiven: false,
+            fullRewardGiven: false,
+            holdStartTimestamp: null,
+            referredByAt: null
         };
     },
 
@@ -1418,7 +1543,11 @@ const referrals = {
     getByWallet: async (wallet) => {
         if (!pool) return null;
         const result = await pool.query(
-            'SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount", last_known_balance as "lastKnownBalance" FROM referrals WHERE LOWER(wallet) = LOWER($1)',
+            `SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy",
+             referral_count as "referralCount", last_known_balance as "lastKnownBalance", created_at as "createdAt",
+             initial_reward_given as "initialRewardGiven", full_reward_given as "fullRewardGiven",
+             hold_start_timestamp as "holdStartTimestamp", referred_by_at as "referredByAt"
+             FROM referrals WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
         );
         return result.rows[0] || null;
@@ -1428,7 +1557,11 @@ const referrals = {
     getByCode: async (referralCode) => {
         if (!pool) return null;
         const result = await pool.query(
-            'SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy", referral_count as "referralCount", last_known_balance as "lastKnownBalance" FROM referrals WHERE UPPER(referral_code) = UPPER($1)',
+            `SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy",
+             referral_count as "referralCount", last_known_balance as "lastKnownBalance", created_at as "createdAt",
+             initial_reward_given as "initialRewardGiven", full_reward_given as "fullRewardGiven",
+             hold_start_timestamp as "holdStartTimestamp", referred_by_at as "referredByAt"
+             FROM referrals WHERE UPPER(referral_code) = UPPER($1)`,
             [referralCode]
         );
         return result.rows[0] || null;
@@ -1468,6 +1601,15 @@ const referrals = {
             return { success: false, error: 'You have already used a referral code' };
         }
 
+        // Enforce 48h window from account creation
+        if (user.createdAt) {
+            const WINDOW_MS = 48 * 60 * 60 * 1000;
+            const age = Date.now() - new Date(user.createdAt).getTime();
+            if (age > WINDOW_MS) {
+                return { success: false, error: 'Referral codes can only be entered within 48 hours of signing up' };
+            }
+        }
+
         // Check if referral code exists
         const referrer = await referrals.getByCode(referralCode);
         if (!referrer) {
@@ -1479,17 +1621,17 @@ const referrals = {
             return { success: false, error: 'You cannot use your own referral code' };
         }
 
-        // Save the referral link (referred_by) - counts are calculated dynamically
-        // Also set referral_season to current season (season2)
+        // Save the referral link and timestamp
         await pool.query(
-            `UPDATE referrals SET referred_by = $1, referral_season = 'season2' WHERE LOWER(wallet) = LOWER($2)`,
+            `UPDATE referrals SET referred_by = $1, referral_season = 'season2', referred_by_at = NOW() WHERE LOWER(wallet) = LOWER($2)`,
             [referralCode.toUpperCase(), wallet]
         );
 
         return {
             success: true,
             referrer: referrer.xUsername,
-            message: `Referral from @${referrer.xUsername} linked! It counts when you have 300+ $AMY.`
+            referrerWallet: referrer.wallet,
+            message: `Referral linked! Connect a social account to unlock your bonus points.`
         };
     },
 
@@ -1522,9 +1664,63 @@ const referrals = {
     getAll: async () => {
         if (!pool) return [];
         const result = await pool.query(
-            'SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy", last_known_balance as "lastKnownBalance" FROM referrals'
+            `SELECT wallet, x_username as "xUsername", referral_code as "referralCode", referred_by as "referredBy",
+             last_known_balance as "lastKnownBalance", initial_reward_given as "initialRewardGiven",
+             full_reward_given as "fullRewardGiven", hold_start_timestamp as "holdStartTimestamp",
+             referred_by_at as "referredByAt"
+             FROM referrals`
         );
         return result.rows;
+    },
+
+    // Get referred users who still need reward processing
+    getReferredPendingRewards: async () => {
+        if (!pool) return [];
+        const result = await pool.query(
+            `SELECT wallet, x_username as "xUsername", referred_by as "referredBy",
+             last_known_balance as "lastKnownBalance", initial_reward_given as "initialRewardGiven",
+             full_reward_given as "fullRewardGiven", hold_start_timestamp as "holdStartTimestamp",
+             referred_by_at as "referredByAt"
+             FROM referrals
+             WHERE referred_by IS NOT NULL AND full_reward_given = false`
+        );
+        return result.rows;
+    },
+
+    // Mark initial reward as given for a wallet
+    markInitialRewardGiven: async (wallet) => {
+        if (!pool) return;
+        await pool.query(
+            'UPDATE referrals SET initial_reward_given = true WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+    },
+
+    // Mark full reward as given for a wallet
+    markFullRewardGiven: async (wallet) => {
+        if (!pool) return;
+        await pool.query(
+            'UPDATE referrals SET full_reward_given = true, hold_start_timestamp = NULL WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
+    },
+
+    // Update hold start timestamp (when user first hits 300+ AMY while referred)
+    updateHoldStart: async (wallet, timestamp) => {
+        if (!pool) return;
+        await pool.query(
+            'UPDATE referrals SET hold_start_timestamp = $1 WHERE LOWER(wallet) = LOWER($2)',
+            [timestamp, wallet]
+        );
+    },
+
+    // Clear hold start timestamp (when user drops below 300 AMY)
+    clearHoldStart: async (wallet) => {
+        if (!pool) return;
+        await pool.query(
+            'UPDATE referrals SET hold_start_timestamp = NULL WHERE LOWER(wallet) = LOWER($1)',
+            [wallet]
+        );
     },
 
     // Batch update balances for multiple wallets
@@ -1752,7 +1948,7 @@ const holders = {
 
 // Points tier configuration
 const POINTS_TIERS = {
-    platinum: { minBalance: 100000, pointsPerHour: 10, name: 'Platinum', emoji: '💎' },
+    platinum: { minBalance: 50000, pointsPerHour: 10, name: 'Platinum', emoji: '💎' },
     gold: { minBalance: 10000, pointsPerHour: 5, name: 'Gold', emoji: '🥇' },
     silver: { minBalance: 1000, pointsPerHour: 3, name: 'Silver', emoji: '🥈' },
     bronze: { minBalance: 300, pointsPerHour: 1, name: 'Bronze', emoji: '🟫' },
@@ -1768,7 +1964,9 @@ const POINTS_CATEGORIES = {
     RAFFLE_ENTRY: 'RAFFLE_ENTRY',
     PREDICTION_WAGER: 'PREDICTION_WAGER',
     PREDICTION_PAYOUT: 'PREDICTION_PAYOUT',
-    PREDICTION_REFUND: 'PREDICTION_REFUND'
+    PREDICTION_REFUND: 'PREDICTION_REFUND',
+    REFERRAL_INITIAL: 'REFERRAL_INITIAL',
+    REFERRAL_FULL: 'REFERRAL_FULL'
 };
 
 // Category descriptions for display
@@ -1780,7 +1978,9 @@ const CATEGORY_DESCRIPTIONS = {
     RAFFLE_ENTRY: 'Raffle Entry',
     PREDICTION_WAGER: 'Prediction Market Wager',
     PREDICTION_PAYOUT: 'Prediction Market Payout',
-    PREDICTION_REFUND: 'Prediction Market Refund'
+    PREDICTION_REFUND: 'Prediction Market Refund',
+    REFERRAL_INITIAL: 'Referral Bonus',
+    REFERRAL_FULL: 'Referral Full Unlock'
 };
 
 // Calculate tier based on AMY balance

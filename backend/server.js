@@ -9,10 +9,17 @@ const ethers = require('ethers');
 const multer = require('multer');
 const sgMail = require('@sendgrid/mail');
 const cron = require('node-cron');
+const { google: googleapis } = require('googleapis');
 const googleSheetsService = require('./googleSheetsService');
 const raffleSheetService = require('./raffleSheetService');
+const { exclusiveDb, appConfig: exclusiveAppConfig, sheetsService: exclusiveSheetsService, buildSailrQuote, activeQuotes, pruneExpiredQuotes } = require('./exclusivePerksService');
 const StrategyService = require('./lib/strategyService');
 require('dotenv').config();
+
+// Amy Score — in-memory cache (24h TTL, refreshed on request)
+const amyScoreCache = new Map(); // wallet -> { score, ts }
+const AMY_SCORE_TTL  = 24 * 60 * 60 * 1000;
+const AMY_SCORE_SHEET_ID = '1RaqoBxjI4kUyxcaUOxHQ1fbpZYcPy2fw67WzdeQSRfI';
 
 // Configure SendGrid
 if (process.env.SENDGRID_API_KEY) {
@@ -334,6 +341,28 @@ nonces = {
             }
         });
 
+        // 4. jnrUSDE auto-withdraw: Daily at 01:00 UTC
+        cron.schedule('0 1 * * *', async () => {
+            console.log('⏰ [Cron] Triggered: jnrUSDE auto-withdraw');
+            try {
+                if (!database.pool) return;
+                const result = await database.pool.query(
+                    `UPDATE jnrusd_positions
+                     SET status = 'withdrawn', withdrawn_at_utc = NOW()
+                     WHERE status = 'cooling' AND exit_available_at_utc <= NOW()
+                     RETURNING *`
+                );
+                for (const pos of result.rows) {
+                    exclusiveSheetsService.logJnrusdWithdrawal(pos.position_id, pos.withdrawn_at_utc)
+                        .catch(err => console.error('Sheet log error (auto-withdraw):', err.message));
+                    console.log(`✅ Auto-withdrawn: ${pos.position_id} (${pos.wallet})`);
+                }
+                if (result.rows.length) console.log(`✅ Auto-withdrew ${result.rows.length} jnrUSDE position(s)`);
+            } catch (err) {
+                console.error('jnrUSDE auto-withdraw cron error:', err);
+            }
+        });
+
         // INITIAL STARTUP SYNC (Run after 5 seconds)
         setTimeout(async () => {
             console.log('🚀 [Startup] Running initial tracking, balance, and STRATEGY sync...');
@@ -345,6 +374,7 @@ nonces = {
             } catch (err) {
                 console.error('Startup sync error:', err);
             }
+            exclusiveSheetsService.initHeaders().catch(() => {});
         }, 5000);
 
         // Run initial nonce cleanup for PostgreSQL
@@ -690,6 +720,17 @@ app.get('/auth/discord/callback', async (req, res) => {
             } catch (err) {
                 console.log('connectDiscord quest already completed or error:', err.message);
             }
+
+            // Try to grant initial referral reward now that Discord is connected
+            try {
+                const refEntry = await referralsDb?.getByWallet(wallet);
+                if (refEntry?.referredBy) {
+                    const referrerEntry = await referralsDb.getByCode(refEntry.referredBy);
+                    await tryGrantInitialReward(wallet, referrerEntry?.wallet);
+                }
+            } catch (err) {
+                console.error('Error trying initial reward on Discord connect:', err.message);
+            }
         }
 
         // Redirect back to profile page with success
@@ -786,6 +827,17 @@ app.post('/auth/telegram/callback', async (req, res) => {
             }
         } catch (err) {
             console.log('connectTelegram quest already completed or error:', err.message);
+        }
+
+        // Try to grant initial referral reward now that Telegram is connected
+        try {
+            const refEntry = await referralsDb?.getByWallet(wallet);
+            if (refEntry?.referredBy) {
+                const referrerEntry = await referralsDb.getByCode(refEntry.referredBy);
+                await tryGrantInitialReward(wallet, referrerEntry?.wallet);
+            }
+        } catch (err) {
+            console.error('Error trying initial reward on Telegram connect:', err.message);
         }
 
         res.json({
@@ -929,6 +981,17 @@ app.post('/api/verify', async (req, res) => {
             }
         } catch (err) {
             console.log('connectX quest already completed or error:', err.message);
+        }
+
+        // Try to grant initial referral reward now that X is connected
+        try {
+            const refEntry = await referralsDb?.getByWallet(userData.wallet);
+            if (refEntry?.referredBy) {
+                const referrerEntry = await referralsDb.getByCode(refEntry.referredBy);
+                await tryGrantInitialReward(userData.wallet, referrerEntry?.wallet);
+            }
+        } catch (err) {
+            console.error('Error trying initial reward on X connect:', err.message);
         }
 
         console.log('✅ User verified and saved:', userData.wallet, '@' + userData.xUsername);
@@ -1452,6 +1515,53 @@ app.post('/api/holders/update', async (req, res) => {
 });
 
 // ============================================
+// ============================================
+// AMY SCORE
+// ============================================
+
+app.get('/api/amy-score/:wallet', async (req, res) => {
+    const wallet = (req.params.wallet || '').toLowerCase();
+    if (!wallet || !ethers.utils.isAddress(wallet)) {
+        return res.status(400).json({ success: false, error: 'Invalid wallet' });
+    }
+
+    const cached = amyScoreCache.get(wallet);
+    if (cached && Date.now() - cached.ts < AMY_SCORE_TTL) {
+        return res.json({ success: true, score: cached.score, cached: true });
+    }
+
+    try {
+        const key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+        if (!key) return res.json({ success: true, score: 0 });
+
+        const auth = new googleapis.auth.GoogleAuth({
+            credentials: JSON.parse(key),
+            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+        });
+        const sheets = googleapis.sheets({ version: 'v4', auth });
+        const result = await sheets.spreadsheets.values.get({
+            spreadsheetId: AMY_SCORE_SHEET_ID,
+            range: 'Sheet1!A:B',
+        });
+
+        const rows = result.data.values || [];
+        let score = 0;
+        for (let i = 1; i < rows.length; i++) {
+            if ((rows[i][0] || '').toLowerCase() === wallet) {
+                score = parseInt(rows[i][1] || '0', 10) || 0;
+                break;
+            }
+        }
+
+        amyScoreCache.set(wallet, { score, ts: Date.now() });
+        return res.json({ success: true, score });
+    } catch (err) {
+        console.error('❌ Amy Score error:', err.message);
+        return res.json({ success: true, score: cached?.score || 0 });
+    }
+});
+
+// ============================================
 // REFERRAL API ROUTES (uses separate referrals table)
 // ============================================
 
@@ -1507,21 +1617,7 @@ app.post('/api/referral/generate', async (req, res) => {
             });
         }
 
-        // Check if user has minimum AMY balance to generate a code
-        // Fetch live balance if not provided
-        let balance = amyBalance;
-        if (balance === undefined) {
-            balance = await fetchAmyBalance(wallet);
-        }
-
-        if (balance === null || balance < MINIMUM_AMY_BALANCE) {
-            return res.status(400).json({
-                success: false,
-                error: `You need at least ${MINIMUM_AMY_BALANCE} $AMY to generate a referral code`
-            });
-        }
-
-        // Generate new referral code
+        // Generate new referral code (no AMY balance requirement)
         const code = await referralsDb.generateCode(wallet);
 
         if (!code) {
@@ -1627,7 +1723,7 @@ app.post('/api/referral/use', async (req, res) => {
         // Make sure user has a referral entry first
         await referralsDb.getOrCreate(wallet);
 
-        // Use the referral code (counts are calculated dynamically based on balance)
+        // Use the referral code
         const result = await referralsDb.useCode(wallet, referralCode);
 
         if (!result.success) {
@@ -1635,6 +1731,13 @@ app.post('/api/referral/use', async (req, res) => {
         }
 
         console.log('🤝 Referral linked - Wallet:', wallet, '- Code:', referralCode, '- Referrer:', result.referrer);
+
+        // Try to grant initial reward immediately if user already has a social connected
+        try {
+            await tryGrantInitialReward(wallet, result.referrerWallet);
+        } catch (err) {
+            console.error('Error trying initial reward after code use:', err.message);
+        }
 
         res.json({
             success: true,
@@ -1699,6 +1802,374 @@ app.get('/api/referral/downlines/:wallet', async (req, res) => {
     } catch (error) {
         console.error('❌ Error fetching downlines:', error);
         res.status(500).json({ success: false, error: 'Failed to fetch downlines' });
+    }
+});
+
+// ============================================
+// EXCLUSIVE PERKS API ROUTES
+// ============================================
+
+// Qualification tiers allowed per product
+const SAILR_ALLOWED_TIERS   = ['gold', 'platinum'];
+const JNRUSD_ALLOWED_TIERS  = ['bronze', 'silver', 'gold', 'platinum'];
+
+async function getUserTier(wallet) {
+    if (!database.pool) return null;
+    const result = await database.pool.query(
+        `SELECT current_tier as tier FROM amy_points WHERE LOWER(wallet) = LOWER($1)`,
+        [wallet]
+    );
+    return result.rows[0]?.tier?.toLowerCase() || null;
+}
+
+// GET /api/exclusive/capacity — current allocation caps & usage for both products
+app.get('/api/exclusive/capacity', async (req, res) => {
+    try {
+        if (!database.pool) return res.json({ success: true, data: { sailr: null, jnrusd: null } });
+        const [sailr, jnrusd, sharePrice] = await Promise.all([
+            exclusiveDb.getSailrCapacity(database.pool),
+            exclusiveDb.getJnrusdCapacity(database.pool),
+            exclusiveDb.getCurrentSharePrice(database.pool),
+        ]);
+        res.json({ success: true, data: { sailr, jnrusd, jnrusdSharePrice: sharePrice } });
+    } catch (err) {
+        console.error('❌ Capacity fetch error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch capacity' });
+    }
+});
+
+// POST /api/admin/exclusive/share-price — update jnrUSDE share price (admin only)
+app.post('/api/admin/exclusive/share-price', isAdmin, async (req, res) => {
+    try {
+        const { sharePrice } = req.body;
+        const price = parseFloat(sharePrice);
+        if (isNaN(price) || price <= 0) {
+            return res.status(400).json({ success: false, error: 'Invalid share price' });
+        }
+        await exclusiveDb.setSharePrice(database.pool, price);
+        res.json({ success: true, sharePrice: price });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/admin/exclusive/set-cap — update allocation cap (admin only)
+app.post('/api/admin/exclusive/set-cap', isAdmin, async (req, res) => {
+    try {
+        const { product, cap } = req.body;
+        if (!['sailr', 'jnrusd'].includes(product)) {
+            return res.status(400).json({ success: false, error: 'product must be sailr or jnrusd' });
+        }
+        const capNum = parseFloat(cap);
+        if (isNaN(capNum) || capNum < 0) {
+            return res.status(400).json({ success: false, error: 'Invalid cap value' });
+        }
+        const key = product === 'sailr' ? 'sailr_allocation_cap' : 'jnrusd_allocation_cap';
+        await exclusiveAppConfig.set(database.pool, key, capNum);
+        res.json({ success: true, product, cap: capNum });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ── SAIL.r ──────────────────────────────────────────────────────────────────
+
+// GET /api/exclusive/sailr/quote?wallet=0x...&honey_amount=100
+app.get('/api/exclusive/sailr/quote', async (req, res) => {
+    try {
+        const { wallet, honey_amount } = req.query;
+        if (!wallet || !honey_amount) {
+            return res.status(400).json({ success: false, error: 'wallet and honey_amount required' });
+        }
+        const honeyAmt = parseFloat(honey_amount);
+        if (isNaN(honeyAmt) || honeyAmt <= 0) {
+            return res.status(400).json({ success: false, error: 'Invalid honey_amount' });
+        }
+
+        // Check tier eligibility
+        const tier = await getUserTier(wallet);
+        if (!tier || !SAILR_ALLOWED_TIERS.includes(tier)) {
+            return res.status(403).json({ success: false, error: 'Gold or Platinum tier required for SAIL.r access' });
+        }
+
+        // Check allocation capacity
+        const capacity = await exclusiveDb.getSailrCapacity(database.pool);
+        if (!capacity.unlimited && capacity.remaining <= 0) {
+            return res.status(409).json({ success: false, error: 'SAIL.r allocation is fully subscribed for this round', capacityFull: true });
+        }
+
+        // Fetch live SAIL.r price
+        const liveSailPrice = await fetchTokenPrice('SAILR');
+        if (!liveSailPrice || liveSailPrice <= 0) {
+            return res.status(503).json({ success: false, error: 'Unable to fetch live SAIL.r price, please retry' });
+        }
+
+        pruneExpiredQuotes();
+
+        const quote = buildSailrQuote(liveSailPrice, honeyAmt);
+        const quoteId = require('crypto').randomUUID();
+        const expiresAt = Date.now() + 120 * 1000;
+
+        activeQuotes.set(quoteId, { wallet: wallet.toLowerCase(), ...quote, expiresAt });
+
+        res.json({
+            success: true,
+            data: {
+                quoteId,
+                expiresAt: new Date(expiresAt).toISOString(),
+                liveSailPrice:      parseFloat(quote.liveSailPrice.toFixed(8)),
+                discountPercent:    quote.discountPercent,
+                discountedSailPrice:parseFloat(quote.discountedSailPrice.toFixed(8)),
+                honeyAmountInput:   honeyAmt,
+                sailAmountOutput:   parseFloat(quote.sailAmountOutput.toFixed(6)),
+                escrowWallet:       process.env.SAILR_ESCROW_WALLET || '',
+            }
+        });
+    } catch (err) {
+        console.error('❌ SAIL.r quote error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to generate quote' });
+    }
+});
+
+// POST /api/exclusive/sailr/confirm
+// Body: { wallet, quoteId, paymentTxHash }
+app.post('/api/exclusive/sailr/confirm', async (req, res) => {
+    try {
+        const { wallet, quoteId, paymentTxHash } = req.body;
+        if (!wallet || !quoteId || !paymentTxHash) {
+            return res.status(400).json({ success: false, error: 'wallet, quoteId, and paymentTxHash required' });
+        }
+
+        // Check for duplicate tx
+        const existing = await exclusiveDb.getSailrPurchaseByTx(database.pool, paymentTxHash);
+        if (existing) {
+            return res.status(409).json({ success: false, error: 'Transaction already recorded' });
+        }
+
+        // Validate quote
+        pruneExpiredQuotes();
+        const quote = activeQuotes.get(quoteId);
+        if (!quote) {
+            return res.status(400).json({ success: false, error: 'Quote expired or not found. Please get a fresh quote.' });
+        }
+        if (quote.wallet !== wallet.toLowerCase()) {
+            return res.status(403).json({ success: false, error: 'Quote wallet mismatch' });
+        }
+
+        const tier = await getUserTier(wallet);
+        if (!tier || !SAILR_ALLOWED_TIERS.includes(tier)) {
+            return res.status(403).json({ success: false, error: 'Gold or Platinum tier required' });
+        }
+
+        const purchaseData = {
+            quoteId,
+            wallet,
+            qualificationTier:   tier,
+            liveSailPrice:       quote.liveSailPrice,
+            discountedSailPrice: quote.discountedSailPrice,
+            honeyAmountInput:    quote.honeyAmountInput,
+            sailAmountOutput:    quote.sailAmountOutput,
+            sailMarginToAmy:     quote.sailMarginToAmy,
+            paymentTxHash,
+            paymentConfirmedAt:  new Date(),
+        };
+
+        const purchase = await exclusiveDb.createSailrPurchase(database.pool, purchaseData);
+        activeQuotes.delete(quoteId);
+
+        // Log to Google Sheet (non-blocking)
+        exclusiveSheetsService.logSailrPurchase(purchase).catch(err =>
+            console.error('Sheet log error (SAIL.r):', err.message)
+        );
+
+        console.log(`✅ SAIL.r purchase confirmed: ${wallet} — ${purchase.sail_amount_output} SAIL.r`);
+
+        res.json({
+            success: true,
+            data: {
+                purchaseId:         purchase.purchase_id,
+                sailAmountOutput:   parseFloat(purchase.sail_amount_output),
+                earningStartDate:   purchase.earning_start_date_utc,
+                lockEndDate:        purchase.lock_end_date_utc,
+                purchaseStatus:     purchase.purchase_status,
+            }
+        });
+    } catch (err) {
+        console.error('❌ SAIL.r confirm error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to confirm purchase' });
+    }
+});
+
+// GET /api/exclusive/sailr/purchases/:wallet
+app.get('/api/exclusive/sailr/purchases/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        const purchases = await exclusiveDb.getSailrPurchasesByWallet(database.pool, wallet);
+        res.json({ success: true, data: purchases });
+    } catch (err) {
+        console.error('❌ SAIL.r purchases fetch error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch purchases' });
+    }
+});
+
+// ── jnrUSDE ─────────────────────────────────────────────────────────────────
+
+// POST /api/exclusive/jnrusd/confirm
+// Body: { wallet, amount, depositTxHash }
+app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
+    try {
+        const { wallet, depositUsde, depositTxHash } = req.body;
+        if (!wallet || !depositUsde || !depositTxHash) {
+            return res.status(400).json({ success: false, error: 'wallet, depositUsde, and depositTxHash required' });
+        }
+        const usdeAmt = parseFloat(depositUsde);
+        if (isNaN(usdeAmt) || usdeAmt <= 0) {
+            return res.status(400).json({ success: false, error: 'Invalid depositUsde' });
+        }
+
+        // Duplicate tx guard
+        const existing = await exclusiveDb.getJnrusdPositionByTx(database.pool, depositTxHash);
+        if (existing) {
+            return res.status(409).json({ success: false, error: 'Transaction already recorded' });
+        }
+
+        const tier = await getUserTier(wallet);
+        if (!tier || !JNRUSD_ALLOWED_TIERS.includes(tier)) {
+            return res.status(403).json({ success: false, error: '300+ AMY required for jnrUSDE access' });
+        }
+
+        // Check allocation capacity
+        const capacity = await exclusiveDb.getJnrusdCapacity(database.pool);
+        if (!capacity.unlimited && capacity.remaining < usdeAmt) {
+            return res.status(409).json({
+                success: false,
+                error: `Only ${capacity.remaining.toFixed(2)} USDE remaining in this allocation round`,
+                capacityFull: capacity.remaining <= 0,
+            });
+        }
+
+        // Fetch current share price to calculate units
+        const sharePrice = await exclusiveDb.getCurrentSharePrice(database.pool);
+        const unitQuantity = usdeAmt / sharePrice;
+
+        const position = await exclusiveDb.createJnrusdPosition(database.pool, {
+            wallet,
+            qualificationTier: tier,
+            depositUsde: usdeAmt,
+            entrySharePrice: sharePrice,
+            unitQuantity,
+            depositTxHash,
+            confirmedAt: new Date(),
+        });
+
+        // Log to Google Sheet (non-blocking)
+        exclusiveSheetsService.logJnrusdDeposit(position).catch(err =>
+            console.error('Sheet log error (jnrUSDE):', err.message)
+        );
+
+        console.log(`✅ jnrUSDE position created: ${wallet} — ${usdeAmt} USDE → ${unitQuantity.toFixed(6)} units @ ${sharePrice}`);
+
+        res.json({
+            success: true,
+            data: {
+                positionId:       position.position_id,
+                depositUsde:      usdeAmt,
+                entrySharePrice:  sharePrice,
+                unitQuantity:     parseFloat(position.unit_quantity),
+                status:           position.status,
+                earningStartDate: position.earning_start_date_utc,
+            }
+        });
+    } catch (err) {
+        console.error('❌ jnrUSDE confirm error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to confirm deposit' });
+    }
+});
+
+// POST /api/exclusive/jnrusd/exit/:positionId
+app.post('/api/exclusive/jnrusd/exit/:positionId', async (req, res) => {
+    try {
+        const { positionId } = req.params;
+        const { wallet } = req.body;
+
+        const pos = await exclusiveDb.getJnrusdPosition(database.pool, positionId);
+        if (!pos) {
+            return res.status(404).json({ success: false, error: 'Position not found' });
+        }
+        if (pos.wallet.toLowerCase() !== wallet?.toLowerCase()) {
+            return res.status(403).json({ success: false, error: 'Not your position' });
+        }
+        if (pos.status !== 'active') {
+            return res.status(400).json({ success: false, error: `Position is already ${pos.status}` });
+        }
+
+        const updated = await exclusiveDb.requestJnrusdExit(database.pool, positionId);
+
+        // Log exit event to sheet (non-blocking)
+        exclusiveSheetsService.logJnrusdExit(
+            positionId,
+            updated.exit_requested_at_utc,
+            updated.exit_available_at_utc,
+            updated.stops_earning_at_utc
+        ).catch(err => console.error('Sheet log error (jnrUSDE exit):', err.message));
+
+        console.log(`🔓 jnrUSDE exit requested: ${positionId} — available ${updated.exit_available_at_utc}`);
+
+        res.json({
+            success: true,
+            data: {
+                positionId,
+                status:              updated.status,
+                exitRequestedAt:     updated.exit_requested_at_utc,
+                exitAvailableAt:     updated.exit_available_at_utc,
+                stopsEarningAt:      updated.stops_earning_at_utc,
+            }
+        });
+    } catch (err) {
+        console.error('❌ jnrUSDE exit error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to request exit' });
+    }
+});
+
+// POST /api/exclusive/jnrusd/withdraw/:positionId
+app.post('/api/exclusive/jnrusd/withdraw/:positionId', async (req, res) => {
+    try {
+        const { positionId } = req.params;
+        const { wallet } = req.body;
+
+        const pos = await exclusiveDb.getJnrusdPosition(database.pool, positionId);
+        if (!pos) {
+            return res.status(404).json({ success: false, error: 'Position not found' });
+        }
+        if (pos.wallet.toLowerCase() !== wallet?.toLowerCase()) {
+            return res.status(403).json({ success: false, error: 'Not your position' });
+        }
+
+        const updated = await exclusiveDb.confirmJnrusdWithdrawal(database.pool, positionId);
+        if (!updated) {
+            const availableAt = pos.exit_available_at_utc ? new Date(pos.exit_available_at_utc).toISOString() : 'unknown';
+            return res.status(400).json({ success: false, error: `Cooldown not complete. Available at: ${availableAt}` });
+        }
+
+        exclusiveSheetsService.logJnrusdWithdrawal(positionId, updated.withdrawn_at_utc)
+            .catch(err => console.error('Sheet log error (jnrUSDE withdrawal):', err.message));
+
+        res.json({ success: true, data: { positionId, status: 'withdrawn', withdrawnAt: updated.withdrawn_at_utc } });
+    } catch (err) {
+        console.error('❌ jnrUSDE withdraw error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to confirm withdrawal' });
+    }
+});
+
+// GET /api/exclusive/jnrusd/positions/:wallet
+app.get('/api/exclusive/jnrusd/positions/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        const positions = await exclusiveDb.getJnrusdPositionsByWallet(database.pool, wallet);
+        res.json({ success: true, data: positions });
+    } catch (err) {
+        console.error('❌ jnrUSDE positions fetch error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch positions' });
     }
 });
 
@@ -1769,6 +2240,10 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         if (!pointsDb) {
             return res.status(500).json({ success: false, error: 'Points system not available' });
         }
+
+        // Admin tier override — set ADMIN_TIER_OVERRIDE=gold on Railway to enable, remove to disable
+        const adminWallets = (process.env.ADMIN_WALLETS || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+        const isAdminWallet = !!process.env.ADMIN_TIER_OVERRIDE && adminWallets.includes(wallet.toLowerCase());
 
         const pointsData = await pointsDb.getByWallet(wallet);
 
@@ -1890,11 +2365,16 @@ app.get('/api/points/:wallet', async (req, res, next) => {
         const basePointsPerHour = parseFloat(pointsData.pointsPerHour) || 0;
         const effectivePointsPerHour = basePointsPerHour * totalMultiplier;
 
+        const overrideTier = process.env.ADMIN_TIER_OVERRIDE || 'gold';
+        const effectiveTier = isAdminWallet ? overrideTier : pointsData.currentTier;
+        if (isAdminWallet) console.log(`🔧 [AdminOverride] Tier forced to ${overrideTier} for ${wallet}`);
+
         res.json({
             success: true,
             data: {
                 ...pointsData,
-                tierInfo: POINTS_TIERS[pointsData.currentTier] || POINTS_TIERS['none'],
+                currentTier: effectiveTier,
+                tierInfo: POINTS_TIERS[effectiveTier] || POINTS_TIERS['none'],
                 totalMultiplier: totalMultiplier,
                 multiplierBreakdown: multiplierBreakdown,
                 effectivePointsPerHour: effectivePointsPerHour,
@@ -3677,6 +4157,17 @@ app.post('/api/email/verify', async (req, res) => {
 
         console.log(`✅ Email verified for wallet ${wallet}: ${result.email}`);
 
+        // Try to grant initial referral reward now that email is connected
+        try {
+            const refEntry = await referralsDb?.getByWallet(wallet);
+            if (refEntry?.referredBy) {
+                const referrerEntry = await referralsDb.getByCode(refEntry.referredBy);
+                await tryGrantInitialReward(wallet, referrerEntry?.wallet);
+            }
+        } catch (err) {
+            console.error('Error trying initial reward on email verify:', err.message);
+        }
+
         res.json({
             success: true,
             message: 'Email verified successfully',
@@ -5357,6 +5848,83 @@ async function fetchAmyBalance(walletAddress) {
     }
 }
 
+// Grant initial referral reward (wallet connected + any 1 social): user +100, referrer +50
+async function tryGrantInitialReward(userWallet, referrerWallet) {
+    if (!referralsDb || !pointsDb) return;
+
+    const entry = await referralsDb.getByWallet(userWallet);
+    if (!entry || !entry.referredBy || entry.initialRewardGiven) return;
+
+    // Check if user has any social connected
+    let hasSocial = false;
+    try {
+        const social = await database.pool.query(
+            `SELECT x_username, discord_username, telegram_username, email
+             FROM verified_users WHERE LOWER(wallet) = LOWER($1)`,
+            [userWallet]
+        );
+        if (social.rows[0]) {
+            const u = social.rows[0];
+            hasSocial = !!(u.x_username || u.discord_username || u.telegram_username || u.email);
+        }
+    } catch (err) {
+        console.error('Error checking social for initial reward:', err.message);
+        return;
+    }
+
+    if (!hasSocial) return;
+
+    // Award user +100 pts
+    await database.points.addBonus(userWallet, 100, 'REFERRAL_INITIAL', 'Referral bonus — wallet + social connected');
+    // Award referrer +50 pts
+    if (referrerWallet) {
+        await database.points.addBonus(referrerWallet, 50, 'REFERRAL_INITIAL', 'Referral bonus — your invite connected');
+    }
+
+    await referralsDb.markInitialRewardGiven(userWallet);
+    console.log(`🎁 Initial referral reward granted: ${userWallet} +100, referrer +50`);
+}
+
+// Grant full referral reward (7 continuous days ≥300 AMY): user +900, referrer +450
+async function tryGrantFullReward(userWallet) {
+    if (!referralsDb || !pointsDb) return;
+
+    const entry = await referralsDb.getByWallet(userWallet);
+    if (!entry || !entry.referredBy || !entry.initialRewardGiven || entry.fullRewardGiven) return;
+
+    const balance = entry.lastKnownBalance || 0;
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    if (balance >= MINIMUM_AMY_BALANCE) {
+        if (!entry.holdStartTimestamp) {
+            // Start the hold timer
+            await referralsDb.updateHoldStart(userWallet, now);
+            console.log(`⏱️ Hold timer started for ${userWallet}`);
+        } else {
+            const elapsed = now - parseInt(entry.holdStartTimestamp);
+            if (elapsed >= SEVEN_DAYS_MS) {
+                // 7 days achieved — find referrer wallet and award
+                const referrerEntry = await referralsDb.getByCode(entry.referredBy);
+                const referrerWallet = referrerEntry?.wallet;
+
+                await database.points.addBonus(userWallet, 900, 'REFERRAL_FULL', 'Referral full unlock — 7 days holding 300+ $AMY');
+                if (referrerWallet) {
+                    await database.points.addBonus(referrerWallet, 450, 'REFERRAL_FULL', 'Referral full unlock — your invite held 300+ $AMY for 7 days');
+                }
+                await referralsDb.markFullRewardGiven(userWallet);
+                console.log(`🏆 Full referral reward granted: ${userWallet} +900, referrer +450`);
+            }
+        }
+    } else {
+        // Balance dropped below threshold — reset hold timer
+        if (entry.holdStartTimestamp) {
+            await referralsDb.clearHoldStart(userWallet);
+            console.log(`🔄 Hold timer reset for ${userWallet} (balance dropped below ${MINIMUM_AMY_BALANCE})`);
+        }
+    }
+}
+
 // Update all user balances periodically (verified_users, referrals, holders)
 async function updateAllReferralBalances() {
     console.log('🔄 Starting periodic balance update for all users...');
@@ -5406,6 +5974,29 @@ async function updateAllReferralBalances() {
         }
 
         console.log(`✅ Balance update complete: ${updated} updated, ${failed} failed`);
+
+        // Process pending referral rewards after balances are fresh
+        if (referralsDb) {
+            try {
+                const pendingUsers = await referralsDb.getReferredPendingRewards();
+                console.log(`🎯 Checking referral rewards for ${pendingUsers.length} referred users`);
+                for (const user of pendingUsers) {
+                    try {
+                        if (!user.initialRewardGiven) {
+                            // Find referrer wallet from their code
+                            const referrerEntry = await referralsDb.getByCode(user.referredBy);
+                            await tryGrantInitialReward(user.wallet, referrerEntry?.wallet);
+                        }
+                        // Always check full reward (uses fresh DB state internally)
+                        await tryGrantFullReward(user.wallet);
+                    } catch (err) {
+                        console.error(`Error processing reward for ${user.wallet}:`, err.message);
+                    }
+                }
+            } catch (err) {
+                console.error('Error processing referral rewards:', err.message);
+            }
+        }
 
     } catch (error) {
         console.error('❌ Error updating balances:', error);
