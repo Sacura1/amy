@@ -214,10 +214,10 @@ async function createTables() {
         await client.query(`
             DO $$
             BEGIN
-                IF NOT EXISTS (SELECT 1 FROM information_schema.indexes WHERE indexname = 'idx_sailr_purchases_wallet') THEN
+                IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_sailr_purchases_wallet') THEN
                     CREATE INDEX idx_sailr_purchases_wallet ON sailr_purchases(LOWER(wallet));
                 END IF;
-                IF NOT EXISTS (SELECT 1 FROM information_schema.indexes WHERE indexname = 'idx_sailr_purchases_tx') THEN
+                IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_sailr_purchases_tx') THEN
                     CREATE UNIQUE INDEX idx_sailr_purchases_tx ON sailr_purchases(payment_tx_hash) WHERE payment_tx_hash IS NOT NULL;
                 END IF;
             END $$;
@@ -244,10 +244,10 @@ async function createTables() {
         await client.query(`
             DO $$
             BEGIN
-                IF NOT EXISTS (SELECT 1 FROM information_schema.indexes WHERE indexname = 'idx_jnrusd_positions_wallet') THEN
+                IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_jnrusd_positions_wallet') THEN
                     CREATE INDEX idx_jnrusd_positions_wallet ON jnrusd_positions(LOWER(wallet));
                 END IF;
-                IF NOT EXISTS (SELECT 1 FROM information_schema.indexes WHERE indexname = 'idx_jnrusd_positions_tx') THEN
+                IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_jnrusd_positions_tx') THEN
                     CREATE UNIQUE INDEX idx_jnrusd_positions_tx ON jnrusd_positions(deposit_tx_hash) WHERE deposit_tx_hash IS NOT NULL;
                 END IF;
             END $$;
