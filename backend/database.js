@@ -14,7 +14,14 @@ async function initDatabase() {
             connectionString: process.env.DATABASE_URL,
             ssl: process.env.NODE_ENV === 'production' ? {
                 rejectUnauthorized: false
-            } : false
+            } : false,
+            max: 10,
+        });
+
+        // Silence TLSSocket MaxListenersExceeded warning — each pooled SSL
+        // connection legitimately adds multiple error listeners
+        pool.on('connect', (client) => {
+            client.connection.stream.setMaxListeners(30);
         });
 
         // Create tables if they don't exist
@@ -263,22 +270,26 @@ async function createTables() {
         `);
 
         // App config table — stores key/value settings (e.g. jnrusd share price, allocation caps)
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS app_config (
-                key VARCHAR(100) PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-
-        // Seed default config values if not present
-        await client.query(`
-            INSERT INTO app_config (key, value) VALUES
-                ('jnrusd_share_price', '1.0'),
-                ('sailr_allocation_cap', '0'),
-                ('jnrusd_allocation_cap', '0')
-            ON CONFLICT (key) DO NOTHING;
-        `);
+        // Wrapped in its own try/catch so earlier migration failures don't prevent this from running
+        try {
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS app_config (
+                    key VARCHAR(100) PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+            await client.query(`
+                INSERT INTO app_config (key, value) VALUES
+                    ('jnrusd_share_price', '1.0'),
+                    ('sailr_allocation_cap', '0'),
+                    ('jnrusd_allocation_cap', '0')
+                ON CONFLICT (key) DO NOTHING;
+            `);
+            console.log('✅ app_config table ready');
+        } catch (e) {
+            console.error('❌ app_config table init error:', e.message);
+        }
 
         // Create holders table (tracks users with 300+ AMY who connected wallet + X)
         await client.query(`
