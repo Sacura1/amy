@@ -12,7 +12,7 @@ const cron = require('node-cron');
 const { google: googleapis } = require('googleapis');
 const googleSheetsService = require('./googleSheetsService');
 const raffleSheetService = require('./raffleSheetService');
-const { exclusiveDb, appConfig: exclusiveAppConfig, sheetsService: exclusiveSheetsService, buildSailrQuote, activeQuotes, pruneExpiredQuotes } = require('./exclusivePerksService');
+const { exclusiveDb, appConfig: exclusiveAppConfig, sheetsService: exclusiveSheetsService, buildSailrQuote, activeQuotes, pruneExpiredQuotes, activeJnrusdQuotes, pruneExpiredJnrusdQuotes, getLiveJnrusdSharePrice } = require('./exclusivePerksService');
 const StrategyService = require('./lib/strategyService');
 require('dotenv').config();
 
@@ -1878,6 +1878,58 @@ app.post('/api/admin/exclusive/set-cap', isAdmin, async (req, res) => {
 
 // ── SAIL.r ──────────────────────────────────────────────────────────────────
 
+// GET /api/exclusive/jnrusd/quote?wallet=0x...&deposit_usde=100
+app.get('/api/exclusive/jnrusd/quote', async (req, res) => {
+    try {
+        const { wallet, deposit_usde } = req.query;
+        if (!wallet || !deposit_usde) {
+            return res.status(400).json({ success: false, error: 'wallet and deposit_usde required' });
+        }
+        const usdeAmt = parseFloat(deposit_usde);
+        if (isNaN(usdeAmt) || usdeAmt < 10) {
+            return res.status(400).json({ success: false, error: 'Minimum deposit is $10' });
+        }
+
+        const tier = await getUserTier(wallet);
+        if (!tier || !JNRUSD_ALLOWED_TIERS.includes(tier)) {
+            return res.status(403).json({ success: false, error: '300+ AMY required for jnrUSD access' });
+        }
+
+        const capacity = await exclusiveDb.getJnrusdCapacity(database.pool);
+        if (!capacity.unlimited && capacity.remaining < usdeAmt) {
+            return res.status(409).json({ success: false, error: `Only ${capacity.remaining.toFixed(2)} USDE remaining in this allocation round` });
+        }
+
+        const sharePrice = await getLiveJnrusdSharePrice();
+        if (!sharePrice || sharePrice <= 0) {
+            return res.status(503).json({ success: false, error: 'Unable to fetch live share price, please retry' });
+        }
+
+        pruneExpiredJnrusdQuotes();
+
+        const unitsReceived = usdeAmt / sharePrice;
+        const quoteId = require('crypto').randomUUID();
+        const expiresAt = Date.now() + 120 * 1000;
+
+        activeJnrusdQuotes.set(quoteId, { wallet: wallet.toLowerCase(), sharePrice, depositUsde: usdeAmt, unitsReceived, expiresAt });
+
+        res.json({
+            success: true,
+            data: {
+                quoteId,
+                expiresAt: new Date(expiresAt).toISOString(),
+                sharePrice:    parseFloat(sharePrice.toFixed(8)),
+                depositUsde:   usdeAmt,
+                unitsReceived: parseFloat(unitsReceived.toFixed(6)),
+                escrowWallet:  process.env.JNRUSD_ESCROW_WALLET || '',
+            }
+        });
+    } catch (err) {
+        console.error('❌ jnrUSD quote error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to generate quote' });
+    }
+});
+
 // GET /api/exclusive/sailr/quote?wallet=0x...&honey_amount=100
 app.get('/api/exclusive/sailr/quote', async (req, res) => {
     try {
@@ -2022,14 +2074,25 @@ app.get('/api/exclusive/sailr/purchases/:wallet', async (req, res) => {
 // Body: { wallet, amount, depositTxHash }
 app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
     try {
-        const { wallet, depositUsde, depositTxHash } = req.body;
-        if (!wallet || !depositUsde || !depositTxHash) {
-            return res.status(400).json({ success: false, error: 'wallet, depositUsde, and depositTxHash required' });
+        const { wallet, quoteId, depositTxHash } = req.body;
+        if (!wallet || !quoteId || !depositTxHash) {
+            return res.status(400).json({ success: false, error: 'wallet, quoteId, and depositTxHash required' });
         }
-        const usdeAmt = parseFloat(depositUsde);
-        if (isNaN(usdeAmt) || usdeAmt <= 0) {
-            return res.status(400).json({ success: false, error: 'Invalid depositUsde' });
+
+        // Validate quote
+        pruneExpiredJnrusdQuotes();
+        const quote = activeJnrusdQuotes.get(quoteId);
+        if (!quote) {
+            return res.status(400).json({ success: false, error: 'Quote expired or not found. Please get a fresh quote.' });
         }
+        if (quote.wallet !== wallet.toLowerCase()) {
+            return res.status(403).json({ success: false, error: 'Quote does not belong to this wallet' });
+        }
+        activeJnrusdQuotes.delete(quoteId);
+
+        const usdeAmt = quote.depositUsde;
+        const sharePrice = quote.sharePrice;
+        const unitQuantity = quote.unitsReceived;
 
         // Duplicate tx guard
         const existing = await exclusiveDb.getJnrusdPositionByTx(database.pool, depositTxHash);
@@ -2051,10 +2114,6 @@ app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
                 capacityFull: capacity.remaining <= 0,
             });
         }
-
-        // Fetch current share price to calculate units
-        const sharePrice = await exclusiveDb.getCurrentSharePrice(database.pool);
-        const unitQuantity = usdeAmt / sharePrice;
 
         const position = await exclusiveDb.createJnrusdPosition(database.pool, {
             wallet,

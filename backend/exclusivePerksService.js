@@ -39,14 +39,39 @@ function fmtUtc(date) {
     return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`;
 }
 
-// ─── In-memory quote store ─────────────────────────────────────────────────
+// ─── In-memory quote stores ───────────────────────────────────────────────────
 const activeQuotes = new Map();
+const activeJnrusdQuotes = new Map();
 
 function pruneExpiredQuotes() {
     const now = Date.now();
     for (const [id, q] of activeQuotes) {
         if (q.expiresAt < now) activeQuotes.delete(id);
     }
+}
+
+function pruneExpiredJnrusdQuotes() {
+    const now = Date.now();
+    for (const [id, q] of activeJnrusdQuotes) {
+        if (q.expiresAt < now) activeJnrusdQuotes.delete(id);
+    }
+}
+
+// ─── Live jnrUSD share price from vault contract ──────────────────────────────
+const JNRUSD_VAULT_ADDRESS = '0x5f6eE0cc57862EAfAD1a572819B6Dc1485B95E46';
+const JNRUSD_VAULT_ABI = [
+    'function decimals() view returns (uint8)',
+    'function convertToAssets(uint256 shares) view returns (uint256)',
+];
+
+async function getLiveJnrusdSharePrice() {
+    const { ethers } = require('ethers');
+    const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+    const vault = new ethers.Contract(JNRUSD_VAULT_ADDRESS, JNRUSD_VAULT_ABI, provider);
+    const decimals = await vault.decimals();
+    const oneShare = ethers.BigNumber.from(10).pow(decimals);
+    const assets = await vault.convertToAssets(oneShare);
+    return parseFloat(ethers.utils.formatUnits(assets, decimals));
 }
 
 // ─── Pricing logic ────────────────────────────────────────────────────────────
@@ -440,4 +465,5 @@ const exclusiveDb = {
 module.exports = {
     exclusiveDb, appConfig, sheetsService,
     buildSailrQuote, activeQuotes, pruneExpiredQuotes, fmtUtc,
+    activeJnrusdQuotes, pruneExpiredJnrusdQuotes, getLiveJnrusdSharePrice,
 };
