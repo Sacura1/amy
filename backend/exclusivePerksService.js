@@ -114,6 +114,36 @@ class ExclusivePerksSheets {
         }
     }
 
+    // Find existing row by positionId (col A) and update specific columns by index (0-based)
+    async _updateRow(spreadsheetId, positionId, colUpdates) {
+        if (!await this._ensureSheets()) return;
+        const label = spreadsheetId === this.sailrId ? 'SAIL.r' : 'jnrUSD';
+        try {
+            const res = await this.sheets.spreadsheets.values.get({ spreadsheetId, range: 'Sheet1!A:A' });
+            const rows = res.data.values || [];
+            const rowIndex = rows.findIndex(r => r[0] === positionId);
+            if (rowIndex < 0) {
+                console.warn(`⚠️  [ExclusiveSheets] Row not found for positionId ${positionId} in ${label} sheet`);
+                return false;
+            }
+            const sheetRow = rowIndex + 1; // 1-based
+            const colLetter = col => String.fromCharCode(65 + col);
+            for (const [col, value] of Object.entries(colUpdates)) {
+                await this.sheets.spreadsheets.values.update({
+                    spreadsheetId,
+                    range: `Sheet1!${colLetter(parseInt(col))}${sheetRow}`,
+                    valueInputOption: 'USER_ENTERED',
+                    requestBody: { values: [[value]] },
+                });
+            }
+            console.log(`📋 [ExclusiveSheets] Row ${sheetRow} updated for ${positionId} in ${label} sheet`);
+            return true;
+        } catch (err) {
+            console.error(`❌ [ExclusiveSheets] Update failed on ${label} sheet:`, err.message);
+            return false;
+        }
+    }
+
     async initHeaders() {
         console.log('📋 [ExclusiveSheets] Initializing sheet headers...');
         if (!await this._ensureSheets()) {
@@ -192,38 +222,27 @@ class ExclusivePerksSheets {
 
     async logJnrusdExit(positionId, exitRequestedAt, exitAvailableAt, stopsEarningAt) {
         console.log(`📋 [ExclusiveSheets] Logging jnrUSD exit: ${positionId} | available ${fmtUtc(exitAvailableAt)}`);
-        await this._append(this.jnrId, [
-            positionId + '_exit',  // position_id
-            positionId,            // wallet (ref)
-            '',                    // qualification_tier
-            '',                    // deposit_usde
-            '',                    // entry_share_price
-            '',                    // unit_quantity
-            '',                    // created_at_utc
-            stopsEarningAt ? fmtUtc(stopsEarningAt) : '', // earning_start_date_utc (stops earning)
-            'cooling',             // status
-            fmtUtc(exitRequestedAt),  // exit_requested_at_utc
-            fmtUtc(exitAvailableAt),  // exit_available_at_utc
-            '',                    // withdrawn_at_utc
-        ]);
+        // col index: 8=status, 9=exit_requested_at_utc, 10=exit_available_at_utc
+        const updated = await this._updateRow(this.jnrId, positionId, {
+            8:  'cooling',
+            9:  fmtUtc(exitRequestedAt),
+            10: fmtUtc(exitAvailableAt),
+        });
+        if (!updated) {
+            console.warn(`⚠️  [ExclusiveSheets] Could not find row for ${positionId} — skipping exit sheet update`);
+        }
     }
 
     async logJnrusdWithdrawal(positionId, withdrawnAt) {
         console.log(`📋 [ExclusiveSheets] Logging jnrUSD withdrawal: ${positionId} | withdrawn ${fmtUtc(withdrawnAt)}`);
-        await this._append(this.jnrId, [
-            positionId + '_withdrawn', // position_id
-            positionId,                // wallet (ref)
-            '',                        // qualification_tier
-            '',                        // deposit_usde
-            '',                        // entry_share_price
-            '',                        // unit_quantity
-            '',                        // created_at_utc
-            '',                        // earning_start_date_utc
-            'withdrawn',               // status
-            '',                        // exit_requested_at_utc
-            '',                        // exit_available_at_utc
-            fmtUtc(withdrawnAt),       // withdrawn_at_utc
-        ]);
+        // col index: 8=status, 11=withdrawn_at_utc
+        const updated = await this._updateRow(this.jnrId, positionId, {
+            8:  'withdrawn',
+            11: fmtUtc(withdrawnAt),
+        });
+        if (!updated) {
+            console.warn(`⚠️  [ExclusiveSheets] Could not find row for ${positionId} — skipping withdrawal sheet update`);
+        }
     }
 }
 
