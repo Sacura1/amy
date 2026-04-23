@@ -199,6 +199,7 @@ async function createTables() {
                 live_sail_price DECIMAL(20, 8),
                 discount_percent DECIMAL(5, 2) DEFAULT 18,
                 discounted_sail_price DECIMAL(20, 8),
+                deposit_usde DECIMAL(20, 8),
                 honey_amount_input DECIMAL(20, 8),
                 sail_amount_output DECIMAL(20, 8),
                 sail_margin_to_amy DECIMAL(20, 8),
@@ -257,6 +258,13 @@ async function createTables() {
         await client.query(`
             DO $$
             BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sailr_purchases' AND column_name='deposit_usde') THEN
+                    ALTER TABLE sailr_purchases ADD COLUMN deposit_usde DECIMAL(20, 8);
+                END IF;
+                UPDATE sailr_purchases
+                SET deposit_usde = honey_amount_input
+                WHERE deposit_usde IS NULL AND honey_amount_input IS NOT NULL;
+
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jnrusd_positions' AND column_name='deposit_usde') THEN
                     ALTER TABLE jnrusd_positions ADD COLUMN deposit_usde DECIMAL(20, 8);
                 END IF;

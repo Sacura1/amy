@@ -75,18 +75,19 @@ async function getLiveJnrusdSharePrice() {
 }
 
 // ─── Pricing logic ────────────────────────────────────────────────────────────
-function buildSailrQuote(liveSailPrice, honeyAmount) {
+function buildSailrQuote(liveSailPrice, usdeAmount) {
     const discountedSailPrice = liveSailPrice * (1 - SAILR_USER_DISCOUNT);
     const actualAcqPrice      = liveSailPrice * (1 - SAILR_AMY_DISCOUNT);
-    const sailAmountOutput    = honeyAmount / discountedSailPrice;
-    const actualSailAcquired  = honeyAmount / actualAcqPrice;
+    const sailAmountOutput    = usdeAmount / discountedSailPrice;
+    const actualSailAcquired  = usdeAmount / actualAcqPrice;
     const sailMarginToAmy     = actualSailAcquired - sailAmountOutput;
 
     return {
         liveSailPrice,
         discountPercent:      SAILR_USER_DISCOUNT * 100,
         discountedSailPrice,
-        honeyAmountInput:     honeyAmount,
+        usdeAmountInput:      usdeAmount,
+        honeyAmountInput:     usdeAmount, // Backward compatibility for older clients
         sailAmountOutput,
         sailMarginToAmy,
     };
@@ -177,7 +178,7 @@ class ExclusivePerksSheets {
         }
         const sailrHeaders = [
             'purchase_id','quote_id','wallet','qualification_tier','live_sail_price',
-            'discount_percent','discounted_sail_price','honey_amount_input','sail_amount_output',
+            'discount_percent','discounted_sail_price','deposit_usde','sail_amount_output',
             'sail_margin_to_amy','payment_tx_hash','payment_confirmed_at_utc',
             'earning_start_date_utc','lock_end_date_utc','purchase_status',
         ];
@@ -216,7 +217,7 @@ class ExclusivePerksSheets {
             p.live_sail_price,
             p.discount_percent,
             p.discounted_sail_price,
-            p.honey_amount_input,
+            p.deposit_usde ?? p.honey_amount_input,
             p.sail_amount_output,
             p.sail_margin_to_amy,
             p.payment_tx_hash,
@@ -327,14 +328,14 @@ const exclusiveDb = {
         const result = await pool.query(
             `INSERT INTO sailr_purchases
              (purchase_id, quote_id, wallet, qualification_tier, live_sail_price, discount_percent,
-              discounted_sail_price, honey_amount_input, sail_amount_output, sail_margin_to_amy,
+              discounted_sail_price, deposit_usde, honey_amount_input, sail_amount_output, sail_margin_to_amy,
               payment_tx_hash, payment_confirmed_at_utc, earning_start_date_utc, lock_end_date_utc, purchase_status)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'confirmed')
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'confirmed')
              RETURNING *`,
             [
                 id, data.quoteId, data.wallet.toLowerCase(), data.qualificationTier,
                 data.liveSailPrice, SAILR_USER_DISCOUNT * 100, data.discountedSailPrice,
-                data.honeyAmountInput, data.sailAmountOutput, data.sailMarginToAmy,
+                data.usdeAmountInput, data.usdeAmountInput, data.sailAmountOutput, data.sailMarginToAmy,
                 data.paymentTxHash, now, earningStart, lockEnd,
             ]
         );

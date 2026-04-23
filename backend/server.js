@@ -1930,16 +1930,17 @@ app.get('/api/exclusive/jnrusd/quote', async (req, res) => {
     }
 });
 
-// GET /api/exclusive/sailr/quote?wallet=0x...&honey_amount=100
+// GET /api/exclusive/sailr/quote?wallet=0x...&deposit_usde=100
 app.get('/api/exclusive/sailr/quote', async (req, res) => {
     try {
-        const { wallet, honey_amount } = req.query;
-        if (!wallet || !honey_amount) {
-            return res.status(400).json({ success: false, error: 'wallet and honey_amount required' });
+        const { wallet, deposit_usde, honey_amount } = req.query;
+        const rawAmount = deposit_usde ?? honey_amount; // Backward compatibility
+        if (!wallet || !rawAmount) {
+            return res.status(400).json({ success: false, error: 'wallet and deposit_usde required' });
         }
-        const honeyAmt = parseFloat(honey_amount);
-        if (isNaN(honeyAmt) || honeyAmt <= 0) {
-            return res.status(400).json({ success: false, error: 'Invalid honey_amount' });
+        const usdeAmt = parseFloat(rawAmount);
+        if (isNaN(usdeAmt) || usdeAmt <= 0) {
+            return res.status(400).json({ success: false, error: 'Invalid deposit_usde' });
         }
 
         // Check tier eligibility
@@ -1962,7 +1963,7 @@ app.get('/api/exclusive/sailr/quote', async (req, res) => {
 
         pruneExpiredQuotes();
 
-        const quote = buildSailrQuote(liveSailPrice, honeyAmt);
+        const quote = buildSailrQuote(liveSailPrice, usdeAmt);
         const quoteId = require('crypto').randomUUID();
         const expiresAt = Date.now() + 120 * 1000;
 
@@ -1976,7 +1977,8 @@ app.get('/api/exclusive/sailr/quote', async (req, res) => {
                 liveSailPrice:      parseFloat(quote.liveSailPrice.toFixed(8)),
                 discountPercent:    quote.discountPercent,
                 discountedSailPrice:parseFloat(quote.discountedSailPrice.toFixed(8)),
-                honeyAmountInput:   honeyAmt,
+                usdeAmountInput:    usdeAmt,
+                honeyAmountInput:   usdeAmt, // Backward compatibility for old frontend builds
                 sailAmountOutput:   parseFloat(quote.sailAmountOutput.toFixed(6)),
                 escrowWallet:       process.env.SAILR_ESCROW_WALLET || '',
             }
@@ -2023,7 +2025,7 @@ app.post('/api/exclusive/sailr/confirm', async (req, res) => {
             qualificationTier:   tier,
             liveSailPrice:       quote.liveSailPrice,
             discountedSailPrice: quote.discountedSailPrice,
-            honeyAmountInput:    quote.honeyAmountInput,
+            usdeAmountInput:     quote.usdeAmountInput ?? quote.honeyAmountInput,
             sailAmountOutput:    quote.sailAmountOutput,
             sailMarginToAmy:     quote.sailMarginToAmy,
             paymentTxHash,
