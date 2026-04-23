@@ -181,11 +181,13 @@ class ExclusivePerksSheets {
             'discount_percent','discounted_sail_price','deposit_usde','sail_amount_output',
             'sail_margin_to_amy','payment_tx_hash','payment_confirmed_at_utc',
             'earning_start_date_utc','lock_end_date_utc','purchase_status',
+            'quote_expires_at','tx_submitted_at','validation_status','late_flag',
         ];
         const jnrHeaders = [
             'position_id','wallet','qualification_tier','deposit_usde','entry_share_price',
             'unit_quantity','created_at_utc','earning_start_date_utc','status',
             'exit_requested_at_utc','exit_available_at_utc','withdrawn_at_utc',
+            'quote_expires_at','tx_submitted_at','validation_status','late_flag',
         ];
         try {
             await this.sheets.spreadsheets.values.update({
@@ -225,6 +227,10 @@ class ExclusivePerksSheets {
             fmtUtc(p.earning_start_date_utc),
             fmtUtc(p.lock_end_date_utc),
             p.purchase_status,
+            p.quote_expires_at ? fmtUtc(p.quote_expires_at) : '',
+            p.tx_submitted_at  ? fmtUtc(p.tx_submitted_at)  : '',
+            p.validation_status || 'ok',
+            p.late_flag ? 'YES' : 'NO',
         ]);
     }
 
@@ -243,6 +249,10 @@ class ExclusivePerksSheets {
             '',   // exit_requested_at_utc — empty on creation
             '',   // exit_available_at_utc
             '',   // withdrawn_at_utc
+            pos.quote_expires_at ? fmtUtc(pos.quote_expires_at) : '',
+            pos.tx_submitted_at  ? fmtUtc(pos.tx_submitted_at)  : '',
+            pos.validation_status || 'ok',
+            pos.late_flag ? 'YES' : 'NO',
         ]);
     }
 
@@ -325,18 +335,19 @@ const exclusiveDb = {
         const earningStart = nextDayUtcMidnight(now);
         const lockEnd = addMonths(now, 6);
 
+        const status = data.purchaseStatus || 'confirmed';
         const result = await pool.query(
             `INSERT INTO sailr_purchases
              (purchase_id, quote_id, wallet, qualification_tier, live_sail_price, discount_percent,
               discounted_sail_price, deposit_usde, honey_amount_input, sail_amount_output, sail_margin_to_amy,
               payment_tx_hash, payment_confirmed_at_utc, earning_start_date_utc, lock_end_date_utc, purchase_status)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'confirmed')
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
              RETURNING *`,
             [
                 id, data.quoteId, data.wallet.toLowerCase(), data.qualificationTier,
                 data.liveSailPrice, SAILR_USER_DISCOUNT * 100, data.discountedSailPrice,
                 data.usdeAmountInput, data.usdeAmountInput, data.sailAmountOutput, data.sailMarginToAmy,
-                data.paymentTxHash, now, earningStart, lockEnd,
+                data.paymentTxHash, now, earningStart, lockEnd, status,
             ]
         );
         return result.rows[0];
@@ -386,16 +397,17 @@ const exclusiveDb = {
         const sharePrice = data.entrySharePrice || 1.0;
         const unitQuantity = data.depositUsde / sharePrice;
 
+        const status = data.status || 'active';
         const result = await pool.query(
             `INSERT INTO jnrusd_positions
              (position_id, wallet, qualification_tier, deposit_usde, entry_share_price, unit_quantity,
               amount, deposit_tx_hash, created_at_utc, earning_start_date_utc, status)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active')
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
              RETURNING *`,
             [id, data.wallet.toLowerCase(), data.qualificationTier,
              data.depositUsde, sharePrice, unitQuantity,
-             unitQuantity, // amount = unit_quantity (the position size)
-             data.depositTxHash, now, earningStart]
+             unitQuantity,
+             data.depositTxHash, now, earningStart, status]
         );
         return result.rows[0];
     },
@@ -461,10 +473,87 @@ const exclusiveDb = {
         );
         return parseFloat(result.rows[0].total) || 0;
     },
+
+    updateSailrPurchaseStatus: async (pool, purchaseId, status, validationStatus) => {
+        await pool.query(
+            `UPDATE sailr_purchases SET purchase_status = $2 WHERE purchase_id = $1`,
+            [purchaseId, status]
+        );
+        console.log(`📋 [ExclusiveDB] SAIL.r ${purchaseId} → ${status} (${validationStatus})`);
+    },
+
+    updateJnrusdPositionStatus: async (pool, positionId, status, validationStatus) => {
+        await pool.query(
+            `UPDATE jnrusd_positions SET status = $2 WHERE position_id = $1`,
+            [positionId, status]
+        );
+        console.log(`📋 [ExclusiveDB] jnrUSD ${positionId} → ${status} (${validationStatus})`);
+    },
+
+    expirePendingRecords: async (pool) => {
+        // Mark SAIL.r purchases pending >1h as expired
+        const sailr = await pool.query(
+            `UPDATE sailr_purchases SET purchase_status = 'expired'
+             WHERE purchase_status = 'pending' AND payment_confirmed_at_utc < NOW() - INTERVAL '1 hour'
+             RETURNING purchase_id, wallet`
+        );
+        // Mark jnrUSD positions pending >1h as expired
+        const jnr = await pool.query(
+            `UPDATE jnrusd_positions SET status = 'expired'
+             WHERE status = 'pending' AND created_at_utc < NOW() - INTERVAL '1 hour'
+             RETURNING position_id, wallet`
+        );
+        return { sailrExpired: sailr.rowCount, jnrExpired: jnr.rowCount };
+    },
 };
+
+// ─── On-chain tx validation ───────────────────────────────────────────────────
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const AMOUNT_TOLERANCE = 0.01; // 1%
+const RECEIPT_RETRIES  = 8;
+const RECEIPT_DELAY_MS = 2500;
+
+async function validateDepositTx(txHash, expectedFrom, expectedTo, expectedAmount, tokenAddress) {
+    const { ethers } = require('ethers');
+    const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
+
+    // Wait for receipt (block time ~2s on Berachain)
+    let receipt = null;
+    for (let i = 0; i < RECEIPT_RETRIES; i++) {
+        receipt = await provider.getTransactionReceipt(txHash).catch(() => null);
+        if (receipt) break;
+        await new Promise(r => setTimeout(r, RECEIPT_DELAY_MS));
+    }
+
+    if (!receipt) return { status: 'pending',  validationStatus: 'receipt_not_found' };
+    if (receipt.status === 0) return { status: 'failed',   validationStatus: 'tx_reverted' };
+
+    // Find the ERC20 Transfer log for the expected token
+    const transferLog = receipt.logs.find(log =>
+        log.address.toLowerCase() === tokenAddress.toLowerCase() &&
+        log.topics[0] === TRANSFER_TOPIC &&
+        log.topics.length === 3
+    );
+    if (!transferLog) return { status: 'review', validationStatus: 'no_transfer_log' };
+
+    const actualFrom   = ('0x' + transferLog.topics[1].slice(26)).toLowerCase();
+    const actualTo     = ('0x' + transferLog.topics[2].slice(26)).toLowerCase();
+    const actualAmount = parseFloat(ethers.utils.formatUnits(transferLog.data, 18));
+
+    const issues = [];
+    if (actualFrom !== expectedFrom.toLowerCase()) issues.push('from_mismatch');
+    if (actualTo   !== expectedTo.toLowerCase())   issues.push('to_mismatch');
+    const delta = Math.abs(actualAmount - expectedAmount) / Math.max(expectedAmount, 0.0001);
+    if (delta > AMOUNT_TOLERANCE) issues.push(`amount_mismatch(got:${actualAmount.toFixed(4)},expected:${expectedAmount.toFixed(4)})`);
+
+    if (issues.length > 0) return { status: 'review', validationStatus: 'mismatch:' + issues.join(','), actualAmount };
+
+    return { status: 'confirmed', validationStatus: 'ok', actualAmount };
+}
 
 module.exports = {
     exclusiveDb, appConfig, sheetsService,
     buildSailrQuote, activeQuotes, pruneExpiredQuotes, fmtUtc,
     activeJnrusdQuotes, pruneExpiredJnrusdQuotes, getLiveJnrusdSharePrice,
+    validateDepositTx,
 };

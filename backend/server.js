@@ -12,7 +12,7 @@ const cron = require('node-cron');
 const { google: googleapis } = require('googleapis');
 const googleSheetsService = require('./googleSheetsService');
 const raffleSheetService = require('./raffleSheetService');
-const { exclusiveDb, appConfig: exclusiveAppConfig, sheetsService: exclusiveSheetsService, buildSailrQuote, activeQuotes, pruneExpiredQuotes, activeJnrusdQuotes, pruneExpiredJnrusdQuotes, getLiveJnrusdSharePrice } = require('./exclusivePerksService');
+const { exclusiveDb, appConfig: exclusiveAppConfig, sheetsService: exclusiveSheetsService, buildSailrQuote, activeQuotes, pruneExpiredQuotes, activeJnrusdQuotes, pruneExpiredJnrusdQuotes, getLiveJnrusdSharePrice, validateDepositTx } = require('./exclusivePerksService');
 const StrategyService = require('./lib/strategyService');
 require('dotenv').config();
 
@@ -360,6 +360,19 @@ nonces = {
                 if (result.rows.length) console.log(`✅ Auto-withdrew ${result.rows.length} jnrUSDE position(s)`);
             } catch (err) {
                 console.error('jnrUSDE auto-withdraw cron error:', err);
+            }
+        });
+
+        // 5. Expire stale pending deposit records — every 30 minutes
+        cron.schedule('*/30 * * * *', async () => {
+            try {
+                if (!database.pool) return;
+                const { sailrExpired, jnrExpired } = await exclusiveDb.expirePendingRecords(database.pool);
+                if (sailrExpired + jnrExpired > 0) {
+                    console.log(`⏰ [Cron] Expired pending: ${sailrExpired} SAIL.r, ${jnrExpired} jnrUSD`);
+                }
+            } catch (err) {
+                console.error('Expire pending cron error:', err.message);
             }
         });
 
@@ -1998,13 +2011,14 @@ app.post('/api/exclusive/sailr/confirm', async (req, res) => {
             return res.status(400).json({ success: false, error: 'wallet, quoteId, and paymentTxHash required' });
         }
 
-        // Check for duplicate tx
+        // Duplicate tx guard
         const existing = await exclusiveDb.getSailrPurchaseByTx(database.pool, paymentTxHash);
         if (existing) {
             return res.status(409).json({ success: false, error: 'Transaction already recorded' });
         }
 
-        // Validate quote
+        // Quote validation
+        const txSubmittedAt = new Date();
         pruneExpiredQuotes();
         const quote = activeQuotes.get(quoteId);
         if (!quote) {
@@ -2013,45 +2027,63 @@ app.post('/api/exclusive/sailr/confirm', async (req, res) => {
         if (quote.wallet !== wallet.toLowerCase()) {
             return res.status(403).json({ success: false, error: 'Quote wallet mismatch' });
         }
+        const lateFlag = quote.expiresAt < Date.now();
 
         const tier = await getUserTier(wallet);
         if (!tier || !SAILR_ALLOWED_TIERS.includes(tier)) {
             return res.status(403).json({ success: false, error: 'Gold or Platinum tier required' });
         }
 
-        const purchaseData = {
-            quoteId,
-            wallet,
-            qualificationTier:   tier,
+        const depositAmount = quote.usdeAmountInput ?? quote.honeyAmountInput;
+        const quoteExpiresAt = new Date(quote.expiresAt);
+
+        // Create record as pending immediately so it's tracked even if validation is slow
+        const purchase = await exclusiveDb.createSailrPurchase(database.pool, {
+            quoteId, wallet, qualificationTier: tier,
             liveSailPrice:       quote.liveSailPrice,
             discountedSailPrice: quote.discountedSailPrice,
-            usdeAmountInput:     quote.usdeAmountInput ?? quote.honeyAmountInput,
+            usdeAmountInput:     depositAmount,
             sailAmountOutput:    quote.sailAmountOutput,
             sailMarginToAmy:     quote.sailMarginToAmy,
             paymentTxHash,
-            paymentConfirmedAt:  new Date(),
-        };
-
-        const purchase = await exclusiveDb.createSailrPurchase(database.pool, purchaseData);
+            paymentConfirmedAt:  txSubmittedAt,
+            purchaseStatus:      'pending',
+        });
         activeQuotes.delete(quoteId);
 
-        // Log to Google Sheet (non-blocking)
-        exclusiveSheetsService.logSailrPurchase(purchase).catch(err =>
-            console.error('Sheet log error (SAIL.r):', err.message)
-        );
-
-        console.log(`✅ SAIL.r purchase confirmed: ${wallet} — ${purchase.sail_amount_output} SAIL.r`);
-
+        // Respond to frontend immediately — don't block on chain validation
         res.json({
             success: true,
             data: {
-                purchaseId:         purchase.purchase_id,
-                sailAmountOutput:   parseFloat(purchase.sail_amount_output),
-                earningStartDate:   purchase.earning_start_date_utc,
-                lockEndDate:        purchase.lock_end_date_utc,
-                purchaseStatus:     purchase.purchase_status,
+                purchaseId:       purchase.purchase_id,
+                sailAmountOutput: parseFloat(purchase.sail_amount_output),
+                earningStartDate: purchase.earning_start_date_utc,
+                lockEndDate:      purchase.lock_end_date_utc,
+                purchaseStatus:   'pending',
             }
         });
+
+        // Async: validate tx on-chain, then update status
+        const escrowWallet = process.env.SAILR_ESCROW_WALLET || '';
+        const usdeAddress  = process.env.USDE_TOKEN_ADDRESS  || '0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34';
+        validateDepositTx(paymentTxHash, wallet, escrowWallet, depositAmount, usdeAddress)
+            .then(async ({ status, validationStatus, actualAmount }) => {
+                const finalStatus = lateFlag && status === 'confirmed' ? 'review' : status;
+                const finalValidation = lateFlag && status === 'confirmed' ? 'late_confirmed' : validationStatus;
+                await exclusiveDb.updateSailrPurchaseStatus(database.pool, purchase.purchase_id, finalStatus, finalValidation);
+                exclusiveSheetsService.logSailrPurchase({
+                    ...purchase,
+                    purchase_status:   finalStatus,
+                    quote_expires_at:  quoteExpiresAt,
+                    tx_submitted_at:   txSubmittedAt,
+                    validation_status: finalValidation,
+                    late_flag:         lateFlag,
+                    deposit_usde:      actualAmount ?? depositAmount,
+                }).catch(err => console.error('Sheet log error (SAIL.r):', err.message));
+                console.log(`✅ SAIL.r ${purchase.purchase_id} → ${finalStatus} (${finalValidation})`);
+            })
+            .catch(err => console.error('❌ SAIL.r on-chain validation error:', err.message));
+
     } catch (err) {
         console.error('❌ SAIL.r confirm error:', err.message);
         res.status(500).json({ success: false, error: 'Failed to confirm purchase' });
@@ -2073,7 +2105,7 @@ app.get('/api/exclusive/sailr/purchases/:wallet', async (req, res) => {
 // ── jnrUSDE ─────────────────────────────────────────────────────────────────
 
 // POST /api/exclusive/jnrusd/confirm
-// Body: { wallet, amount, depositTxHash }
+// Body: { wallet, quoteId, depositTxHash }
 app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
     try {
         const { wallet, quoteId, depositTxHash } = req.body;
@@ -2081,7 +2113,8 @@ app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
             return res.status(400).json({ success: false, error: 'wallet, quoteId, and depositTxHash required' });
         }
 
-        // Validate quote
+        // Quote validation
+        const txSubmittedAt = new Date();
         pruneExpiredJnrusdQuotes();
         const quote = activeJnrusdQuotes.get(quoteId);
         if (!quote) {
@@ -2090,9 +2123,11 @@ app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
         if (quote.wallet !== wallet.toLowerCase()) {
             return res.status(403).json({ success: false, error: 'Quote does not belong to this wallet' });
         }
+        const lateFlag    = quote.expiresAt < Date.now();
+        const quoteExpiresAt = new Date(quote.expiresAt);
         activeJnrusdQuotes.delete(quoteId);
 
-        const usdeAmt = quote.depositUsde;
+        const usdeAmt    = quote.depositUsde;
         const sharePrice = quote.sharePrice;
         const unitQuantity = quote.unitsReceived;
 
@@ -2107,7 +2142,7 @@ app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
             return res.status(403).json({ success: false, error: '300+ AMY required for jnrUSDE access' });
         }
 
-        // Check allocation capacity
+        // Allocation capacity check
         const capacity = await exclusiveDb.getJnrusdCapacity(database.pool);
         if (!capacity.unlimited && capacity.remaining < usdeAmt) {
             return res.status(409).json({
@@ -2117,23 +2152,15 @@ app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
             });
         }
 
+        // Create as pending immediately
         const position = await exclusiveDb.createJnrusdPosition(database.pool, {
-            wallet,
-            qualificationTier: tier,
-            depositUsde: usdeAmt,
-            entrySharePrice: sharePrice,
-            unitQuantity,
-            depositTxHash,
-            confirmedAt: new Date(),
+            wallet, qualificationTier: tier,
+            depositUsde: usdeAmt, entrySharePrice: sharePrice,
+            unitQuantity, depositTxHash, confirmedAt: txSubmittedAt,
+            status: 'pending',
         });
 
-        // Log to Google Sheet (non-blocking)
-        exclusiveSheetsService.logJnrusdDeposit(position).catch(err =>
-            console.error('Sheet log error (jnrUSDE):', err.message)
-        );
-
-        console.log(`✅ jnrUSDE position created: ${wallet} — ${usdeAmt} USDE → ${unitQuantity.toFixed(6)} units @ ${sharePrice}`);
-
+        // Respond immediately
         res.json({
             success: true,
             data: {
@@ -2141,10 +2168,34 @@ app.post('/api/exclusive/jnrusd/confirm', async (req, res) => {
                 depositUsde:      usdeAmt,
                 entrySharePrice:  sharePrice,
                 unitQuantity:     parseFloat(position.unit_quantity),
-                status:           position.status,
+                status:           'pending',
                 earningStartDate: position.earning_start_date_utc,
             }
         });
+
+        // Async: on-chain validation → update status
+        const escrowWallet = process.env.JNRUSD_ESCROW_WALLET || '';
+        const usdeAddress  = process.env.USDE_TOKEN_ADDRESS   || '0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34';
+        validateDepositTx(depositTxHash, wallet, escrowWallet, usdeAmt, usdeAddress)
+            .then(async ({ status, validationStatus, actualAmount }) => {
+                const finalStatus     = lateFlag && status === 'confirmed' ? 'review' : status;
+                const finalValidation = lateFlag && status === 'confirmed' ? 'late_confirmed' : validationStatus;
+                // Active positions start earning; review/failed need manual action
+                const dbStatus = finalStatus === 'confirmed' ? 'active' : finalStatus;
+                await exclusiveDb.updateJnrusdPositionStatus(database.pool, position.position_id, dbStatus, finalValidation);
+                exclusiveSheetsService.logJnrusdDeposit({
+                    ...position,
+                    status:            dbStatus,
+                    quote_expires_at:  quoteExpiresAt,
+                    tx_submitted_at:   txSubmittedAt,
+                    validation_status: finalValidation,
+                    late_flag:         lateFlag,
+                    deposit_usde:      actualAmount ?? usdeAmt,
+                }).catch(err => console.error('Sheet log error (jnrUSDE):', err.message));
+                console.log(`✅ jnrUSD ${position.position_id} → ${dbStatus} (${finalValidation})`);
+            })
+            .catch(err => console.error('❌ jnrUSD on-chain validation error:', err.message));
+
     } catch (err) {
         console.error('❌ jnrUSDE confirm error:', err.message);
         res.status(500).json({ success: false, error: 'Failed to confirm deposit' });

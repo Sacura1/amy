@@ -277,6 +277,38 @@ async function createTables() {
             END $$;
         `);
 
+        // Add pending-flow columns for on-chain tx validation
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sailr_purchases' AND column_name='quote_expires_at') THEN
+                    ALTER TABLE sailr_purchases ADD COLUMN quote_expires_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sailr_purchases' AND column_name='tx_submitted_at') THEN
+                    ALTER TABLE sailr_purchases ADD COLUMN tx_submitted_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sailr_purchases' AND column_name='validation_status') THEN
+                    ALTER TABLE sailr_purchases ADD COLUMN validation_status VARCHAR(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sailr_purchases' AND column_name='late_flag') THEN
+                    ALTER TABLE sailr_purchases ADD COLUMN late_flag BOOLEAN DEFAULT FALSE;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jnrusd_positions' AND column_name='quote_expires_at') THEN
+                    ALTER TABLE jnrusd_positions ADD COLUMN quote_expires_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jnrusd_positions' AND column_name='tx_submitted_at') THEN
+                    ALTER TABLE jnrusd_positions ADD COLUMN tx_submitted_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jnrusd_positions' AND column_name='validation_status') THEN
+                    ALTER TABLE jnrusd_positions ADD COLUMN validation_status VARCHAR(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jnrusd_positions' AND column_name='late_flag') THEN
+                    ALTER TABLE jnrusd_positions ADD COLUMN late_flag BOOLEAN DEFAULT FALSE;
+                END IF;
+            END $$;
+        `);
+
         // App config table — stores key/value settings (e.g. jnrusd share price, allocation caps)
         // Wrapped in its own try/catch so earlier migration failures don't prevent this from running
         try {
