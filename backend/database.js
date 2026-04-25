@@ -309,6 +309,24 @@ async function createTables() {
             END $$;
         `);
 
+        // VIP Partner Access requests
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS partner_access_requests (
+                id SERIAL PRIMARY KEY,
+                wallet VARCHAR(42) NOT NULL,
+                tier_at_request VARCHAR(20),
+                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_partner_requests_wallet') THEN
+                    CREATE INDEX idx_partner_requests_wallet ON partner_access_requests(LOWER(wallet));
+                END IF;
+            END $$;
+        `);
+
         // App config table — stores key/value settings (e.g. jnrusd share price, allocation caps)
         // Wrapped in its own try/catch so earlier migration failures don't prevent this from running
         try {

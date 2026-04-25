@@ -1855,6 +1855,41 @@ app.get('/api/exclusive/capacity', async (req, res) => {
     }
 });
 
+// POST /api/exclusive/vip/request — log VIP Partner Access opt-in
+app.post('/api/exclusive/vip/request', async (req, res) => {
+    try {
+        const { wallet, tier } = req.body;
+        if (!wallet) return res.status(400).json({ success: false, error: 'wallet required' });
+        const eligibleTiers = ['gold', 'platinum'];
+        if (!eligibleTiers.includes(tier?.toLowerCase())) {
+            return res.status(403).json({ success: false, error: 'Requires Gold or Platinum tier' });
+        }
+        if (!database.pool) return res.status(503).json({ success: false, error: 'DB unavailable' });
+        const result = await database.pool.query(
+            `INSERT INTO partner_access_requests (wallet, tier_at_request) VALUES (LOWER($1), $2) RETURNING id, requested_at`,
+            [wallet, tier.toLowerCase()]
+        );
+        res.json({ success: true, data: { id: result.rows[0].id, requested_at: result.rows[0].requested_at } });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// GET /api/exclusive/vip/status/:wallet — check if wallet has requested VIP access
+app.get('/api/exclusive/vip/status/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        if (!database.pool) return res.json({ success: true, requested: false });
+        const result = await database.pool.query(
+            `SELECT requested_at FROM partner_access_requests WHERE LOWER(wallet) = LOWER($1) ORDER BY requested_at DESC LIMIT 1`,
+            [wallet]
+        );
+        res.json({ success: true, requested: result.rows.length > 0, requested_at: result.rows[0]?.requested_at || null });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // POST /api/admin/exclusive/share-price — update jnrUSDE share price (admin only)
 app.post('/api/admin/exclusive/share-price', isAdmin, async (req, res) => {
     try {
