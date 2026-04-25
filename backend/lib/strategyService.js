@@ -89,7 +89,7 @@ class StrategyService {
         this.sheetsClient = null;
         // Cache last known good prices so 429s never fall back to stale hardcoded values
         this._priceCache = {
-            amy:      { price: 0.05,  ts: 0 },
+            amy:      { price: 0,     ts: 0 },
             bera:     { price: 0.60,  ts: 0 },
             sailr:    { price: 0,     ts: 0 },
             plsbera:  { price: 0,     ts: 0 },
@@ -295,8 +295,8 @@ class StrategyService {
     async getAmyPrice() {
         try {
             const res = await axios.get(`https://api.geckoterminal.com/api/v2/networks/berachain/pools/${AMY_HONEY_POOL}`);
-            return parseFloat(res.data.data.attributes.base_token_price_usd) || 0.05;
-        } catch (e) { return 0.05; }
+            return parseFloat(res.data.data.attributes.base_token_price_usd) || 0;
+        } catch (e) { return 0; }
     }
 
     async getBeraPrice() {
