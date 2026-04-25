@@ -584,6 +584,21 @@ async function createTables() {
                 END IF;
             END $$;
         `);
+        // Add social visibility columns if they don't exist
+        await client.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_profiles' AND column_name='show_x') THEN
+                    ALTER TABLE user_profiles ADD COLUMN show_x BOOLEAN DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_profiles' AND column_name='show_discord') THEN
+                    ALTER TABLE user_profiles ADD COLUMN show_discord BOOLEAN DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_profiles' AND column_name='show_telegram') THEN
+                    ALTER TABLE user_profiles ADD COLUMN show_telegram BOOLEAN DEFAULT FALSE;
+                END IF;
+            END $$;
+        `);
         // Create user_badges table for equipped badges (5 slots)
         await client.query(`
             CREATE TABLE IF NOT EXISTS user_badges (
@@ -3165,6 +3180,7 @@ const profiles = {
              avatar_nft_address as "avatarNftAddress",
              avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId",
              filter_id as "filterId", animation_id as "animationId",
+             show_x as "showX", show_discord as "showDiscord", show_telegram as "showTelegram",
              created_at as "createdAt", updated_at as "updatedAt"
              FROM user_profiles WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
@@ -3206,6 +3222,7 @@ const profiles = {
              avatar_nft_address as "avatarNftAddress",
              avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId",
              filter_id as "filterId", animation_id as "animationId",
+             show_x as "showX", show_discord as "showDiscord", show_telegram as "showTelegram",
              created_at as "createdAt", updated_at as "updatedAt"
              FROM user_profiles WHERE LOWER(wallet) = LOWER($1)`,
             [wallet]
@@ -3213,19 +3230,25 @@ const profiles = {
         return result.rows[0] || null;
     },
 
-    // Update profile (bio, display name)
+    // Update profile (bio, display name, social visibility)
     update: async (wallet, updates) => {
         if (!pool) return null;
-        const { displayName, bio } = updates;
+        const { displayName, bio, showX, showDiscord, showTelegram } = updates;
 
         await pool.query(
-            `INSERT INTO user_profiles (wallet, display_name, bio, updated_at)
-             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+            `INSERT INTO user_profiles (wallet, display_name, bio, show_x, show_discord, show_telegram, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
              ON CONFLICT (wallet) DO UPDATE SET
              display_name = COALESCE($2, user_profiles.display_name),
              bio = COALESCE($3, user_profiles.bio),
+             show_x = COALESCE($4, user_profiles.show_x),
+             show_discord = COALESCE($5, user_profiles.show_discord),
+             show_telegram = COALESCE($6, user_profiles.show_telegram),
              updated_at = CURRENT_TIMESTAMP`,
-            [wallet.toLowerCase(), displayName, bio]
+            [wallet.toLowerCase(), displayName, bio,
+             showX !== undefined ? showX : null,
+             showDiscord !== undefined ? showDiscord : null,
+             showTelegram !== undefined ? showTelegram : null]
         );
 
         return await profiles.getByWallet(wallet);
