@@ -1865,9 +1865,14 @@ app.post('/api/exclusive/vip/request', async (req, res) => {
             return res.status(403).json({ success: false, error: 'Requires Gold or Platinum tier' });
         }
         if (!database.pool) return res.status(503).json({ success: false, error: 'DB unavailable' });
+        const socials = await database.pool.query(
+            `SELECT x_username, telegram_username FROM verified_users WHERE LOWER(wallet) = LOWER($1) LIMIT 1`,
+            [wallet]
+        );
+        const { x_username = null, telegram_username = null } = socials.rows[0] || {};
         const result = await database.pool.query(
-            `INSERT INTO partner_access_requests (wallet, tier_at_request) VALUES (LOWER($1), $2) RETURNING id, requested_at`,
-            [wallet, tier.toLowerCase()]
+            `INSERT INTO partner_access_requests (wallet, tier_at_request, x_username, telegram_username) VALUES (LOWER($1), $2, $3, $4) RETURNING id, requested_at`,
+            [wallet, tier.toLowerCase(), x_username, telegram_username]
         );
         res.json({ success: true, data: { id: result.rows[0].id, requested_at: result.rows[0].requested_at } });
     } catch (err) {

@@ -315,6 +315,8 @@ async function createTables() {
                 id SERIAL PRIMARY KEY,
                 wallet VARCHAR(42) NOT NULL,
                 tier_at_request VARCHAR(20),
+                x_username VARCHAR(255),
+                telegram_username VARCHAR(255),
                 requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
