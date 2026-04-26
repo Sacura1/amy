@@ -1670,17 +1670,19 @@ app.get('/api/referral/:wallet', async (req, res) => {
             return res.json({ success: true, data: null });
         }
 
-        // Calculate valid referral count dynamically (downlines with 300+ AMY)
-        const validReferralCount = entry.referralCode
-            ? await referralsDb.getValidReferralCount(entry.referralCode)
-            : 0;
+        // Calculate referral breakdown dynamically
+        const breakdown = entry.referralCode
+            ? await referralsDb.getReferralBreakdown(entry.referralCode)
+            : { started: 0, active: 0, total: 0 };
 
         res.json({
             success: true,
             data: {
                 referralCode: entry.referralCode || null,
                 referredBy: entry.referredBy || null,
-                referralCount: validReferralCount, // Dynamic count based on balances
+                referralCount: breakdown.total,
+                startedReferrals: breakdown.started,
+                activeReferrals: breakdown.active,
                 lastKnownBalance: entry.lastKnownBalance || 0
             }
         });

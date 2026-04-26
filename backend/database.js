@@ -1749,6 +1749,24 @@ const referrals = {
         return parseInt(result.rows[0].count) || 0;
     },
 
+    // Returns { started, active, total } breakdown for a referral code
+    getReferralBreakdown: async (referralCode) => {
+        if (!pool || !referralCode) return { started: 0, active: 0, total: 0 };
+        const MINIMUM_AMY = parseInt(process.env.MINIMUM_AMY_BALANCE) || 300;
+        const result = await pool.query(
+            `SELECT
+               COUNT(*) FILTER (WHERE initial_reward_given = true) AS started,
+               COUNT(*) FILTER (WHERE last_known_balance >= $2
+                 AND (referral_season = 'season2' OR referral_season IS NULL)) AS active
+             FROM referrals
+             WHERE UPPER(referred_by) = UPPER($1)`,
+            [referralCode, MINIMUM_AMY]
+        );
+        const started = parseInt(result.rows[0]?.started) || 0;
+        const active  = parseInt(result.rows[0]?.active)  || 0;
+        return { started, active, total: started + active };
+    },
+
     // Get all referrals (for batch balance updates)
     getAll: async () => {
         if (!pool) return [];
