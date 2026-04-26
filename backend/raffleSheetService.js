@@ -216,6 +216,8 @@ class RaffleSheetService {
       // place data at wrong positions when leading columns in a row are empty.
       let nextRow = rows.length + 1;
 
+      const batchData = [];
+
       for (const r of raffles) {
         const rowData = [];
         Object.keys(headerMap).forEach(key => {
@@ -286,26 +288,25 @@ class RaffleSheetService {
 
         const rowNum = existingRows[String(r.id)];
         if (rowNum) {
-          // Existing row — update in place
-          await this.sheets.spreadsheets.values.update({
-            spreadsheetId: this.spreadsheetId,
-            range: `'${this.ledgerSheetName}'!A${rowNum}`,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: [rowData] },
-          });
+          batchData.push({ range: `'${this.ledgerSheetName}'!A${rowNum}`, values: [rowData] });
         } else {
-          // New row — write at explicit row number instead of using append API
-          await this.sheets.spreadsheets.values.update({
-            spreadsheetId: this.spreadsheetId,
-            range: `'${this.ledgerSheetName}'!A${nextRow}`,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: [rowData] },
-          });
+          batchData.push({ range: `'${this.ledgerSheetName}'!A${nextRow}`, values: [rowData] });
           existingRows[String(r.id)] = nextRow;
           nextRow++;
         }
       }
-      console.log('✅ Ledger sync complete');
+
+      // Send all updates in a single API call to avoid per-request quota exhaustion
+      if (batchData.length > 0) {
+        await this.sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: this.spreadsheetId,
+          requestBody: {
+            valueInputOption: 'USER_ENTERED',
+            data: batchData,
+          },
+        });
+      }
+      console.log(`✅ Ledger sync complete (${batchData.length} rows)`);
     } catch (err) {
       console.error('❌ Error syncing ledger:', err.message);
     } finally {
