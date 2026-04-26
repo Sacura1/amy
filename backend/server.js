@@ -6201,11 +6201,30 @@ async function awardHourlyPoints() {
     console.log('🎯 Starting hourly points distribution...');
 
     try {
-        // First, update all balances to ensure tiers are current
+        // Build a deduplicated set of all wallets that should have their balance refreshed:
+        // amy_points (anyone who has ever earned/held points) + referrals (for reward logic).
+        // Using only referrals was the root cause of stale tiers — wallets not in referrals
+        // were never rechecked and kept earning points even after selling AMY.
+        const allPointsWallets = await database.pool.query(
+            `SELECT wallet, x_username FROM amy_points`
+        );
         const allReferrals = referralsDb ? await referralsDb.getAll() : [];
 
-        // Update points table with current balances
-        for (const entry of allReferrals) {
+        const walletMap = new Map();
+        for (const r of allReferrals) {
+            walletMap.set(r.wallet.toLowerCase(), { wallet: r.wallet, xUsername: r.xUsername });
+        }
+        for (const row of allPointsWallets.rows) {
+            const key = row.wallet.toLowerCase();
+            if (!walletMap.has(key)) {
+                walletMap.set(key, { wallet: row.wallet, xUsername: row.x_username });
+            }
+        }
+        const allWallets = [...walletMap.values()];
+        console.log(`📊 Updating balances for ${allWallets.length} wallets (${allReferrals.length} referrals + ${allPointsWallets.rows.length} points wallets, deduped)`);
+
+        // Update points table with current on-chain balances
+        for (const entry of allWallets) {
             const balance = await fetchAmyBalance(entry.wallet);
             if (balance !== null) {
                 await pointsDb.updateBalance(entry.wallet, balance, entry.xUsername);
@@ -6701,6 +6720,42 @@ app.listen(PORT, () => {
             console.error('Hourly points error:', err);
         }
     }, 60 * 60 * 1000); // Run every hour
+
+    // Weekly full wallet state scan — every Sunday at 3:00 AM UTC
+    // Scans every wallet in verified_users, corrects their tier in amy_points.
+    // Catches wallets that sold AMY, changed balance, or connected before points went live.
+    cron.schedule('0 3 * * 0', async () => {
+        console.log('\n⏰ Weekly wallet state scan started...');
+        try {
+            if (!pointsDb || !database.pool) {
+                console.log('⏭️ Skipping weekly scan — DB not available');
+                return;
+            }
+            const { rows: allUsers } = await database.pool.query(
+                `SELECT DISTINCT COALESCE(vu.wallet, ap.wallet) AS wallet,
+                        COALESCE(vu.x_username, ap.x_username) AS x_username
+                 FROM verified_users vu
+                 FULL OUTER JOIN amy_points ap ON LOWER(vu.wallet) = LOWER(ap.wallet)`
+            );
+            console.log(`📊 Weekly scan: ${allUsers.length} total wallets`);
+            let fixed = 0, skipped = 0;
+            for (const user of allUsers) {
+                if (!user.wallet) continue;
+                const balance = await fetchAmyBalance(user.wallet);
+                if (balance !== null) {
+                    await pointsDb.updateBalance(user.wallet, balance, user.x_username);
+                    if (holdersDb) await holdersDb.addOrUpdate(user.wallet, user.x_username, balance);
+                    fixed++;
+                } else {
+                    skipped++;
+                }
+                await new Promise(r => setTimeout(r, 100));
+            }
+            console.log(`✅ Weekly scan complete: ${fixed} corrected, ${skipped} skipped (RPC failure)`);
+        } catch (err) {
+            console.error('❌ Weekly wallet scan error:', err);
+        }
+    }, { timezone: process.env.CRON_TIMEZONE || 'UTC' });
 
     // Schedule daily leaderboard update from Google Sheets at 6:00 AM
     // Cron format: minute hour day month weekday
