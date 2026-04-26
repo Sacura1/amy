@@ -3236,11 +3236,11 @@ const profiles = {
     // Update profile (bio, display name, social visibility)
     update: async (wallet, updates) => {
         if (!pool) return null;
-        const { displayName, bio, showX, showDiscord, showTelegram, showBalance } = updates;
+        const { displayName, bio, showX, showDiscord, showTelegram, showBalance, backgroundId } = updates;
 
         await pool.query(
-            `INSERT INTO user_profiles (wallet, display_name, bio, show_x, show_discord, show_telegram, show_balance, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+            `INSERT INTO user_profiles (wallet, display_name, bio, show_x, show_discord, show_telegram, show_balance, background_id, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'default'), CURRENT_TIMESTAMP)
              ON CONFLICT (wallet) DO UPDATE SET
              display_name = COALESCE($2, user_profiles.display_name),
              bio = COALESCE($3, user_profiles.bio),
@@ -3248,12 +3248,14 @@ const profiles = {
              show_discord = COALESCE($5, user_profiles.show_discord),
              show_telegram = COALESCE($6, user_profiles.show_telegram),
              show_balance = COALESCE($7, user_profiles.show_balance),
+             background_id = COALESCE($8, user_profiles.background_id),
              updated_at = CURRENT_TIMESTAMP`,
             [wallet.toLowerCase(), displayName, bio,
              showX !== undefined ? showX : null,
              showDiscord !== undefined ? showDiscord : null,
              showTelegram !== undefined ? showTelegram : null,
-             showBalance !== undefined ? showBalance : null]
+             showBalance !== undefined ? showBalance : null,
+             backgroundId || null]
         );
 
         return await profiles.getByWallet(wallet);
