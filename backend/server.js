@@ -6201,27 +6201,30 @@ async function awardHourlyPoints() {
     console.log('🎯 Starting hourly points distribution...');
 
     try {
-        // Build a deduplicated set of all wallets that should have their balance refreshed:
-        // amy_points (anyone who has ever earned/held points) + referrals (for reward logic).
-        // Using only referrals was the root cause of stale tiers — wallets not in referrals
-        // were never rechecked and kept earning points even after selling AMY.
-        const allPointsWallets = await database.pool.query(
-            `SELECT wallet, x_username FROM amy_points`
-        );
-        const allReferrals = referralsDb ? await referralsDb.getAll() : [];
+        // Build a deduplicated wallet list from all three sources:
+        // verified_users — anyone who ever connected (catches wallets with no amy_points entry yet)
+        // amy_points     — anyone who has ever earned/held points
+        // referrals      — needed for reward processing logic
+        // This ensures wallets like dreamgirl_wid (only in verified_users) get their
+        // amy_points entry created and kept current every hour without manual intervention.
+        const [allVerified, allPointsWallets, allReferrals] = await Promise.all([
+            database.pool.query(`SELECT wallet, x_username FROM verified_users`),
+            database.pool.query(`SELECT wallet, x_username FROM amy_points`),
+            referralsDb ? referralsDb.getAll() : Promise.resolve([]),
+        ]);
 
         const walletMap = new Map();
         for (const r of allReferrals) {
             walletMap.set(r.wallet.toLowerCase(), { wallet: r.wallet, xUsername: r.xUsername });
         }
-        for (const row of allPointsWallets.rows) {
+        for (const row of [...allPointsWallets.rows, ...allVerified.rows]) {
             const key = row.wallet.toLowerCase();
             if (!walletMap.has(key)) {
                 walletMap.set(key, { wallet: row.wallet, xUsername: row.x_username });
             }
         }
         const allWallets = [...walletMap.values()];
-        console.log(`📊 Updating balances for ${allWallets.length} wallets (${allReferrals.length} referrals + ${allPointsWallets.rows.length} points wallets, deduped)`);
+        console.log(`📊 Updating balances for ${allWallets.length} wallets (verified=${allVerified.rows.length}, points=${allPointsWallets.rows.length}, referrals=${allReferrals.length}, deduped)`);
 
         // Update points table with current on-chain balances
         for (const entry of allWallets) {
@@ -6904,6 +6907,39 @@ app.listen(PORT, () => {
             console.error('Initial points distribution error:', err);
         }
     }, 2 * 60 * 1000); // Run 2 minutes after startup
+
+    // Run full wallet state scan after 3 minutes on every deploy.
+    // Catches wallets with stale tiers (sold AMY, not in referrals table, etc.)
+    // and wallets that connected before Amy Points went live.
+    setTimeout(async () => {
+        console.log('\n🚀 Running startup full wallet state scan...');
+        try {
+            if (!pointsDb || !database.pool) return;
+            const { rows: allUsers } = await database.pool.query(
+                `SELECT DISTINCT COALESCE(vu.wallet, ap.wallet) AS wallet,
+                        COALESCE(vu.x_username, ap.x_username) AS x_username
+                 FROM verified_users vu
+                 FULL OUTER JOIN amy_points ap ON LOWER(vu.wallet) = LOWER(ap.wallet)`
+            );
+            console.log(`📊 Startup wallet scan: ${allUsers.length} wallets`);
+            let fixed = 0, skipped = 0;
+            for (const user of allUsers) {
+                if (!user.wallet) continue;
+                const balance = await fetchAmyBalance(user.wallet);
+                if (balance !== null) {
+                    await pointsDb.updateBalance(user.wallet, balance, user.x_username);
+                    if (holdersDb) await holdersDb.addOrUpdate(user.wallet, user.x_username, balance);
+                    fixed++;
+                } else {
+                    skipped++;
+                }
+                await new Promise(r => setTimeout(r, 100));
+            }
+            console.log(`✅ Startup wallet scan complete: ${fixed} corrected, ${skipped} skipped`);
+        } catch (err) {
+            console.error('❌ Startup wallet scan error:', err);
+        }
+    }, 3 * 60 * 1000); // Run 3 minutes after startup
 });
 
 // Graceful shutdown
