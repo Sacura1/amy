@@ -2932,6 +2932,7 @@ const points = {
              current_tier as "currentTier", points_per_hour as "pointsPerHour"
              FROM amy_points
              WHERE total_points > 0
+               AND last_amy_balance >= 300
              ORDER BY total_points DESC
              LIMIT $1`,
             [limit]
