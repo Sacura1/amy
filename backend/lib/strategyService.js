@@ -218,7 +218,7 @@ class StrategyService {
             const plsBeraPrice  = this._cachedPrice('plsbera',  await this.getPlsBeraPrice());  await delay(1500);
             const plvHedgePrice = this._cachedPrice('plvhedge', await this.getPlvHedgePrice()); await delay(1500);
             const plsKdkPrice   = this._cachedPrice('plskdk',   await this.getPlsKdkPrice());
-            console.log(`💰 [Full Strategy] Prices: AMY=$${amyPrice.toFixed(4)}, BERA=$${beraPrice.toFixed(4)}, SAILR=$${sailrPrice.toFixed(4)}, plsBERA=$${plsBeraPrice.toFixed(4)}, plvHEDGE=$${plvHedgePrice.toFixed(4)}, plsKDK=$${plsKdkPrice.toFixed(4)}`);
+            console.log(`💰 [Full Strategy] Prices: AMY=$${amyPrice.toFixed(4)}, BERA=$${beraPrice.toFixed(4)}, BGT=$${beraPrice.toFixed(4)} (=BERA), SAILR=$${sailrPrice.toFixed(4)}, plsBERA=$${plsBeraPrice.toFixed(4)}, plvHEDGE=$${plvHedgePrice.toFixed(4)}, plsKDK=$${plsKdkPrice.toFixed(4)}`);
 
             for (const row of holders.rows) {
                 const wallet = row.wallet.toLowerCase();
@@ -231,7 +231,7 @@ class StrategyService {
                         jnrusd: await this.fetchJnrusdBalance(wallet),
                         honey_bend: await this.fetchStakedBalance(wallet, TOKENS.HONEY_BEND_VAULT),
                         swbera: await this.fetchTokenBalance(wallet, TOKENS.SWBERA, beraPrice),
-                        bgt: await this.fetchTokenBalance(wallet, TOKENS.BGT, 1.0),
+                        bgt: await this.fetchTokenBalance(wallet, TOKENS.BGT, beraPrice),
                         sailr: await this.fetchTokenBalance(wallet, TOKENS.SAILR, sailrPrice),
                         plsbera: await this.fetchTokenBalance(wallet, TOKENS.PLSBERA, plsBeraPrice),
                         plvhedge: await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE, plvHedgePrice),
