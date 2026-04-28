@@ -5535,12 +5535,13 @@ app.post('/api/social/:wallet/disconnect', async (req, res) => {
                 `UPDATE verified_users SET ${column} = NULL WHERE LOWER(wallet) = LOWER($1)`,
                 [wallet]
             );
-            // Also clear from amy_points table (to keep both tables in sync)
-            // Use explicit NULL (not string) - note: ${column} is safe because it's from our columnMap
-            await pool.query(
-                `UPDATE amy_points SET ${column} = NULL WHERE LOWER(wallet) = LOWER($1)`,
-                [wallet]
-            );
+            // amy_points only has x_username among social identifiers
+            if (platform === 'x') {
+                await pool.query(
+                    `UPDATE amy_points SET x_username = NULL WHERE LOWER(wallet) = LOWER($1)`,
+                    [wallet]
+                );
+            }
             await pool.end();
         } else {
             // JSON fallback - update the user in verified-users.json
