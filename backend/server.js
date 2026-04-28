@@ -3242,7 +3242,7 @@ let tokenPriceCache = {
     sailr: { price: 0, timestamp: 0 },
     plvhedge: { price: 0, timestamp: 0 },
     plsbera: { price: 0, timestamp: 0 },
-    plskdk: { price: 0, timestamp: 0 },
+    plskdk: { price: 0.18, timestamp: 0 },
     honeybend: { price: 1, timestamp: 0 }, // HONEY is ~$1 stablecoin
     stakedbera: { price: 0, timestamp: 0 },
     bgt: { price: 0, timestamp: 0 },

@@ -94,7 +94,7 @@ class StrategyService {
             sailr:    { price: 0,     ts: 0 },
             plsbera:  { price: 0,     ts: 0 },
             plvhedge: { price: 0,     ts: 0 },
-            plskdk:   { price: 0,     ts: 0 },
+            plskdk:   { price: 0.18,  ts: 0 },
         };
     }
 
@@ -243,6 +243,8 @@ class StrategyService {
                 let bullas = await this.fetchNftCount(wallet, TOKENS.BULLAS_NFT);
                 let boogaBullas = await this.fetchNftCount(wallet, TOKENS.BOOGA_NFT);
 
+                const walletTag = `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+
                 if (plskdk.balance > 0 && plskdk.value_usd === 0 && (prevPos.plskdk?.value_usd || 0) > 0) {
                     plskdk = { ...plskdk, value_usd: prevPos.plskdk.value_usd };
                     console.log(`🛟 [Full Strategy] ${wallet.slice(0, 6)}... plsKDK price unavailable, using previous value_usd=$${Number(prevPos.plskdk.value_usd).toFixed(2)}`);
@@ -255,6 +257,10 @@ class StrategyService {
                 if (boogaBullas === null) {
                     boogaBullas = prevPos.boogaBullas || 0;
                     console.log(`🛟 [Full Strategy] ${wallet.slice(0, 6)}... BoogaBullas read failed, using previous count=${boogaBullas}`);
+                }
+
+                if (bullas > 0 || boogaBullas > 0) {
+                    console.log(`🧩 [NFT Track] ${walletTag} bullas=${bullas} boogaBullas=${boogaBullas}`);
                 }
 
                 const snapshot = {
@@ -291,7 +297,10 @@ class StrategyService {
             const contract = new ethers.Contract(nftAddress, NFT_ABI, this.provider);
             const bal = await contract.balanceOf(wallet);
             return parseInt(bal.toString());
-        } catch (e) { return null; }
+        } catch (e) {
+            console.log(`⚠️ [NFT Track] balanceOf failed wallet=${wallet.slice(0, 6)}...${wallet.slice(-4)} contract=${nftAddress} msg=${e.message}`);
+            return null;
+        }
     }
 
     async fetchTokenBalance(wallet, tokenAddress, customPrice = null) {
@@ -376,19 +385,46 @@ class StrategyService {
 
     async getPlsKdkPrice() {
         const addr = '0xc6173a3405fdb1f5c42004d2d71cba9bf1cfa522';
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         // Primary: DexScreener — separate rate limit from GeckoTerminal
         try {
             const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${addr}`, { timeout: 8000 });
             const pairs = res.data?.pairs || [];
             const beraPair = pairs.find(p => p.chainId === 'berachain' && parseFloat(p.priceUsd || 0) > 0);
-            if (beraPair) return parseFloat(beraPair.priceUsd);
-        } catch (e) {}
-        // Fallback: GeckoTerminal token_price
-        try {
-            const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);
-            const price = parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0);
-            if (price > 0) return price;
-        } catch (e) {}
+            if (beraPair) {
+                const price = parseFloat(beraPair.priceUsd);
+                console.log(`💰 [plsKDK] source=DexScreener price=$${price.toFixed(6)}`);
+                return price;
+            }
+            console.log(`⚠️ [plsKDK] DexScreener returned no berachain pair (pairs=${pairs.length})`);
+        } catch (e) {
+            console.log(`⚠️ [plsKDK] DexScreener error: status=${e?.response?.status || 'n/a'} msg=${e.message}`);
+        }
+        // Fallback: GeckoTerminal token_price (with retry/backoff for 429)
+        const geckoUrl = `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`;
+        const retryDelays = [1200, 3000, 6000];
+        for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+            try {
+                const res = await axios.get(geckoUrl, { timeout: 10000 });
+                const price = parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0);
+                if (price > 0) {
+                    console.log(`💰 [plsKDK] source=GeckoTerminal attempt=${attempt + 1} price=$${price.toFixed(6)}`);
+                    return price;
+                }
+                console.log(`⚠️ [plsKDK] GeckoTerminal attempt=${attempt + 1} returned price=0`);
+            } catch (e) {
+                const status = e?.response?.status;
+                console.log(`⚠️ [plsKDK] GeckoTerminal attempt=${attempt + 1} error: status=${status || 'n/a'} msg=${e.message}`);
+                if (status !== 429 && attempt === 0) {
+                    // Non-rate-limit failures usually won't recover immediately; avoid noisy retries.
+                    break;
+                }
+            }
+            if (attempt < retryDelays.length - 1) {
+                await sleep(retryDelays[attempt]);
+            }
+        }
+        console.log('⚠️ [plsKDK] all sources failed; returning 0');
         return 0;
     }
 
