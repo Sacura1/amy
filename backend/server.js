@@ -602,16 +602,38 @@ app.get('/auth/x/callback', async (req, res) => {
 
         const twitterUser = userResponse.data.data;
 
+        // Check if this X username is already connected to another wallet
+        let existingWallet = null;
+        if (usePostgres && database.pool) {
+            const checkResult = await database.pool.query(
+                `SELECT wallet FROM verified_users WHERE LOWER(x_username) = LOWER($1) LIMIT 1`,
+                [twitterUser.username]
+            );
+            if (checkResult.rows.length > 0) {
+                existingWallet = checkResult.rows[0].wallet;
+            }
+        } else {
+            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+            const existingUser = data.users.find(u => 
+                u.xUsername && u.xUsername.toLowerCase() === twitterUser.username.toLowerCase()
+            );
+            if (existingUser) {
+                existingWallet = existingUser.wallet;
+            }
+        }
+
         // Store Twitter info in session
         req.session.twitterUser = {
             id: twitterUser.id,
             username: twitterUser.username,
-            name: twitterUser.name
+            name: twitterUser.name,
+            existingWallet: existingWallet
         };
 
         // Redirect back to profile page with success
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        res.redirect(`${frontendUrl}/app/profile?x_connected=true&username=${twitterUser.username}&wallet=${req.session.wallet}`);
+        const duplicateParam = existingWallet ? `&duplicate_of=${existingWallet}` : '';
+        res.redirect(`${frontendUrl}/app/profile?x_connected=true&username=${twitterUser.username}&wallet=${req.session.wallet}${duplicateParam}`);
 
     } catch (error) {
         console.error('❌ OAuth error:', error.response?.data || error.message);
@@ -716,6 +738,26 @@ app.get('/auth/discord/callback', async (req, res) => {
         const discordUser = userResponse.data;
         console.log('✅ Discord user fetched:', discordUser.username);
 
+        // Check if this Discord username is already connected to another wallet
+        let existingWallet = null;
+        if (usePostgres && database.pool) {
+            const checkResult = await database.pool.query(
+                `SELECT wallet FROM verified_users WHERE LOWER(discord_username) = LOWER($1) LIMIT 1`,
+                [discordUser.username]
+            );
+            if (checkResult.rows.length > 0) {
+                existingWallet = checkResult.rows[0].wallet;
+            }
+        } else {
+            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+            const existingUser = data.users.find(u => 
+                u.discordUsername && u.discordUsername.toLowerCase() === discordUser.username.toLowerCase()
+            );
+            if (existingUser) {
+                existingWallet = existingUser.wallet;
+            }
+        }
+
         // Save Discord username to database
         const wallet = req.session.wallet;
         if (wallet) {
@@ -747,7 +789,8 @@ app.get('/auth/discord/callback', async (req, res) => {
         }
 
         // Redirect back to profile page with success
-        res.redirect(`${frontendUrl}/app/profile?discord_connected=true&discord_username=${encodeURIComponent(discordUser.username)}&wallet=${wallet}`);
+        const duplicateParam = existingWallet ? `&duplicate_of=${existingWallet}` : '';
+        res.redirect(`${frontendUrl}/app/profile?discord_connected=true&discord_username=${encodeURIComponent(discordUser.username)}&wallet=${wallet}${duplicateParam}`);
 
     } catch (error) {
         console.error('❌ Discord OAuth error:', error.response?.data || error.message);
@@ -827,6 +870,27 @@ app.post('/auth/telegram/callback', async (req, res) => {
 
         // Save Telegram username to database
         const telegramUsername = username || first_name || id.toString();
+
+        // Check if this Telegram username is already connected to another wallet
+        let existingWallet = null;
+        if (usePostgres && database.pool) {
+            const checkResult = await database.pool.query(
+                `SELECT wallet FROM verified_users WHERE LOWER(telegram_username) = LOWER($1) LIMIT 1`,
+                [telegramUsername]
+            );
+            if (checkResult.rows.length > 0) {
+                existingWallet = checkResult.rows[0].wallet;
+            }
+        } else {
+            const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+            const existingUser = data.users.find(u => 
+                u.telegramUsername && u.telegramUsername.toLowerCase() === telegramUsername.toLowerCase()
+            );
+            if (existingUser) {
+                existingWallet = existingUser.wallet;
+            }
+        }
+
         await database.social.updateConnections(wallet, {
             telegram: telegramUsername
         });
@@ -857,7 +921,8 @@ app.post('/auth/telegram/callback', async (req, res) => {
             success: true,
             data: {
                 username: telegramUsername,
-                id: id
+                id: id,
+                existingWallet: existingWallet
             }
         });
 
@@ -5468,6 +5533,11 @@ app.post('/api/social/:wallet/disconnect', async (req, res) => {
             const pool = new Pool({ connectionString: process.env.DATABASE_URL });
             await pool.query(
                 `UPDATE verified_users SET ${column} = NULL WHERE LOWER(wallet) = LOWER($1)`,
+                [wallet]
+            );
+            // Also clear from amy_points table (to keep both tables in sync)
+            await pool.query(
+                `UPDATE amy_points SET ${column} = NULL WHERE LOWER(wallet) = LOWER($1)`,
                 [wallet]
             );
             await pool.end();

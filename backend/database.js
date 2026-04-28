@@ -3919,8 +3919,8 @@ const quests = {
     }
 };
 
-// Social connections helper functions (for syncing Thirdweb linked profiles)
-const social = {
+    // Social connections helper functions (for syncing Thirdweb linked profiles)
+  const social = {
     // Update social connections for a user
     updateConnections: async (wallet, connections) => {
         if (!pool) return null;
@@ -3934,7 +3934,29 @@ const social = {
             [wallet.toLowerCase()]
         );
 
-        // Then update the social connections
+        // Unlink from ANY other wallets first (only if new value is not null/empty)
+        if (discord) {
+            await pool.query(
+                `UPDATE verified_users SET discord_username = NULL WHERE LOWER(discord_username) = LOWER($1)`,
+                [discord]
+            );
+            await pool.query(
+                `UPDATE amy_points SET discord_username = NULL WHERE LOWER(discord_username) = LOWER($1)`,
+                [discord]
+            );
+        }
+        if (telegram) {
+            await pool.query(
+                `UPDATE verified_users SET telegram_username = NULL WHERE LOWER(telegram_username) = LOWER($1)`,
+                [telegram]
+            );
+            await pool.query(
+                `UPDATE amy_points SET telegram_username = NULL WHERE LOWER(telegram_username) = LOWER($1)`,
+                [telegram]
+            );
+        }
+
+        // Then update the social connections for this wallet (use direct value, not COALESCE)
         await pool.query(
             `UPDATE verified_users SET
              discord_username = COALESCE($1, discord_username),
@@ -3942,6 +3964,16 @@ const social = {
              email = COALESCE($3, email)
              WHERE LOWER(wallet) = LOWER($4)`,
             [discord, telegram, email, wallet]
+        );
+
+        // Also sync to amy_points table
+        await pool.query(
+            `INSERT INTO amy_points (wallet, discord_username, telegram_username)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (wallet) DO UPDATE SET
+             discord_username = COALESCE($2, amy_points.discord_username),
+             telegram_username = COALESCE($3, amy_points.telegram_username)`,
+            [wallet.toLowerCase(), discord, telegram]
         );
 
         return await social.getConnections(wallet);
