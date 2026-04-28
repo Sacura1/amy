@@ -1311,6 +1311,28 @@ const db = {
     // Add or update user
     addUser: async (user) => {
         if (!pool) return null;
+
+        // Enforce 1 X account -> 1 wallet.
+        // If this username exists on other wallets, unlink it there first.
+        if (user.xUsername && user.xUsername.toString().trim()) {
+            await pool.query(
+                `UPDATE verified_users
+                 SET x_username = NULL
+                 WHERE LOWER(x_username) = LOWER($1)
+                   AND LOWER(wallet) <> LOWER($2)`,
+                [user.xUsername, user.wallet]
+            );
+
+            // Keep amy_points in sync for X username as well
+            await pool.query(
+                `UPDATE amy_points
+                 SET x_username = NULL
+                 WHERE LOWER(x_username) = LOWER($1)
+                   AND LOWER(wallet) <> LOWER($2)`,
+                [user.xUsername, user.wallet]
+            );
+        }
+
         await pool.query(
             `INSERT INTO verified_users (wallet, x_username, amy_balance, verified_at, timestamp, signature_verified, referral_code, referred_by, referral_count)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
