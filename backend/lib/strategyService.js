@@ -222,22 +222,57 @@ class StrategyService {
 
             for (const row of holders.rows) {
                 const wallet = row.wallet.toLowerCase();
+
+                const prevRes = await this.db.pool.query(
+                    'SELECT snapshot_data FROM strategy_snapshots WHERE wallet = $1',
+                    [wallet]
+                );
+                const prevPos = prevRes.rows[0]?.snapshot_data?.positions || {};
+
+                const lpAmyHoney = await this.fetchGoldskyPositions(wallet, AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice);
+                const lpAmyUsdt0 = await this.fetchGoldskyPositionsUsdt0(wallet, AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice);
+                const snrusd = await this.fetchStakedBalance(wallet, TOKENS.SNRUSD_VAULT);
+                const jnrusd = await this.fetchJnrusdBalance(wallet);
+                const honeyBend = await this.fetchStakedBalance(wallet, TOKENS.HONEY_BEND_VAULT);
+                const swbera = await this.fetchTokenBalance(wallet, TOKENS.SWBERA, beraPrice);
+                const bgt = await this.fetchTokenBalance(wallet, TOKENS.BGT, beraPrice);
+                const sailr = await this.fetchTokenBalance(wallet, TOKENS.SAILR, sailrPrice);
+                const plsbera = await this.fetchTokenBalance(wallet, TOKENS.PLSBERA, plsBeraPrice);
+                const plvhedge = await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE, plvHedgePrice);
+                let plskdk = await this.fetchTokenBalance(wallet, TOKENS.PLSKDK, plsKdkPrice);
+                let bullas = await this.fetchNftCount(wallet, TOKENS.BULLAS_NFT);
+                let boogaBullas = await this.fetchNftCount(wallet, TOKENS.BOOGA_NFT);
+
+                if (plskdk.balance > 0 && plskdk.value_usd === 0 && (prevPos.plskdk?.value_usd || 0) > 0) {
+                    plskdk = { ...plskdk, value_usd: prevPos.plskdk.value_usd };
+                    console.log(`🛟 [Full Strategy] ${wallet.slice(0, 6)}... plsKDK price unavailable, using previous value_usd=$${Number(prevPos.plskdk.value_usd).toFixed(2)}`);
+                }
+
+                if (bullas === null) {
+                    bullas = prevPos.bullas || 0;
+                    console.log(`🛟 [Full Strategy] ${wallet.slice(0, 6)}... Bullas read failed, using previous count=${bullas}`);
+                }
+                if (boogaBullas === null) {
+                    boogaBullas = prevPos.boogaBullas || 0;
+                    console.log(`🛟 [Full Strategy] ${wallet.slice(0, 6)}... BoogaBullas read failed, using previous count=${boogaBullas}`);
+                }
+
                 const snapshot = {
                     wallet, timestamp: new Date().toISOString(),
                     positions: {
-                        lp_amy_honey: await this.fetchGoldskyPositions(wallet, AMY_HONEY_POOL, ALGEBRA_SUBGRAPH_URL, amyPrice),
-                        lp_amy_usdt0: await this.fetchGoldskyPositionsUsdt0(wallet, AMY_USDT0_POOL, KODIAK_SUBGRAPH_URL, amyPrice),
-                        snrusd: await this.fetchStakedBalance(wallet, TOKENS.SNRUSD_VAULT),
-                        jnrusd: await this.fetchJnrusdBalance(wallet),
-                        honey_bend: await this.fetchStakedBalance(wallet, TOKENS.HONEY_BEND_VAULT),
-                        swbera: await this.fetchTokenBalance(wallet, TOKENS.SWBERA, beraPrice),
-                        bgt: await this.fetchTokenBalance(wallet, TOKENS.BGT, beraPrice),
-                        sailr: await this.fetchTokenBalance(wallet, TOKENS.SAILR, sailrPrice),
-                        plsbera: await this.fetchTokenBalance(wallet, TOKENS.PLSBERA, plsBeraPrice),
-                        plvhedge: await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE, plvHedgePrice),
-                        plskdk: await this.fetchTokenBalance(wallet, TOKENS.PLSKDK, plsKdkPrice),
-                        bullas: await this.fetchNftCount(wallet, TOKENS.BULLAS_NFT),
-                        boogaBullas: await this.fetchNftCount(wallet, TOKENS.BOOGA_NFT)
+                        lp_amy_honey: lpAmyHoney,
+                        lp_amy_usdt0: lpAmyUsdt0,
+                        snrusd,
+                        jnrusd,
+                        honey_bend: honeyBend,
+                        swbera,
+                        bgt,
+                        sailr,
+                        plsbera,
+                        plvhedge,
+                        plskdk,
+                        bullas,
+                        boogaBullas
                     }
                 };
                 await this.db.pool.query(
@@ -256,7 +291,7 @@ class StrategyService {
             const contract = new ethers.Contract(nftAddress, NFT_ABI, this.provider);
             const bal = await contract.balanceOf(wallet);
             return parseInt(bal.toString());
-        } catch (e) { return 0; }
+        } catch (e) { return null; }
     }
 
     async fetchTokenBalance(wallet, tokenAddress, customPrice = null) {
