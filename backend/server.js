@@ -5536,6 +5536,7 @@ app.post('/api/social/:wallet/disconnect', async (req, res) => {
                 [wallet]
             );
             // Also clear from amy_points table (to keep both tables in sync)
+            // Use explicit NULL (not string) - note: ${column} is safe because it's from our columnMap
             await pool.query(
                 `UPDATE amy_points SET ${column} = NULL WHERE LOWER(wallet) = LOWER($1)`,
                 [wallet]
