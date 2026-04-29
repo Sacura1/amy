@@ -2945,18 +2945,36 @@ const points = {
     },
 
     // Get points history for a wallet
-    getHistory: async (wallet, limit = 50) => {
+    getHistory: async (wallet, limit = 50, offset = 0, category = null) => {
         if (!pool) return [];
-        const result = await pool.query(
-            `SELECT points_earned as "pointsEarned", reason, category, description,
-             amy_balance_at_time as "amyBalanceAtTime", tier_at_time as "tierAtTime",
-             created_at as "createdAt"
-             FROM points_history
-             WHERE LOWER(wallet) = LOWER($1)
-             ORDER BY created_at DESC
-             LIMIT $2`,
-            [wallet, limit]
-        );
+        
+        let query = `
+            SELECT points_earned as "pointsEarned", reason, category, description,
+                 amy_balance_at_time as "amyBalanceAtTime", tier_at_time as "tierAtTime",
+                 created_at as "createdAt"
+            FROM points_history
+            WHERE LOWER(wallet) = LOWER($1)
+        `;
+        
+        const params = [wallet];
+        let paramCount = 1;
+        
+        // Add category filter if provided
+        if (category) {
+            paramCount++;
+            query += ` AND category = $${paramCount}`;
+            params.push(category);
+        }
+        
+        paramCount++;
+        query += ` ORDER BY created_at DESC LIMIT $${paramCount}`;
+        params.push(limit);
+        
+        paramCount++;
+        query += ` OFFSET $${paramCount}`;
+        params.push(offset);
+        
+        const result = await pool.query(query, params);
         return result.rows;
     },
 

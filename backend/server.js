@@ -2788,6 +2788,8 @@ app.get('/api/points/history/:wallet', async (req, res) => {
     try {
         const wallet = req.params.wallet;
         const limit = parseInt(req.query.limit) || 50;
+        const offset = parseInt(req.query.offset) || 0;
+        const category = req.query.category || null;
 
         if (!wallet) {
             return res.status(400).json({ success: false, error: 'Wallet address required' });
@@ -2797,7 +2799,7 @@ app.get('/api/points/history/:wallet', async (req, res) => {
             return res.status(500).json({ success: false, error: 'Points system not available' });
         }
 
-        const history = await pointsDb.getHistory(wallet, limit);
+        const history = await pointsDb.getHistory(wallet, limit, offset, category);
 
         res.json({
             success: true,
