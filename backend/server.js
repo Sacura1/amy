@@ -2860,14 +2860,7 @@ app.get('/api/points/tiers', (req, res) => {
 // Add bonus points to user (admin only - for giveaways)
 app.post('/api/points/add-bonus', isAdmin, async (req, res) => {
     try {
-        const { xUsername, points, reason } = req.body;
-
-        if (!xUsername || points === undefined) {
-            return res.status(400).json({
-                success: false,
-                error: 'xUsername and points are required'
-            });
-        }
+        const { xUsername, wallet, points, reason } = req.body;
 
         if (!pointsDb) {
             return res.status(500).json({
@@ -2876,21 +2869,46 @@ app.post('/api/points/add-bonus', isAdmin, async (req, res) => {
             });
         }
 
-        const result = await pointsDb.addBonusByUsername(
-            xUsername,
-            parseFloat(points),
-            reason || 'admin_bonus'
-        );
+        let result;
+
+        // If wallet address is provided, use it; otherwise use xUsername
+        if (wallet) {
+            const cleanWallet = wallet.trim().toLowerCase();
+            if (!/^0x[a-f0-9]{40}$/i.test(cleanWallet)) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid wallet address format'
+                });
+            }
+
+            result = await pointsDb.addBonusByWallet(
+                cleanWallet,
+                parseFloat(points),
+                reason || 'admin_bonus'
+            );
+        } else if (xUsername) {
+            result = await pointsDb.addBonusByUsername(
+                xUsername,
+                parseFloat(points),
+                reason || 'admin_bonus'
+            );
+        } else {
+            return res.status(400).json({
+                success: false,
+                error: 'Either xUsername or wallet address is required'
+            });
+        }
 
         if (!result.success) {
             return res.status(400).json(result);
         }
 
-        console.log(`🎁 Bonus points awarded: ${points} to @${result.xUsername} by admin`);
+        const identifier = wallet ? result.wallet : `@${result.xUsername}`;
+        console.log(`🎁 Bonus points awarded: ${points} to ${identifier} by admin`);
 
         res.json({
             success: true,
-            message: `Added ${points} points to @${result.xUsername}`,
+            message: `Added ${points} points to ${identifier}`,
             data: result
         });
 
