@@ -2095,8 +2095,22 @@ const POINTS_CATEGORIES = {
     PREDICTION_PAYOUT: 'PREDICTION_PAYOUT',
     PREDICTION_REFUND: 'PREDICTION_REFUND',
     REFERRAL_INITIAL: 'REFERRAL_INITIAL',
-    REFERRAL_FULL: 'REFERRAL_FULL'
+    REFERRAL_FULL: 'REFERRAL_FULL',
+    PARTNER_REWARD: 'PARTNER_REWARD',
+    DAILY_CHECKIN: 'DAILY_CHECKIN',
 };
+
+// Map reason strings to categories
+function getCategoryFromReason(reason) {
+    if (!reason) return POINTS_CATEGORIES.GIVEAWAY;
+    if (reason === 'Partner Recognition Rewards') return POINTS_CATEGORIES.PARTNER_REWARD;
+    if (reason.includes('bg_') || reason.includes('background')) return POINTS_CATEGORIES.COSMETIC_BACKGROUND_BUY;
+    if (reason.includes('filter_')) return POINTS_CATEGORIES.COSMETIC_FILTER_BUY;
+    if (reason === 'daily_checkin') return POINTS_CATEGORIES.DAILY_CHECKIN;
+    if (reason === 'referral_initial') return POINTS_CATEGORIES.REFERRAL_INITIAL;
+    if (reason === 'referral_full') return POINTS_CATEGORIES.REFERRAL_FULL;
+    return POINTS_CATEGORIES.GIVEAWAY; // default
+}
 
 // Category descriptions for display
 const CATEGORY_DESCRIPTIONS = {
@@ -3029,7 +3043,7 @@ const points = {
             await client.query(
                 `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
                  VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                [user.wallet.toLowerCase(), pointsToAdd, reason, user.lastAmyBalance || 0, user.currentTier || 'none', 'GIVEAWAY', 'Amy Point Giveaway']
+                [user.wallet.toLowerCase(), pointsToAdd, reason, user.lastAmyBalance || 0, user.currentTier || 'none', getCategoryFromReason(reason), 'Amy Point Giveaway']
             );
 
             await client.query('COMMIT');
@@ -3117,7 +3131,7 @@ const points = {
             await client.query(
                 `INSERT INTO points_history (wallet, points_earned, reason, amy_balance_at_time, tier_at_time, category, description)
                  VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                [cleanWallet, pointsToAdd, reason, user.lastAmyBalance || 0, user.currentTier || 'none', 'GIVEAWAY', 'Amy Point Giveaway']
+                [cleanWallet, pointsToAdd, reason, user.lastAmyBalance || 0, user.currentTier || 'none', getCategoryFromReason(reason), 'Amy Point Giveaway']
             );
 
             await client.query('COMMIT');
