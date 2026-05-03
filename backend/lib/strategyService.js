@@ -14,6 +14,7 @@ const KODIAK_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clpx84oe
 const LR_CHARTS_API = 'https://lr-api-production.up.railway.app/api/v1/charts/vaults?days=all';
 const APR_TVL_SHEET_ID = process.env.APR_TVL_SHEET_ID || '1FDsR0LmKIF63gcMsJ-sZQ-eAR-ssTK6Zqlq0DR8RiJo';
 const APR_TVL_SHEET_RANGE = process.env.APR_TVL_SHEET_RANGE || 'Sheet1!A2:C';
+const PLSKDK_FALLBACK_PRICE = parseFloat(process.env.PLSKDK_FALLBACK_PRICE || '0.097');
 
 const SHEET_STRATEGY_MAP = {
     'honey - lent': 'honeybend',
@@ -94,7 +95,7 @@ class StrategyService {
             sailr:    { price: 0,     ts: 0 },
             plsbera:  { price: 0,     ts: 0 },
             plvhedge: { price: 0,     ts: 0 },
-            plskdk:   { price: 0.18,  ts: 0 },
+            plskdk:   { price: PLSKDK_FALLBACK_PRICE, ts: 0 },
         };
     }
 
