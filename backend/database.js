@@ -568,6 +568,7 @@ async function createTables() {
                 avatar_nft_address VARCHAR(42),
                 avatar_nft_token_id VARCHAR(100),
                 background_id VARCHAR(50) DEFAULT 'default',
+                card_background_id VARCHAR(50),
                 filter_id VARCHAR(50) DEFAULT 'default',
                 animation_id VARCHAR(50) DEFAULT 'default',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -599,6 +600,9 @@ async function createTables() {
                 END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_profiles' AND column_name='show_balance') THEN
                     ALTER TABLE user_profiles ADD COLUMN show_balance BOOLEAN DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_profiles' AND column_name='card_background_id') THEN
+                    ALTER TABLE user_profiles ADD COLUMN card_background_id VARCHAR(50);
                 END IF;
             END $$;
         `);
@@ -3342,7 +3346,7 @@ const profiles = {
             `SELECT wallet, display_name as "displayName", bio, avatar_type as "avatarType",
              avatar_url as "avatarUrl", avatar_data as "avatarData",
              avatar_nft_address as "avatarNftAddress",
-             avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId",
+             avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId", card_background_id as "cardBackgroundId",
              filter_id as "filterId", animation_id as "animationId",
              show_x as "showX", show_discord as "showDiscord", show_telegram as "showTelegram", show_balance as "showBalance",
              created_at as "createdAt", updated_at as "updatedAt"
@@ -3370,6 +3374,7 @@ const profiles = {
             avatarNftAddress: null,
             avatarNftTokenId: null,
             backgroundId: 'default',
+            cardBackgroundId: null,
             filterId: 'default',
             animationId: 'default',
             createdAt: new Date(),
@@ -3384,7 +3389,7 @@ const profiles = {
             `SELECT wallet, display_name as "displayName", bio, avatar_type as "avatarType",
              avatar_url as "avatarUrl", avatar_data as "avatarData",
              avatar_nft_address as "avatarNftAddress",
-             avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId",
+             avatar_nft_token_id as "avatarNftTokenId", background_id as "backgroundId", card_background_id as "cardBackgroundId",
              filter_id as "filterId", animation_id as "animationId",
              show_x as "showX", show_discord as "showDiscord", show_telegram as "showTelegram", show_balance as "showBalance",
              created_at as "createdAt", updated_at as "updatedAt"
@@ -3397,11 +3402,11 @@ const profiles = {
     // Update profile (bio, display name, social visibility)
     update: async (wallet, updates) => {
         if (!pool) return null;
-        const { displayName, bio, showX, showDiscord, showTelegram, showBalance, backgroundId } = updates;
+        const { displayName, bio, showX, showDiscord, showTelegram, showBalance, backgroundId, cardBackgroundId } = updates;
 
         await pool.query(
-            `INSERT INTO user_profiles (wallet, display_name, bio, show_x, show_discord, show_telegram, show_balance, background_id, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'default'), CURRENT_TIMESTAMP)
+            `INSERT INTO user_profiles (wallet, display_name, bio, show_x, show_discord, show_telegram, show_balance, background_id, card_background_id, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'default'), $9, CURRENT_TIMESTAMP)
              ON CONFLICT (wallet) DO UPDATE SET
              display_name = COALESCE($2, user_profiles.display_name),
              bio = COALESCE($3, user_profiles.bio),
@@ -3410,13 +3415,15 @@ const profiles = {
              show_telegram = COALESCE($6, user_profiles.show_telegram),
              show_balance = COALESCE($7, user_profiles.show_balance),
              background_id = COALESCE($8, user_profiles.background_id),
+             card_background_id = COALESCE($9, user_profiles.card_background_id),
              updated_at = CURRENT_TIMESTAMP`,
             [wallet.toLowerCase(), displayName, bio,
              showX !== undefined ? showX : null,
              showDiscord !== undefined ? showDiscord : null,
              showTelegram !== undefined ? showTelegram : null,
              showBalance !== undefined ? showBalance : null,
-             backgroundId || null]
+             backgroundId || null,
+             cardBackgroundId || null]
         );
 
         return await profiles.getByWallet(wallet);

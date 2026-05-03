@@ -3836,7 +3836,7 @@ app.get('/api/profile/:wallet', async (req, res) => {
 // Update user profile (bio, display name)
 app.post('/api/profile/update', async (req, res) => {
     try {
-        const { wallet, displayName, bio, showX, showDiscord, showTelegram, showBalance, backgroundId } = req.body;
+        const { wallet, displayName, bio, showX, showDiscord, showTelegram, showBalance, backgroundId, cardBackgroundId } = req.body;
 
         if (!wallet || !ethers.utils.isAddress(wallet)) {
             return res.status(400).json({ success: false, error: 'Invalid wallet address' });
@@ -3852,7 +3852,7 @@ app.post('/api/profile/update', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Display name must be 50 characters or less' });
         }
 
-        const profile = await database.profiles.update(wallet, { displayName, bio, showX, showDiscord, showTelegram, showBalance, backgroundId });
+        const profile = await database.profiles.update(wallet, { displayName, bio, showX, showDiscord, showTelegram, showBalance, backgroundId, cardBackgroundId });
 
         res.json({
             success: true,
