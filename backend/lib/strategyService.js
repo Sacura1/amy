@@ -98,14 +98,110 @@ class StrategyService {
         };
     }
 
-    _cachedPrice(key, freshPrice) {
-        if (freshPrice > 0) {
-            this._priceCache[key] = { price: freshPrice, ts: Date.now() };
-            return freshPrice;
+    async _getDbCachedPrice(key) {
+        try {
+            const result = await this.db.pool.query('SELECT value FROM app_config WHERE key = $1', [`price_${key}`]);
+            const raw = result.rows?.[0]?.value;
+            if (!raw) return 0;
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            const price = typeof parsed === 'number' ? parsed : parsed?.price;
+            return Number(price) > 0 ? Number(price) : 0;
+        } catch (e) {
+            return 0;
         }
-        return this._priceCache[key].price;
     }
 
+    async _setDbCachedPrice(key, price, source) {
+        if (!(price > 0)) return;
+        try {
+            await this.db.pool.query(
+                `INSERT INTO app_config (key, value, updated_at)
+                 VALUES ($1, $2, CURRENT_TIMESTAMP)
+                 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`,
+                [`price_${key}`, JSON.stringify({ price, source, updatedAt: new Date().toISOString() })]
+            );
+        } catch (e) {
+            console.log(`price cache save failed for ${key}: ${e.message}`);
+        }
+    }
+
+    async _cachedPrice(key, freshPrice, source = 'fresh') {
+        if (freshPrice > 0) {
+            this._priceCache[key] = { price: freshPrice, ts: Date.now() };
+            await this._setDbCachedPrice(key, freshPrice, source);
+            return freshPrice;
+        }
+
+        const dbPrice = await this._getDbCachedPrice(key);
+        if (dbPrice > 0) {
+            this._priceCache[key] = { price: dbPrice, ts: Date.now() };
+            console.log(`price fallback ${key}: using saved price $${dbPrice.toFixed(6)}`);
+            return dbPrice;
+        }
+
+        const memoryPrice = this._priceCache[key]?.price || 0;
+        if (memoryPrice > 0) console.log(`price fallback ${key}: using memory/default price $${memoryPrice.toFixed(6)}`);
+        return memoryPrice;
+    }
+
+    async _getGeckoPoolPrice(label, poolAddress, attr = 'base_token_price_usd') {
+        try {
+            const res = await axios.get(`https://api.geckoterminal.com/api/v2/networks/berachain/pools/${poolAddress}`, { timeout: 10000 });
+            const price = parseFloat(res.data?.data?.attributes?.[attr] || 0);
+            if (price > 0) {
+                console.log(`price source ${label}=GeckoPool $${price.toFixed(6)}`);
+                return price;
+            }
+            console.log(`price source ${label}=GeckoPool returned 0`);
+        } catch (e) {
+            console.log(`price source ${label}=GeckoPool failed status=${e?.response?.status || 'n/a'} msg=${e.message}`);
+        }
+        return 0;
+    }
+
+    async _getGeckoTokenPrice(label, tokenAddress) {
+        const addr = tokenAddress.toLowerCase();
+        try {
+            const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`, { timeout: 10000 });
+            const price = parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0);
+            if (price > 0) {
+                console.log(`price source ${label}=GeckoToken $${price.toFixed(6)}`);
+                return price;
+            }
+            console.log(`price source ${label}=GeckoToken returned 0`);
+        } catch (e) {
+            console.log(`price source ${label}=GeckoToken failed status=${e?.response?.status || 'n/a'} msg=${e.message}`);
+        }
+        return 0;
+    }
+
+    async _getDexScreenerTokenPrice(label, tokenAddress) {
+        try {
+            const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`, { timeout: 10000 });
+            const pairs = (res.data?.pairs || [])
+                .filter(pair => pair.chainId === 'berachain' && parseFloat(pair.priceUsd || 0) > 0)
+                .sort((a, b) => parseFloat(b.liquidity?.usd || 0) - parseFloat(a.liquidity?.usd || 0));
+            if (pairs.length) {
+                const price = parseFloat(pairs[0].priceUsd);
+                console.log(`price source ${label}=DexScreener $${price.toFixed(6)}`);
+                return price;
+            }
+            console.log(`price source ${label}=DexScreener returned no priced berachain pair`);
+        } catch (e) {
+            console.log(`price source ${label}=DexScreener failed status=${e?.response?.status || 'n/a'} msg=${e.message}`);
+        }
+        return 0;
+    }
+
+    _withPreviousValue(walletTag, key, position, prevPos) {
+        if (position.value_usd > 0 || position.balance <= 0) return position;
+        const previous = prevPos?.[key];
+        if (previous?.value_usd > 0) {
+            console.log(`strategy fallback ${walletTag} ${key}: using previous value_usd=$${previous.value_usd}`);
+            return { ...position, value_usd: previous.value_usd };
+        }
+        return position;
+    }
     async getSheetsClient() {
         if (this.sheetsClient) return this.sheetsClient;
         const key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -212,12 +308,12 @@ class StrategyService {
             // Sequential with 1s gaps to avoid GeckoTerminal 429 rate limiting.
             // _cachedPrice() returns the last known good value if the fresh fetch returns 0.
             const delay = (ms) => new Promise(r => setTimeout(r, ms));
-            const amyPrice      = this._cachedPrice('amy',      await this.getAmyPrice());      await delay(1000);
-            const beraPrice     = this._cachedPrice('bera',     await this.getBeraPrice());     await delay(1000);
-            const sailrPrice    = this._cachedPrice('sailr',    await this.getSailrPrice());    await delay(1000);
-            const plsBeraPrice  = this._cachedPrice('plsbera',  await this.getPlsBeraPrice());  await delay(1500);
-            const plvHedgePrice = this._cachedPrice('plvhedge', await this.getPlvHedgePrice()); await delay(1500);
-            const plsKdkPrice   = this._cachedPrice('plskdk',   await this.getPlsKdkPrice());
+            const amyPrice      = await this._cachedPrice('amy',      await this.getAmyPrice(),      'strategy'); await delay(1000);
+            const beraPrice     = await this._cachedPrice('bera',     await this.getBeraPrice(),     'strategy'); await delay(1000);
+            const sailrPrice    = await this._cachedPrice('sailr',    await this.getSailrPrice(),    'strategy'); await delay(1000);
+            const plsBeraPrice  = await this._cachedPrice('plsbera',  await this.getPlsBeraPrice(),  'strategy'); await delay(1500);
+            const plvHedgePrice = await this._cachedPrice('plvhedge', await this.getPlvHedgePrice(), 'strategy'); await delay(1500);
+            const plsKdkPrice   = await this._cachedPrice('plskdk',   await this.getPlsKdkPrice(),   'strategy');
             console.log(`💰 [Full Strategy] Prices: AMY=$${amyPrice.toFixed(4)}, BERA=$${beraPrice.toFixed(4)}, BGT=$${beraPrice.toFixed(4)} (=BERA), SAILR=$${sailrPrice.toFixed(4)}, plsBERA=$${plsBeraPrice.toFixed(4)}, plvHEDGE=$${plvHedgePrice.toFixed(4)}, plsKDK=$${plsKdkPrice.toFixed(4)}`);
 
             for (const row of holders.rows) {
@@ -236,19 +332,19 @@ class StrategyService {
                 const honeyBend = await this.fetchStakedBalance(wallet, TOKENS.HONEY_BEND_VAULT);
                 const swbera = await this.fetchTokenBalance(wallet, TOKENS.SWBERA, beraPrice);
                 const bgt = await this.fetchTokenBalance(wallet, TOKENS.BGT, beraPrice);
-                const sailr = await this.fetchTokenBalance(wallet, TOKENS.SAILR, sailrPrice);
-                const plsbera = await this.fetchTokenBalance(wallet, TOKENS.PLSBERA, plsBeraPrice);
-                const plvhedge = await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE, plvHedgePrice);
+                let sailr = await this.fetchTokenBalance(wallet, TOKENS.SAILR, sailrPrice);
+                let plsbera = await this.fetchTokenBalance(wallet, TOKENS.PLSBERA, plsBeraPrice);
+                let plvhedge = await this.fetchTokenBalance(wallet, TOKENS.PLVHEDGE, plvHedgePrice);
                 let plskdk = await this.fetchTokenBalance(wallet, TOKENS.PLSKDK, plsKdkPrice);
                 let bullas = await this.fetchNftCount(wallet, TOKENS.BULLAS_NFT);
                 let boogaBullas = await this.fetchNftCount(wallet, TOKENS.BOOGA_NFT);
 
                 const walletTag = `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
 
-                if (plskdk.balance > 0 && plskdk.value_usd === 0 && (prevPos.plskdk?.value_usd || 0) > 0) {
-                    plskdk = { ...plskdk, value_usd: prevPos.plskdk.value_usd };
-                    console.log(`🛟 [Full Strategy] ${wallet.slice(0, 6)}... plsKDK price unavailable, using previous value_usd=$${Number(prevPos.plskdk.value_usd).toFixed(2)}`);
-                }
+                sailr = this._withPreviousValue(walletTag, 'sailr', sailr, prevPos);
+                plsbera = this._withPreviousValue(walletTag, 'plsbera', plsbera, prevPos);
+                plvhedge = this._withPreviousValue(walletTag, 'plvhedge', plvhedge, prevPos);
+                plskdk = this._withPreviousValue(walletTag, 'plskdk', plskdk, prevPos);
 
                 if (bullas === null) {
                     bullas = prevPos.bullas || 0;
@@ -337,95 +433,35 @@ class StrategyService {
     }
 
     async getAmyPrice() {
-        try {
-            const res = await axios.get(`https://api.geckoterminal.com/api/v2/networks/berachain/pools/${AMY_HONEY_POOL}`);
-            return parseFloat(res.data.data.attributes.base_token_price_usd) || 0;
-        } catch (e) { return 0; }
+        return await this._getGeckoPoolPrice('AMY', AMY_HONEY_POOL);
     }
 
     async getBeraPrice() {
-        try {
-            const res = await axios.get('https://api.geckoterminal.com/api/v2/networks/berachain/pools/0x2608b7c8eb17e22cb95b7cd6f872993cf33a4ca1');
-            return parseFloat(res.data.data.attributes.base_token_price_usd) || 0.60;
-        } catch (e) { return 0.60; }
+        return await this._getGeckoPoolPrice('BERA', '0x2608b7c8eb17e22cb95b7cd6f872993cf33a4ca1') || 0.60;
     }
 
     async getSailrPrice() {
-        // Primary: use pool endpoint (more reliable than token_price for SAIL.r)
-        try {
-            const res = await axios.get(`https://api.geckoterminal.com/api/v2/networks/berachain/pools/${TOKENS.SAILR_POOL}`);
-            const price = parseFloat(res.data?.data?.attributes?.base_token_price_usd || 0);
-            if (price > 0) return price;
-        } catch (e) {}
-        // Fallback: token_price endpoint
-        try {
-            const addr = '0x59a61b8d3064a51a95a5d6393c03e2152b1a2770';
-            const res = await axios.get(`https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`);
-            return parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0) || 0;
-        } catch (e) { return 0; }
+        return await this._getGeckoPoolPrice('SAILR', TOKENS.SAILR_POOL)
+            || await this._getDexScreenerTokenPrice('SAILR', TOKENS.SAILR)
+            || await this._getGeckoTokenPrice('SAILR', TOKENS.SAILR);
     }
 
     async getPlsBeraPrice() {
-        try {
-            const res = await axios.get('https://api.geckoterminal.com/api/v2/networks/berachain/pools/0x225915329b032b3385ac28b0dc53d989e8446fd1');
-            return parseFloat(res.data?.data?.attributes?.base_token_price_usd || 0) || 0;
-        } catch (e) { return 0; }
+        return await this._getGeckoPoolPrice('plsBERA', '0x225915329b032b3385ac28b0dc53d989e8446fd1')
+            || await this._getDexScreenerTokenPrice('plsBERA', TOKENS.PLSBERA)
+            || await this._getGeckoTokenPrice('plsBERA', TOKENS.PLSBERA);
     }
 
     async getPlvHedgePrice() {
-        // Use the most liquid plvHEDGE/HONEY pool on Kodiak V3 — pool endpoint is accurate (~$1.17)
-        // GeckoTerminal token_price and Plutus TVL/supply both return ~$23 (wrong)
-        try {
-            const res = await axios.get('https://api.geckoterminal.com/api/v2/networks/berachain/pools/0xbb27edace822f244a91c2417b07c617e7a691be6');
-            const price = parseFloat(res.data?.data?.attributes?.base_token_price_usd || 0);
-            if (price > 0) return price;
-        } catch (e) {}
-        return 0;
+        return await this._getGeckoPoolPrice('plvHEDGE', '0xbb27edace822f244a91c2417b07c617e7a691be6')
+            || await this._getDexScreenerTokenPrice('plvHEDGE', TOKENS.PLVHEDGE)
+            || await this._getGeckoTokenPrice('plvHEDGE', TOKENS.PLVHEDGE);
     }
 
     async getPlsKdkPrice() {
         const addr = '0xc6173a3405fdb1f5c42004d2d71cba9bf1cfa522';
-        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-        // Primary: DexScreener — separate rate limit from GeckoTerminal
-        try {
-            const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${addr}`, { timeout: 8000 });
-            const pairs = res.data?.pairs || [];
-            const beraPair = pairs.find(p => p.chainId === 'berachain' && parseFloat(p.priceUsd || 0) > 0);
-            if (beraPair) {
-                const price = parseFloat(beraPair.priceUsd);
-                console.log(`💰 [plsKDK] source=DexScreener price=$${price.toFixed(6)}`);
-                return price;
-            }
-            console.log(`⚠️ [plsKDK] DexScreener returned no berachain pair (pairs=${pairs.length})`);
-        } catch (e) {
-            console.log(`⚠️ [plsKDK] DexScreener error: status=${e?.response?.status || 'n/a'} msg=${e.message}`);
-        }
-        // Fallback: GeckoTerminal token_price (with retry/backoff for 429)
-        const geckoUrl = `https://api.geckoterminal.com/api/v2/simple/networks/berachain/token_price/${addr}`;
-        const retryDelays = [1200, 3000, 6000];
-        for (let attempt = 0; attempt < retryDelays.length; attempt++) {
-            try {
-                const res = await axios.get(geckoUrl, { timeout: 10000 });
-                const price = parseFloat(res.data?.data?.attributes?.token_prices?.[addr] || 0);
-                if (price > 0) {
-                    console.log(`💰 [plsKDK] source=GeckoTerminal attempt=${attempt + 1} price=$${price.toFixed(6)}`);
-                    return price;
-                }
-                console.log(`⚠️ [plsKDK] GeckoTerminal attempt=${attempt + 1} returned price=0`);
-            } catch (e) {
-                const status = e?.response?.status;
-                console.log(`⚠️ [plsKDK] GeckoTerminal attempt=${attempt + 1} error: status=${status || 'n/a'} msg=${e.message}`);
-                if (status !== 429 && attempt === 0) {
-                    // Non-rate-limit failures usually won't recover immediately; avoid noisy retries.
-                    break;
-                }
-            }
-            if (attempt < retryDelays.length - 1) {
-                await sleep(retryDelays[attempt]);
-            }
-        }
-        console.log('⚠️ [plsKDK] all sources failed; returning 0');
-        return 0;
+        return await this._getDexScreenerTokenPrice('plsKDK', addr)
+            || await this._getGeckoTokenPrice('plsKDK', addr);
     }
 
     async fetchGoldskyPositions(wallet, poolId, url, amyPrice) {
