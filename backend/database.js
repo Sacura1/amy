@@ -1716,14 +1716,6 @@ const referrals = {
             return { success: false, error: 'You have already used a referral code' };
         }
 
-        // Enforce 48h window from account creation
-        if (user.createdAt) {
-            const WINDOW_MS = 48 * 60 * 60 * 1000;
-            const age = Date.now() - new Date(user.createdAt).getTime();
-            if (age > WINDOW_MS) {
-                return { success: false, error: 'Referral codes can only be entered within 48 hours of signing up' };
-            }
-        }
 
         // Check if referral code exists
         const referrer = await referrals.getByCode(referralCode);
