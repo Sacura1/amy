@@ -5653,7 +5653,7 @@ const KODIAK_CONTRACTS = {
 const TOKENS = {
     AMY: '0x098a75baeddec78f9a8d0830d6b86eac5cc8894e'.toLowerCase(),
     HONEY: '0xfcbd14dc51f0a4d49d5e53c2e0950e0bc26d0dce'.toLowerCase(),
-    USDT0: '0xd01ae6905d48315f7be10c7330aecf8360ef5b12'.toLowerCase()
+    USDT0: '0x779ded0c9e1022225f8e0630b35a9b54be713736'.toLowerCase()
 };
 
 // LP Multiplier tiers
@@ -5669,6 +5669,13 @@ const NFPM_ABI = [
     'function balanceOf(address owner) view returns (uint256)',
     'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
     'function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)'
+];
+
+// Kodiak V3/Algebra positions include a deployer field before tickLower.
+const KODIAK_NFPM_ABI = [
+    'function balanceOf(address owner) view returns (uint256)',
+    'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
+    'function positions(uint256 tokenId) view returns (uint88 nonce, address operator, address token0, address token1, address deployer, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)'
 ];
 
 // Algebra Pool ABI (for getting current tick and price)
@@ -5738,7 +5745,7 @@ function getAmyUsdt0LpMultiplier(usdValue) {
 async function queryKodiakLpPositions(walletAddress) {
     try {
         const provider = new ethers.providers.JsonRpcProvider('https://rpc.berachain.com');
-        const nfpm = new ethers.Contract(KODIAK_CONTRACTS.nonfungiblePositionManager, NFPM_ABI, provider);
+        const nfpm = new ethers.Contract(KODIAK_CONTRACTS.nonfungiblePositionManager, KODIAK_NFPM_ABI, provider);
         const pool = new ethers.Contract(KODIAK_CONTRACTS.amyUsdt0Pool, POOL_ABI, provider);
 
         // Get current pool state for price calculation (handle Algebra globalState or Uniswap V3 slot0)
@@ -5760,9 +5767,9 @@ async function queryKodiakLpPositions(walletAddress) {
         const token1 = (await pool.token1()).toLowerCase();
 
         // Calculate AMY price from tick
-        const priceRatio = 1.0001 ** currentTick;
+        const priceRatio = 1.0001 ** Number(currentTick);
         const amyIsToken0 = token0 === TOKENS.AMY;
-        const amyPriceUsd = amyIsToken0 ? priceRatio : (1 / priceRatio);
+        const amyPriceUsd = amyIsToken0 ? priceRatio * 1e12 : (1 / priceRatio) / 1e12;
 
         // Get NFT balance (positions held in wallet)
         const nftBalance = await nfpm.balanceOf(walletAddress);
@@ -5771,6 +5778,7 @@ async function queryKodiakLpPositions(walletAddress) {
         let totalLpValueUsd = 0;
         let inRangeValueUsd = 0;
         let positionsFound = 0;
+        let inRangeCount = 0;
 
         for (let i = 0; i < nftCount; i++) {
             try {
@@ -5787,14 +5795,16 @@ async function queryKodiakLpPositions(walletAddress) {
                 if (!position.liquidity || position.liquidity.isZero()) continue;
 
                 positionsFound++;
-                const isInRange = currentTick >= position.tickLower && currentTick < position.tickUpper;
+                const tickLower = Number(position.tickLower);
+                const tickUpper = Number(position.tickUpper);
+                const isInRange = Number(currentTick) >= tickLower && Number(currentTick) < tickUpper;
 
                 const liquidity = parseFloat(position.liquidity.toString());
                 const { amount0, amount1 } = getTokenAmountsFromLiquidity(
                     liquidity,
-                    position.tickLower,
-                    position.tickUpper,
-                    currentTick
+                    tickLower,
+                    tickUpper,
+                    Number(currentTick)
                 );
 
                 // USDT0 has 6 decimals, AMY has 18
@@ -5813,6 +5823,7 @@ async function queryKodiakLpPositions(walletAddress) {
                 totalLpValueUsd += positionUsd;
                 if (isInRange) {
                     inRangeValueUsd += positionUsd;
+                    inRangeCount++;
                 }
             } catch (e) {
                 continue;
@@ -5822,7 +5833,9 @@ async function queryKodiakLpPositions(walletAddress) {
         return {
             isActive: inRangeValueUsd >= 10,
             valueUsd: inRangeValueUsd,
-            multiplier: getAmyUsdt0LpMultiplier(inRangeValueUsd)
+            multiplier: getAmyUsdt0LpMultiplier(inRangeValueUsd),
+            count: positionsFound,
+            inRangeCount
         };
     } catch (error) {
         console.error('? Error querying Kodiak LP:', error.message);

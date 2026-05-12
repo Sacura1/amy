@@ -5,8 +5,10 @@ const { ethers } = require('ethers');
 // CONFIG
 const RPC_URL = process.env.BERACHAIN_RPC || 'https://rpc.berachain.com';
 const AMY_TOKEN = '0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e';
+const USDT0_TOKEN = '0x779Ded0c9e1022225f8E0630b35a9b54bE713736';
 const AMY_HONEY_POOL = '0xff716930eefb37b5b4ac55b1901dc5704b098d84'; 
 const AMY_USDT0_POOL = '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17';
+const KODIAK_NFPM = '0xFE5E8C83FFE4d9627A75EaA7Fee864768dB989bD';
 
 // URLs
 const ALGEBRA_SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_clols2c0p7fby2nww199i4pdx/subgraphs/algebra-berachain-mainnet/0.0.3/gn';
@@ -75,6 +77,16 @@ const TOKENS = {
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
 const NFT_ABI = ['function balanceOf(address) view returns (uint256)'];
+const KODIAK_NFPM_ABI = [
+    'function balanceOf(address owner) view returns (uint256)',
+    'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
+    'function positions(uint256 tokenId) view returns (uint88 nonce, address operator, address token0, address token1, address deployer, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)'
+];
+const KODIAK_POOL_ABI = [
+    'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
+    'function token0() view returns (address)',
+    'function token1() view returns (address)'
+];
 const VAULT_ABI = [
     'function totalSupply() view returns (uint256)',
     'function rewardRate() view returns (uint256)',
@@ -400,6 +412,26 @@ class StrategyService {
         }
     }
 
+    calculateOnchainLpAmounts(liquidity, tickLower, tickUpper, currentTick) {
+        const sqrtPriceLower = Math.sqrt(1.0001 ** tickLower);
+        const sqrtPriceUpper = Math.sqrt(1.0001 ** tickUpper);
+        const sqrtPriceCurrent = Math.sqrt(1.0001 ** currentTick);
+
+        let amount0 = 0;
+        let amount1 = 0;
+
+        if (currentTick < tickLower) {
+            amount0 = liquidity * (1 / sqrtPriceLower - 1 / sqrtPriceUpper);
+        } else if (currentTick < tickUpper) {
+            amount0 = liquidity * (1 / sqrtPriceCurrent - 1 / sqrtPriceUpper);
+            amount1 = liquidity * (sqrtPriceCurrent - sqrtPriceLower);
+        } else {
+            amount1 = liquidity * (sqrtPriceUpper - sqrtPriceLower);
+        }
+
+        return { amount0, amount1 };
+    }
+
     async fetchTokenBalance(wallet, tokenAddress, customPrice = null) {
         try {
             const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.provider);
@@ -509,7 +541,71 @@ class StrategyService {
                 }
             }
             return { value_usd: inRangeValue, count: pos.length, in_range_count: inRangeCount };
-        } catch (e) { return { value_usd: 0, count: 0, in_range_count: 0 }; }
+        } catch (e) {
+            console.warn(`[Full Strategy] Goldsky AMY/USDT0 unavailable (${e.response?.status || e.message}); using on-chain Kodiak fallback.`);
+            return await this.fetchKodiakPositionsUsdt0Onchain(wallet, amyPrice);
+        }
+    }
+
+    async fetchKodiakPositionsUsdt0Onchain(wallet, amyPrice) {
+        try {
+            const nfpm = new ethers.Contract(KODIAK_NFPM, KODIAK_NFPM_ABI, this.provider);
+            const pool = new ethers.Contract(AMY_USDT0_POOL, KODIAK_POOL_ABI, this.provider);
+            const slot0 = await pool.slot0();
+            const currentTick = Number(slot0.tick);
+            const poolToken0 = (await pool.token0()).toLowerCase();
+            const poolToken1 = (await pool.token1()).toLowerCase();
+            const amy = AMY_TOKEN.toLowerCase();
+            const usdt0 = USDT0_TOKEN.toLowerCase();
+
+            if (!((poolToken0 === amy && poolToken1 === usdt0) || (poolToken0 === usdt0 && poolToken1 === amy))) {
+                console.warn(`[Full Strategy] AMY/USDT0 pool token mismatch token0=${poolToken0} token1=${poolToken1}`);
+                return { value_usd: 0, count: 0, in_range_count: 0 };
+            }
+
+            const nftCount = (await nfpm.balanceOf(wallet)).toNumber();
+            let inRangeValue = 0;
+            let inRangeCount = 0;
+            let activeCount = 0;
+
+            for (let i = 0; i < nftCount; i++) {
+                try {
+                    const tokenId = await nfpm.tokenOfOwnerByIndex(wallet, i);
+                    const position = await nfpm.positions(tokenId);
+                    const posToken0 = position.token0.toLowerCase();
+                    const posToken1 = position.token1.toLowerCase();
+                    const isAmyUsdt0 = (posToken0 === amy && posToken1 === usdt0) || (posToken0 === usdt0 && posToken1 === amy);
+
+                    if (!isAmyUsdt0 || position.liquidity.isZero()) continue;
+
+                    activeCount++;
+                    const tickLower = Number(position.tickLower);
+                    const tickUpper = Number(position.tickUpper);
+                    const isInRange = currentTick >= tickLower && currentTick < tickUpper;
+                    if (!isInRange) continue;
+
+                    const { amount0, amount1 } = this.calculateOnchainLpAmounts(
+                        parseFloat(position.liquidity.toString()),
+                        tickLower,
+                        tickUpper,
+                        currentTick
+                    );
+                    const amount0Decimal = amount0 / (posToken0 === usdt0 ? 1e6 : 1e18);
+                    const amount1Decimal = amount1 / (posToken1 === usdt0 ? 1e6 : 1e18);
+                    const valueUsd = posToken0 === amy
+                        ? (amount0Decimal * amyPrice) + amount1Decimal
+                        : amount0Decimal + (amount1Decimal * amyPrice);
+
+                    inRangeValue += valueUsd;
+                    inRangeCount++;
+                } catch (e) {}
+            }
+
+            return { value_usd: inRangeValue, count: activeCount, in_range_count: inRangeCount };
+        } catch (e) {
+            console.warn(`[Full Strategy] On-chain AMY/USDT0 fallback failed: ${e.message}`);
+            return { value_usd: 0, count: 0, in_range_count: 0 };
+        }
     }
 
     async runEarnDataUpdate() {
