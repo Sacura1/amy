@@ -705,10 +705,20 @@ async function validatePaymentTx(request, txHash) {
     const provider = new ethers.providers.JsonRpcProvider(process.env.BERACHAIN_RPC || 'https://rpc.berachain.com');
     const receipt = await provider.getTransactionReceipt(txHash);
     if (!receipt || receipt.status !== 1) return { ok: false, notes: 'Transaction not mined successfully' };
-    const transferTopic = ethers.utils.id('Transfer(address,address,uint256)');
-    const expectedTo = ethers.utils.hexZeroPad(request.recipient_wallet.toLowerCase(), 32).toLowerCase();
     const expectedNet = moneyNumber(request.net_amount_to_creator) || moneyNumber(request.amount);
     const expectedAmount = ethers.utils.parseUnits(String(expectedNet), token.decimals);
+    if (token.native) {
+        const tx = await provider.getTransaction(txHash);
+        if (!tx || tx.to?.toLowerCase() !== request.recipient_wallet.toLowerCase()) {
+            return { ok: false, notes: 'No matching native BERA transfer found' };
+        }
+        if (tx.value.gte(expectedAmount)) {
+            return { ok: true, notes: 'Native BERA transfer matched request', payer: tx.from };
+        }
+        return { ok: false, notes: 'Native BERA transfer amount was too low' };
+    }
+    const transferTopic = ethers.utils.id('Transfer(address,address,uint256)');
+    const expectedTo = ethers.utils.hexZeroPad(request.recipient_wallet.toLowerCase(), 32).toLowerCase();
     for (const log of receipt.logs || []) {
         if (log.address.toLowerCase() !== token.address.toLowerCase()) continue;
         if (log.topics?.[0] !== transferTopic) continue;
