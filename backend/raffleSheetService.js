@@ -46,6 +46,67 @@ class RaffleSheetService {
     return map;
   }
 
+  _headerIndex(headerMap, ...names) {
+    for (const name of names) {
+      const direct = headerMap[name];
+      if (direct !== undefined) return direct;
+    }
+
+    const normalizedNames = names.map(name => name.toLowerCase().replace(/\s+/g, '_'));
+    for (const [key, idx] of Object.entries(headerMap)) {
+      const normalizedKey = key.toLowerCase().replace(/\s+/g, '_');
+      if (normalizedNames.includes(normalizedKey)) return idx;
+    }
+    return undefined;
+  }
+
+  _parseSheetTimestamp(value) {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value === 'number') {
+      const ms = Math.round((value - 25569) * 86400 * 1000);
+      return new Date(ms).toISOString();
+    }
+
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const normalized = raw
+      .replace(/[–—]/g, ' ')
+      .replace(/\bUTC\b/i, 'Z')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString();
+  }
+
+  async _syncPayoutFieldsFromSheet(rows, headerMap) {
+    const raffleIdCol = this._headerIndex(headerMap, 'raffle_id', 'raffle id');
+    const prizeSentCol = this._headerIndex(headerMap, 'prize_sent_at', 'prize sent at') ?? 27;
+    const payoutTxCol = this._headerIndex(headerMap, 'payout_tx_hash', 'payout tx hash') ?? 28;
+    if (raffleIdCol === undefined || (prizeSentCol === undefined && payoutTxCol === undefined)) return;
+
+    const updates = [];
+    rows.slice(1).forEach(row => {
+      const raffleId = parseInt(row[raffleIdCol], 10);
+      if (!raffleId) return;
+      const prizeSentAt = prizeSentCol === undefined ? undefined : this._parseSheetTimestamp(row[prizeSentCol]);
+      const payoutTxHash = payoutTxCol === undefined ? undefined : String(row[payoutTxCol] || '').trim();
+      if (prizeSentAt || payoutTxHash) {
+        updates.push({ raffleId, prizeSentAt, payoutTxHash });
+      }
+    });
+
+    for (const update of updates) {
+      await this.pool.query(
+        `UPDATE raffles
+         SET prize_sent_at = COALESCE($1::timestamp, prize_sent_at),
+             payout_tx_hash = COALESCE(NULLIF($2, ''), payout_tx_hash)
+         WHERE id = $3`,
+        [update.prizeSentAt || null, update.payoutTxHash || '', update.raffleId]
+      );
+    }
+  }
+
   _fmtTs(ts) {
     if (!ts) return '';
     const d = new Date(ts);
@@ -183,9 +244,6 @@ class RaffleSheetService {
     this._isSyncing = true;
     try {
       console.log('🔄 Syncing Raffle Ledger...');
-      const dbResult = await this.pool.query("SELECT * FROM raffles ORDER BY id ASC");
-      const raffles = dbResult.rows;
-
       const res = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
         range: `'${this.ledgerSheetName}'!A1:AD1000`,
@@ -197,6 +255,10 @@ class RaffleSheetService {
       }
 
       const headerMap = this._mapHeaders(rows);
+      await this._syncPayoutFieldsFromSheet(rows, headerMap);
+      const dbResult = await this.pool.query("SELECT * FROM raffles ORDER BY id ASC");
+      const raffles = dbResult.rows;
+
       // Normalize key: sheet headers may use spaces ("raffle id") or underscores ("raffle_id")
       const raffleIdCol = headerMap['raffle_id'] ?? headerMap['raffle id'];
       if (raffleIdCol === undefined) {
@@ -261,6 +323,10 @@ class RaffleSheetService {
             val = this._fmtTs(r.live_at);
           } else if (normalizedKey.includes('winner_drawn_at')) {
             val = this._fmtTs(r.ends_at);
+          } else if (normalizedKey.includes('prize_sent_at')) {
+            val = this._fmtTs(r.prize_sent_at);
+          } else if (normalizedKey.includes('payout_tx_hash')) {
+            val = r.payout_tx_hash;
           } else if (normalizedKey.includes('winner_wallet') || normalizedKey.includes('winner_address')) {
             val = r.winner_wallet;
           } else if (normalizedKey.includes('winner_ticket') || normalizedKey.includes('tickets_bought')) {

@@ -14,6 +14,7 @@ const googleSheetsService = require('./googleSheetsService');
 const raffleSheetService = require('./raffleSheetService');
 const { exclusiveDb, appConfig: exclusiveAppConfig, sheetsService: exclusiveSheetsService, buildSailrQuote, activeQuotes, pruneExpiredQuotes, activeJnrusdQuotes, pruneExpiredJnrusdQuotes, getLiveJnrusdSharePrice, validateDepositTx } = require('./exclusivePerksService');
 const StrategyService = require('./lib/strategyService');
+const PortfolioService = require('./lib/portfolioService');
 require('dotenv').config();
 
 // Amy Score — in-memory cache (24h TTL, refreshed on request)
@@ -73,6 +74,7 @@ let pointsDb = null; // Will be set after PostgreSQL init
 let rafflesDb = null; // Will be set after PostgreSQL init
 let appSettingsDb = null; // Will be set after PostgreSQL init
 let POINTS_TIERS = null; // Will be set after PostgreSQL init
+let portfolioService = null; // Will be set after PostgreSQL init
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -309,6 +311,7 @@ nonces = {
 
         // Initialize Strategy Service
         const strategyService = new StrategyService(database);
+        portfolioService = new PortfolioService(database);
 
         // AMY STANDARD DATA PIPELINE CRONS
         // 1. Base Build: Every 15 minutes (:00, :15, :30, :45)
@@ -360,6 +363,15 @@ nonces = {
                 if (result.rows.length) console.log(`✅ Auto-withdrew ${result.rows.length} jnrUSDE position(s)`);
             } catch (err) {
                 console.error('jnrUSDE auto-withdraw cron error:', err);
+            }
+        });
+
+        cron.schedule('15 2 * * *', async () => {
+            console.log('⏰ [Cron] Triggered: Daily Portfolio Scan');
+            try {
+                if (portfolioService) await portfolioService.runDailyQualifiedScan();
+            } catch (err) {
+                console.error('Daily Portfolio Scan cron error:', err.message);
             }
         });
 
@@ -439,7 +451,11 @@ app.use(cors({
     },
     credentials: true
 }));
-app.use(express.json());
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf.toString('utf8');
+    }
+}));
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -496,6 +512,427 @@ app.get('/', (req, res) => {
             users: '/api/users (admin only)'
         }
     });
+});
+
+const PAYMENT_TOKENS = {
+    BERA: { symbol: 'BERA', address: 'native', decimals: 18, native: true },
+    HONEY: { symbol: 'HONEY', address: '0xfcbd14dc51f0a4d49d5e53c2e0950e0bc26d0dce', decimals: 18 },
+    USDT0: { symbol: 'USDT0', address: '0x779Ded0c9e1022225f8E0630b35a9b54bE713736', decimals: 6 },
+    USDE: { symbol: 'USDe', address: '0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34', decimals: 18 },
+    AMY: { symbol: 'AMY', address: AMY_TOKEN_ADDRESS, decimals: 18 },
+};
+const PAYMENT_NFTS = {
+    BULLA: { symbol: 'BULLA', name: 'Bullas', address: '0x333814f5e16eee61d0c0b03a5b6abbd424b381c2', assetType: 'nft', imageUrl: '/image/bulla.png' },
+    BOOGA: { symbol: 'BOOGA', name: 'Booga Bullas', address: '0x5a30c392714a9a9a8177c7998d9d59c3dd120917', assetType: 'nft', imageUrl: '/image/booga_bulla.png' },
+};
+const PAYMENT_APP_URL = (process.env.PUBLIC_PAYMENT_APP_URL || 'https://amyonbera.com').replace(/\/$/, '');
+
+const PAYMENT_BALANCE_ABI = ['function balanceOf(address owner) view returns (uint256)'];
+
+async function attachPaymentBalances(wallet) {
+    const tokenAssets = Object.values(PAYMENT_TOKENS).map(token => ({ ...token, assetType: 'token' }));
+    const nftAssets = Object.values(PAYMENT_NFTS);
+    if (!validWallet(wallet)) return [...tokenAssets, ...nftAssets];
+    const provider = new ethers.providers.JsonRpcProvider(process.env.BERACHAIN_RPC || 'https://rpc.berachain.com');
+    const tokens = await Promise.all(tokenAssets.map(async token => {
+        try {
+            const raw = token.native
+                ? await provider.getBalance(wallet)
+                : await new ethers.Contract(token.address, PAYMENT_BALANCE_ABI, provider).balanceOf(wallet);
+            return {
+                ...token,
+                balance: Number(ethers.utils.formatUnits(raw, token.decimals)),
+            };
+        } catch {
+            return { ...token, balance: null };
+        }
+    }));
+    const nfts = await Promise.all(nftAssets.map(async nft => {
+        try {
+            const raw = await new ethers.Contract(nft.address, PAYMENT_BALANCE_ABI, provider).balanceOf(wallet);
+            return { ...nft, balance: raw.toNumber() };
+        } catch {
+            return { ...nft, balance: null };
+        }
+    }));
+    return [...tokens, ...nfts];
+}
+
+function validWallet(value) {
+    return /^0x[a-fA-F0-9]{40}$/.test(value || '');
+}
+
+function moneyNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+}
+
+const FIXED_PAYMENT_FEE_PERCENT = 0.75;
+
+async function getPaymentFeeTier() {
+    return { tier: 'fixed', percent: FIXED_PAYMENT_FEE_PERCENT };
+}
+
+function mapPaymentRequest(row) {
+    if (!row) return null;
+    return {
+        id: row.id,
+        userId: row.user_id,
+        recipientWallet: row.recipient_wallet,
+        displayName: row.display_name,
+        title: row.title,
+        description: row.description,
+        amount: Number(row.amount),
+        currency: row.currency,
+        tokenAddress: row.token_address,
+        feeTier: row.fee_tier,
+        feePercent: Number(row.fee_percent),
+        feeAmount: Number(row.fee_amount),
+        netAmountToCreator: Number(row.net_amount_to_creator),
+        status: row.status,
+        checkoutUrl: `${PAYMENT_APP_URL}/pay/${row.id}`,
+        txHash: row.tx_hash,
+        paymentMethod: row.payment_method,
+        payerAddress: row.payer_address,
+        createdAt: row.created_at,
+        paidAt: row.paid_at,
+        updatedAt: row.updated_at,
+    };
+}
+
+function findNestedValue(obj, keys) {
+    if (!obj || typeof obj !== 'object') return undefined;
+    if (Array.isArray(obj)) {
+        for (const item of obj) {
+            const found = findNestedValue(item, keys);
+            if (found !== undefined && found !== null && found !== '') return found;
+        }
+        return undefined;
+    }
+    for (const key of keys) {
+        if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
+    }
+    for (const value of Object.values(obj)) {
+        if (value && typeof value === 'object') {
+            const found = findNestedValue(value, keys);
+            if (found !== undefined && found !== null && found !== '') return found;
+        }
+    }
+    return undefined;
+}
+
+function paymentWebhookStatus(body = {}) {
+    const raw = String(
+        body.status
+        || body.type
+        || body.event
+        || body.eventType
+        || body.data?.status
+        || body.result?.status
+        || ''
+    ).toLowerCase();
+    if (/(paid|success|succeeded|completed|complete|confirmed|settled)/.test(raw)) return 'paid';
+    if (/(fail|failed|error|revert)/.test(raw)) return 'failed';
+    if (/(expire|expired)/.test(raw)) return 'expired';
+    return '';
+}
+
+function verifyThirdwebWebhook(req) {
+    const secret = process.env.THIRDWEB_WEBHOOK_SECRET;
+    if (!secret) return { verified: false, notes: 'THIRDWEB_WEBHOOK_SECRET is not configured' };
+
+    const payloadSignature = req.headers['x-payload-signature'] || req.headers['x-pay-signature'] || req.headers['x-thirdweb-signature'];
+    const timestamp = req.headers['x-timestamp'] || req.headers['x-pay-timestamp'] || req.headers['x-thirdweb-timestamp'];
+    const rawBody = req.rawBody || JSON.stringify(req.body || {});
+
+    if (payloadSignature && timestamp) {
+        const timestampSeconds = parseInt(String(timestamp), 10);
+        const diff = Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds);
+        if (!Number.isFinite(timestampSeconds) || diff > 300) return { verified: false, notes: 'Thirdweb webhook timestamp outside tolerance' };
+
+        const expectedPayloadSignature = crypto
+            .createHmac('sha256', secret)
+            .update(`${timestamp}.${rawBody}`)
+            .digest('hex');
+        const provided = Buffer.from(String(payloadSignature), 'hex');
+        const expected = Buffer.from(expectedPayloadSignature, 'hex');
+        const payloadMatches = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+
+        if (!payloadMatches) return { verified: false, notes: 'Thirdweb payload signature mismatch' };
+        return { verified: true, notes: 'Thirdweb signature matched' };
+    }
+
+    const providedSecret = req.headers['x-thirdweb-webhook-secret'] || req.headers['x-webhook-secret'];
+    if (providedSecret && providedSecret === secret) return { verified: true, notes: 'Webhook secret matched' };
+    return { verified: false, notes: 'Webhook signature missing or invalid' };
+}
+
+async function markPaymentRequestPaid(requestId, txHash, payerAddress, paymentMethod, rawPayload = {}, eventType = 'payment_confirmed') {
+    const existing = await database.pool.query('SELECT * FROM payment_requests WHERE id = $1', [requestId]);
+    if (!existing.rows[0]) return { ok: false, status: 404, error: 'Payment request not found' };
+    if (existing.rows[0].status === 'paid') {
+        return { ok: true, data: mapPaymentRequest(existing.rows[0]), notes: 'Payment request already paid' };
+    }
+
+    const verification = await validatePaymentTx(existing.rows[0], txHash);
+    if (!verification.ok) {
+        await database.pool.query(
+            `INSERT INTO payment_events (request_id, event_type, raw_payload, verified, verification_notes)
+             VALUES ($1, $2, $3, false, $4)`,
+            [requestId, eventType, JSON.stringify(rawPayload), verification.notes]
+        );
+        return { ok: false, status: 400, error: verification.notes };
+    }
+
+    const result = await database.pool.query(
+        `UPDATE payment_requests
+         SET status = 'paid', tx_hash = $2, payer_address = $3, payment_method = $4, paid_at = NOW(), updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [requestId, txHash, payerAddress || verification.payer || null, paymentMethod || 'thirdweb_checkout']
+    );
+    await database.pool.query(
+        `INSERT INTO payment_events (request_id, event_type, raw_payload, verified, verification_notes)
+         VALUES ($1, $2, $3, true, $4)`,
+        [requestId, eventType, JSON.stringify(rawPayload), verification.notes]
+    );
+    return { ok: true, data: mapPaymentRequest(result.rows[0]), notes: verification.notes };
+}
+
+async function validatePaymentTx(request, txHash) {
+    const token = PAYMENT_TOKENS[String(request.currency || '').toUpperCase()];
+    if (!token || !txHash) return { ok: false, notes: 'Unsupported token or missing transaction hash' };
+    const provider = new ethers.providers.JsonRpcProvider(process.env.BERACHAIN_RPC || 'https://rpc.berachain.com');
+    const receipt = await provider.getTransactionReceipt(txHash);
+    if (!receipt || receipt.status !== 1) return { ok: false, notes: 'Transaction not mined successfully' };
+    const transferTopic = ethers.utils.id('Transfer(address,address,uint256)');
+    const expectedTo = ethers.utils.hexZeroPad(request.recipient_wallet.toLowerCase(), 32).toLowerCase();
+    const expectedNet = moneyNumber(request.net_amount_to_creator) || moneyNumber(request.amount);
+    const expectedAmount = ethers.utils.parseUnits(String(expectedNet), token.decimals);
+    for (const log of receipt.logs || []) {
+        if (log.address.toLowerCase() !== token.address.toLowerCase()) continue;
+        if (log.topics?.[0] !== transferTopic) continue;
+        if ((log.topics?.[2] || '').toLowerCase() !== expectedTo) continue;
+        const paidAmount = ethers.BigNumber.from(log.data);
+        if (paidAmount.gte(expectedAmount)) {
+            return { ok: true, notes: 'ERC20 transfer matched request', payer: `0x${log.topics[1].slice(26)}` };
+        }
+    }
+    return { ok: false, notes: 'No matching ERC20 transfer found in transaction logs' };
+}
+
+app.get('/api/portfolio/:wallet', async (req, res) => {
+    try {
+        if (!portfolioService) return res.status(503).json({ success: false, error: 'Portfolio service not ready' });
+        const data = await portfolioService.getPortfolio(req.params.wallet, { force: false, source: 'user' });
+        res.json({ success: true, data });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/portfolio/:wallet/refresh', async (req, res) => {
+    try {
+        if (!portfolioService) return res.status(503).json({ success: false, error: 'Portfolio service not ready' });
+        const data = await portfolioService.getPortfolio(req.params.wallet, { force: true, source: 'user' });
+        res.json({ success: true, data });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/portfolio/:wallet/status', async (req, res) => {
+    try {
+        if (!portfolioService) return res.status(503).json({ success: false, error: 'Portfolio service not ready' });
+        const [cached, rate] = await Promise.all([
+            portfolioService.getCached(req.params.wallet),
+            portfolioService.rateStatus(req.params.wallet),
+        ]);
+        res.json({
+            success: true,
+            data: {
+                hasCache: !!cached,
+                lastRefreshedAt: cached?.lastRefreshed?.toISOString() || null,
+                nextRefreshAvailableAt: cached ? new Date(cached.lastRefreshed.getTime() + 15 * 60 * 1000).toISOString() : null,
+                rate,
+            },
+        });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/pay/assets', async (req, res) => {
+    const wallet = req.query.wallet;
+    const data = wallet ? await attachPaymentBalances(String(wallet)) : Object.values(PAYMENT_TOKENS);
+    res.json({ success: true, data });
+});
+
+app.post('/api/pay/transactions', async (req, res) => {
+    try {
+        if (!database.pool) return res.status(503).json({ success: false, error: 'Database not ready' });
+        const { senderWallet, recipientWallet, assetType, tokenSymbol, tokenAddress, amount, nftCollectionAddress, nftTokenId, status, txHash } = req.body;
+        if (!validWallet(senderWallet) || !validWallet(recipientWallet)) {
+            return res.status(400).json({ success: false, error: 'Valid sender and recipient wallets are required' });
+        }
+        const result = await database.pool.query(
+            `INSERT INTO pay_transactions
+             (user_id, sender_wallet, recipient_wallet, asset_type, token_symbol, token_address, amount, nft_collection_address, nft_token_id, status, tx_hash)
+             VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             RETURNING *`,
+            [
+                senderWallet.toLowerCase(),
+                recipientWallet.toLowerCase(),
+                assetType === 'nft' ? 'nft' : 'token',
+                tokenSymbol,
+                tokenAddress,
+                assetType === 'nft' ? null : amount,
+                nftCollectionAddress || null,
+                nftTokenId || null,
+                status || 'success',
+                txHash,
+            ]
+        );
+        res.json({ success: true, data: result.rows[0] });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/pay/transactions/:wallet', async (req, res) => {
+    try {
+        if (!database.pool) return res.status(503).json({ success: false, error: 'Database not ready' });
+        const result = await database.pool.query(
+            `SELECT * FROM pay_transactions WHERE LOWER(sender_wallet) = LOWER($1) ORDER BY created_at DESC LIMIT 50`,
+            [req.params.wallet]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/payment-requests', async (req, res) => {
+    try {
+        if (!database.pool) return res.status(503).json({ success: false, error: 'Database not ready' });
+        const { wallet, displayName, title, description, amount, currency } = req.body;
+        if (!validWallet(wallet)) return res.status(400).json({ success: false, error: 'Connected wallet is required' });
+        const token = PAYMENT_TOKENS[String(currency || '').toUpperCase()];
+        if (!token) return res.status(400).json({ success: false, error: 'Unsupported receive asset' });
+        const requestedAmount = moneyNumber(amount);
+        if (!(requestedAmount > 0)) return res.status(400).json({ success: false, error: 'Amount must be greater than zero' });
+        if (!title || String(title).trim().length < 2) return res.status(400).json({ success: false, error: 'Payment title is required' });
+
+        const fee = await getPaymentFeeTier(wallet);
+        const feeAmount = requestedAmount * (fee.percent / 100);
+        const netAmount = Math.max(0, requestedAmount - feeAmount);
+        const id = crypto.randomUUID();
+        const checkoutUrl = `${PAYMENT_APP_URL}/pay/${id}`;
+
+        const result = await database.pool.query(
+            `INSERT INTO payment_requests
+             (id, user_id, recipient_wallet, display_name, title, description, amount, currency, token_address,
+              fee_tier, fee_percent, fee_amount, net_amount_to_creator, status, checkout_url)
+             VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13)
+             RETURNING *`,
+            [
+                id,
+                wallet.toLowerCase(),
+                displayName || '',
+                String(title).trim(),
+                description || '',
+                requestedAmount,
+                token.symbol,
+                token.address,
+                fee.tier,
+                fee.percent,
+                feeAmount,
+                netAmount,
+                checkoutUrl,
+            ]
+        );
+        res.json({ success: true, data: mapPaymentRequest(result.rows[0]) });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/payment-requests/:id', async (req, res) => {
+    try {
+        if (!database.pool) return res.status(503).json({ success: false, error: 'Database not ready' });
+        const result = await database.pool.query('SELECT * FROM payment_requests WHERE id = $1', [req.params.id]);
+        const request = mapPaymentRequest(result.rows[0]);
+        if (!request) return res.status(404).json({ success: false, error: 'Payment request not found' });
+        res.json({ success: true, data: request });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/payment-requests/user/:wallet', async (req, res) => {
+    try {
+        if (!database.pool) return res.status(503).json({ success: false, error: 'Database not ready' });
+        const result = await database.pool.query(
+            'SELECT * FROM payment_requests WHERE LOWER(user_id) = LOWER($1) ORDER BY created_at DESC LIMIT 50',
+            [req.params.wallet]
+        );
+        res.json({ success: true, data: result.rows.map(mapPaymentRequest) });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/payment-requests/:id/confirm', async (req, res) => {
+    try {
+        if (!database.pool) return res.status(503).json({ success: false, error: 'Database not ready' });
+        const { txHash, payerAddress, paymentMethod } = req.body;
+        if (!txHash) return res.status(400).json({ success: false, error: 'txHash required' });
+        const result = await markPaymentRequestPaid(req.params.id, txHash, payerAddress, paymentMethod || 'thirdweb_checkout', req.body, 'payment_confirmed');
+        if (!result.ok) return res.status(result.status || 400).json({ success: false, error: result.error });
+        res.json({ success: true, data: result.data });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/payment-webhooks/thirdweb', async (req, res) => {
+    try {
+        if (!database.pool) return res.status(503).json({ success: false, error: 'Database not ready' });
+        const verification = verifyThirdwebWebhook(req);
+        const verified = verification.verified;
+        const requestId = req.body?.request_id
+            || req.body?.metadata?.request_id
+            || req.body?.purchaseData?.request_id
+            || findNestedValue(req.body, ['request_id']);
+        const eventType = req.body?.type || req.body?.event || req.body?.eventType || 'thirdweb_webhook';
+        if (requestId) {
+            await database.pool.query(
+                `INSERT INTO payment_events (request_id, event_type, raw_payload, verified, verification_notes)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [requestId, eventType, JSON.stringify(req.body), verified, verification.notes]
+            );
+
+            if (verified) {
+                const webhookStatus = paymentWebhookStatus(req.body);
+                const txHash = findNestedValue(req.body, ['txHash', 'transactionHash', 'transaction_hash', 'hash']);
+                const payerAddress = findNestedValue(req.body, ['payerAddress', 'payer_address', 'buyerAddress', 'buyer_address', 'from']);
+
+                if (webhookStatus === 'paid' && txHash) {
+                    await markPaymentRequestPaid(requestId, txHash, payerAddress, 'thirdweb_webhook', req.body, 'thirdweb_payment_confirmed');
+                } else if (['failed', 'expired'].includes(webhookStatus)) {
+                    await database.pool.query(
+                        `UPDATE payment_requests
+                         SET status = $2, updated_at = NOW()
+                         WHERE id = $1 AND status <> 'paid'`,
+                        [requestId, webhookStatus]
+                    );
+                }
+            }
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 // ============================================

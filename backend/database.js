@@ -815,6 +815,8 @@ async function createTables() {
                 ends_at TIMESTAMP,
                 winner_wallet VARCHAR(42),
                 total_tickets INTEGER DEFAULT 0,
+                prize_sent_at TIMESTAMP,
+                payout_tx_hash VARCHAR(100),
                 unique_participants INTEGER DEFAULT 0,
                 total_points_committed INTEGER DEFAULT 0,
                 created_by VARCHAR(42),
@@ -854,6 +856,12 @@ async function createTables() {
                 END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='novelty_name') THEN
                     ALTER TABLE raffles ADD COLUMN novelty_name VARCHAR(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='prize_sent_at') THEN
+                    ALTER TABLE raffles ADD COLUMN prize_sent_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='raffles' AND column_name='payout_tx_hash') THEN
+                    ALTER TABLE raffles ADD COLUMN payout_tx_hash VARCHAR(100);
                 END IF;
             END $$;
         `);
@@ -993,6 +1001,102 @@ async function createTables() {
                 amy_balance DECIMAL(24, 8) DEFAULT 0,
                 last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+        `);
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+                wallet VARCHAR(42) PRIMARY KEY,
+                snapshot_data JSONB NOT NULL,
+                last_refreshed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_refreshed ON portfolio_snapshots(last_refreshed);
+
+            CREATE TABLE IF NOT EXISTS portfolio_scan_events (
+                id SERIAL PRIMARY KEY,
+                wallet VARCHAR(42),
+                trigger_source VARCHAR(32) NOT NULL DEFAULT 'user',
+                status VARCHAR(32) NOT NULL DEFAULT 'success',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_portfolio_scan_events_wallet_time ON portfolio_scan_events(LOWER(wallet), created_at);
+            CREATE INDEX IF NOT EXISTS idx_portfolio_scan_events_time ON portfolio_scan_events(created_at);
+
+            CREATE TABLE IF NOT EXISTS portfolio_price_cache (
+                cache_key TEXT PRIMARY KEY,
+                pool_url TEXT NOT NULL,
+                token_address VARCHAR(42) NOT NULL,
+                price_usd DECIMAL(30, 18) NOT NULL,
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_portfolio_price_cache_updated ON portfolio_price_cache(updated_at);
+        `);
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS payment_requests (
+                id UUID PRIMARY KEY,
+                user_id VARCHAR(42),
+                recipient_wallet VARCHAR(42) NOT NULL,
+                display_name VARCHAR(255),
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                amount DECIMAL(30, 8) NOT NULL,
+                currency VARCHAR(32) NOT NULL,
+                token_address VARCHAR(42),
+                fee_tier VARCHAR(32) DEFAULT 'standard',
+                fee_percent DECIMAL(8, 4) DEFAULT 1,
+                fee_amount DECIMAL(30, 8) DEFAULT 0,
+                net_amount_to_creator DECIMAL(30, 8) DEFAULT 0,
+                status VARCHAR(32) DEFAULT 'pending',
+                checkout_url TEXT,
+                thirdweb_checkout_id VARCHAR(255),
+                tx_hash VARCHAR(100),
+                payment_method VARCHAR(64),
+                payer_address VARCHAR(42),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                paid_at TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_payment_requests_user ON payment_requests(LOWER(user_id), created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_payment_requests_status ON payment_requests(status);
+
+            CREATE TABLE IF NOT EXISTS payment_events (
+                id SERIAL PRIMARY KEY,
+                request_id UUID REFERENCES payment_requests(id) ON DELETE CASCADE,
+                event_type VARCHAR(100) NOT NULL,
+                raw_payload JSONB,
+                verified BOOLEAN DEFAULT false,
+                verification_notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS pay_transactions (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(42),
+                sender_wallet VARCHAR(42) NOT NULL,
+                recipient_wallet VARCHAR(42) NOT NULL,
+                asset_type VARCHAR(16) DEFAULT 'token',
+                token_symbol VARCHAR(32),
+                token_address VARCHAR(42),
+                amount DECIMAL(30, 8),
+                nft_collection_address VARCHAR(42),
+                nft_token_id VARCHAR(100),
+                status VARCHAR(32) DEFAULT 'pending',
+                tx_hash VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_pay_transactions_sender ON pay_transactions(LOWER(sender_wallet), created_at DESC);
+        `);
+
+        await client.query(`
+            UPDATE payment_requests
+            SET net_amount_to_creator = GREATEST(amount - fee_amount, 0),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE fee_amount > 0
+              AND (net_amount_to_creator IS NULL OR net_amount_to_creator = amount);
         `);
 
         console.log('✅ Database tables created/verified');
