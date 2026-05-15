@@ -6,7 +6,7 @@ const BERACHAIN_ID = 80094;
 const CACHE_MS = 15 * 60 * 1000;
 const WALLET_DAILY_CAP = 50;
 const GLOBAL_HOURLY_CAP = 75;
-const PORTFOLIO_NORMALIZER_VERSION = 5;
+const PORTFOLIO_NORMALIZER_VERSION = 14;
 const DUST_DISPLAY_USD = 1;
 
 const RPC_URLS = (process.env.BERACHAIN_RPC_URLS || [
@@ -38,12 +38,52 @@ const VAULT_ABI = [
     ...ERC20_ABI,
     'function convertToAssets(uint256 shares) view returns (uint256)',
 ];
+const LP_NFPM_ABI = [
+    'function balanceOf(address owner) view returns (uint256)',
+    'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
+    'function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)',
+    'function collect((uint256 tokenId,address recipient,uint128 amount0Max,uint128 amount1Max)) returns (uint256 amount0,uint256 amount1)',
+];
+const KODIAK_NFPM_ABI = [
+    'function balanceOf(address owner) view returns (uint256)',
+    'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
+    'function positions(uint256 tokenId) view returns (uint88 nonce, address operator, address token0, address token1, address deployer, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)',
+    'function collect((uint256 tokenId,address recipient,uint128 amount0Max,uint128 amount1Max)) returns (uint256 amount0,uint256 amount1)',
+];
+const LP_POOL_ABI = [
+    'function globalState() view returns (uint160 price, int24 tick, uint16 lastFee, uint8 pluginConfig, uint16 communityFee, bool unlocked)',
+    'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
+    'function totalFeeGrowth0Token() view returns (uint256)',
+    'function totalFeeGrowth1Token() view returns (uint256)',
+    'function ticks(int24 tick) view returns (uint128 liquidityTotal, int128 liquidityDelta, uint256 outerFeeGrowth0Token, uint256 outerFeeGrowth1Token, int56 outerTickCumulative, uint160 outerSecondsPerLiquidity)',
+];
+const FARMING_CENTER_ABI = [
+    'function deposits(uint256 tokenId) view returns (uint256 L2TokenId, uint32 numberOfFarms, bool inLimitFarming, address owner)',
+    'event Deposit(uint256 indexed tokenId, address indexed owner)',
+];
 
 const AMY = {
     address: '0x098a75bAedDEc78f9A8D0830d6B86eAc5cC8894e',
     symbol: 'AMY',
     name: 'Amy',
     geckoPool: 'https://api.geckoterminal.com/api/v2/networks/berachain/pools/0xff716930eefb37b5b4ac55b1901dc5704b098d84',
+};
+const HONEY = {
+    address: '0xfcbd14dc51f0a4d49d5e53c2e0950e0bc26d0dce',
+    symbol: 'HONEY',
+};
+const USDT0 = {
+    address: '0x779ded0c9e1022225f8e0630b35a9b54be713736',
+    symbol: 'USDT0',
+};
+const BULLA_AMY_HONEY = {
+    pool: '0xff716930eefb37b5b4ac55b1901dc5704b098d84',
+    nfpm: '0xc228fbF18864B6e91d15abfcc2039f87a5F66741',
+    farmingCenter: '0x8dE1e590bdcBb65864e69dC2B5B020d9855E99A2',
+};
+const KODIAK_AMY_USDT0 = {
+    pool: '0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17',
+    nfpm: '0xFE5E8C83FFE4d9627A75EaA7Fee864768dB989bD',
 };
 
 const TOKEN_PRICE_POOLS = {
@@ -82,6 +122,8 @@ const KNOWN_TOKEN_METADATA = {
     'berachain:0x2206182a4264bce0663681448b24fc6781fc8e40': { symbol: 'BULLA', name: 'BULLA' },
     'berachain:0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34': { symbol: 'USDe', name: 'USDe' },
     'berachain:0x779ded0c9e1022225f8e0630b35a9b54be713736': { symbol: 'USDT0', name: 'USDt0' },
+    'berachain:0xc6173a3405fdb1f5c42004d2d71cba9bf1cfa522': { symbol: 'plsKDK', name: 'plsKDK' },
+    'berachain:0xc0d1ac00a30fa4e30e44afc7313d6312c87e21df': { symbol: 'KDK', name: 'Kodiak' },
     'berachain:0x656b95e550c07a9ffe548bd4085c72418ceb1dba': { symbol: 'BGT', name: 'Bera Governance Token' },
     'berachain:0x28602b1ae8ca0ff5cd01b96a36f88f72febe727a': { symbol: 'plvHEDGE', name: 'Plutus HEDGE Vault' },
     'base:eth': { symbol: 'ETH', name: 'Ethereum' },
@@ -165,6 +207,52 @@ function quantityNumber(value) {
 
 function cleanText(value) {
     return value === undefined || value === null ? '' : String(value).trim();
+}
+
+function canonicalProtocolName(name) {
+    return cleanText(name)
+        .replace(/\s*\(#\d+\)/g, '')
+        .replace(/\s*#\d+/g, '')
+        .replace(/USD₮0/g, 'USDT0')
+        .replace(/USDâ‚®0/g, 'USDT0')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getLiquidityAmounts(liquidity, tickLower, tickUpper, currentTick) {
+    const sqrtPriceLower = Math.sqrt(1.0001 ** tickLower);
+    const sqrtPriceUpper = Math.sqrt(1.0001 ** tickUpper);
+    const sqrtPriceCurrent = Math.sqrt(1.0001 ** currentTick);
+    let amount0 = 0;
+    let amount1 = 0;
+
+    if (currentTick < tickLower) {
+        amount0 = liquidity * (1 / sqrtPriceLower - 1 / sqrtPriceUpper);
+    } else if (currentTick >= tickUpper) {
+        amount1 = liquidity * (sqrtPriceUpper - sqrtPriceLower);
+    } else {
+        amount0 = liquidity * (1 / sqrtPriceCurrent - 1 / sqrtPriceUpper);
+        amount1 = liquidity * (sqrtPriceCurrent - sqrtPriceLower);
+    }
+
+    return { amount0, amount1 };
+}
+
+function subIn256(a, b) {
+    const two256 = ethers.BigNumber.from(2).pow(256);
+    return a.gte(b) ? a.sub(b) : two256.sub(b.sub(a));
+}
+
+function feeGrowthInside(globalGrowth, lowerOuter, upperOuter, currentTick, tickLower, tickUpper) {
+    const below = currentTick >= tickLower ? lowerOuter : subIn256(globalGrowth, lowerOuter);
+    const above = currentTick < tickUpper ? upperOuter : subIn256(globalGrowth, upperOuter);
+    return subIn256(subIn256(globalGrowth, below), above);
+}
+
+function feeAmountFromGrowth(liquidity, currentInside, lastInside, tokensOwed) {
+    const q128 = ethers.BigNumber.from(2).pow(128);
+    const delta = subIn256(currentInside, lastInside);
+    return ethers.BigNumber.from(liquidity).mul(delta).div(q128).add(tokensOwed || 0);
 }
 
 function parseZerionPositionId(positionId) {
@@ -347,22 +435,31 @@ class PortfolioService {
             this.fetchZerion(wallet).catch(e => ({ walletTokens: [], protocolPositions: [], warning: e.message })),
             this.getFallbackPrices(),
         ]);
-        let walletTokens = this.applyFallbackPrices(zerion.walletTokens, fallbackPrices);
-        let protocolPositions = this.applyFallbackPrices(zerion.protocolPositions, fallbackPrices);
+        let walletTokens = this.dedupeExactRows(this.applyFallbackPrices(zerion.walletTokens, fallbackPrices));
+        let protocolPositions = this.dedupeExactRows(this.applyFallbackPrices(zerion.protocolPositions, fallbackPrices));
         this.applyDuplicateRules(walletTokens, protocolPositions);
-        walletTokens = this.filterPortfolioRows(walletTokens).sort((a, b) => num(b.valueUsd) - num(a.valueUsd));
-        protocolPositions = this.groupProtocolPositions(protocolPositions);
-        protocolPositions = this.filterPortfolioRows(protocolPositions).sort((a, b) => num(b.valueUsd) - num(a.valueUsd));
-        const [amyPositions, collections] = await Promise.all([
+        const [rawAmyPositions, collections, plutusClaimables] = await Promise.all([
             this.fetchAmyOverlays(wallet),
             this.fetchNftCollections(wallet),
+            this.fetchPlutusClaimables(wallet).catch(() => new Map()),
         ]);
+        const amyPositions = this.normalizeAmyOverlaySections(rawAmyPositions, plutusClaimables);
+        walletTokens = this.removeAmyProtocolWalletRows(walletTokens);
+        protocolPositions = this.removeConfusingAmyProtocolRows(protocolPositions);
+        walletTokens = this.mergeAmyWalletRows(walletTokens, amyPositions.filter(row => row.portfolioSection === 'wallet'));
+        protocolPositions = [
+            ...protocolPositions,
+            ...amyPositions.filter(row => row.portfolioSection === 'protocol'),
+        ];
+        walletTokens = this.filterPortfolioRows(walletTokens).sort((a, b) => num(b.valueUsd) - num(a.valueUsd));
+        protocolPositions = this.groupProtocolPositions(protocolPositions);
+        protocolPositions = await this.enrichProtocolDetails(wallet, protocolPositions, fallbackPrices);
+        protocolPositions = this.filterPortfolioRows(protocolPositions).sort((a, b) => num(b.valueUsd) - num(a.valueUsd));
 
         const visibleWallet = walletTokens.filter(row => row.includeInTotal !== false);
         const walletValue = visibleWallet.reduce((sum, row) => sum + num(row.valueUsd), 0);
         const protocolValue = protocolPositions.reduce((sum, row) => sum + num(row.valueUsd), 0);
-        const amyOverlayValue = amyPositions.reduce((sum, row) => sum + num(row.valueUsd), 0);
-        const totalValue = walletValue + protocolValue + amyOverlayValue;
+        const totalValue = walletValue + protocolValue;
 
         return {
             normalizerVersion: PORTFOLIO_NORMALIZER_VERSION,
@@ -371,12 +468,12 @@ class PortfolioService {
                 totalValueUsd: totalValue,
                 walletValueUsd: walletValue,
                 protocolValueUsd: protocolValue,
-                amyOverlayValueUsd: amyOverlayValue,
+                amyOverlayValueUsd: 0,
                 nftValuePolicy: 'NFT quantities are tracked, but NFT USD values are not included.',
             },
             tokens: walletTokens,
             protocols: protocolPositions,
-            amyPositions,
+            amyPositions: [],
             collections,
             warnings: [zerion.warning].filter(Boolean),
         };
@@ -445,6 +542,7 @@ class PortfolioService {
             tokenAddress,
             imageUrl: a.fungible_info?.icon?.url || a.fungible_info?.icon_url || a.fungible_info?.image_url || nestedValue(a.fungible_info, ['url', 'icon_url', 'image_url']) || '',
             appName: a.protocol?.name || app.id || '',
+            positionType: idParts.type,
             includeInTotal: true,
             source: 'zerion',
         };
@@ -488,19 +586,41 @@ class PortfolioService {
         });
     }
 
+    dedupeExactRows(rows) {
+        const seen = new Set();
+        return rows.filter(row => {
+            const key = [
+                row.id,
+                row.type,
+                row.chain,
+                row.appName,
+                row.tokenAddress,
+                row.symbol,
+                Number(num(row.quantity).toPrecision(15)),
+                Number(num(row.priceUsd).toPrecision(15)),
+                Number(num(row.valueUsd).toPrecision(15)),
+            ].map(value => String(value || '').toLowerCase()).join('|');
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
     groupProtocolPositions(rows) {
         const groups = new Map();
         for (const row of rows) {
+            const groupName = canonicalProtocolName(row.name || row.id);
             const key = [
                 String(row.chain || '').toLowerCase(),
                 String(row.appName || '').toLowerCase(),
-                String(row.name || row.id || '').toLowerCase(),
+                String(groupName || row.id || '').toLowerCase(),
             ].join('|');
 
             if (!groups.has(key)) {
                 groups.set(key, {
                     ...row,
                     id: `protocol:${key}`,
+                    name: groupName || row.name,
                     quantity: 0,
                     priceUsd: 0,
                     valueUsd: 0,
@@ -514,6 +634,8 @@ class PortfolioService {
 
             const group = groups.get(key);
             group.valueUsd += num(row.valueUsd);
+            group.quantity += num(row.quantity);
+            group.priceUsd = group.quantity > 0 ? group.valueUsd / group.quantity : 0;
 
             const symbol = String(row.symbol || '').trim();
             const imageUrl = String(row.imageUrl || '').trim();
@@ -525,6 +647,8 @@ class PortfolioService {
                 valueUsd: num(row.valueUsd),
                 imageUrl,
                 tokenAddress: row.tokenAddress,
+                positionType: row.positionType,
+                id: row.id,
             };
             group.components.push(component);
 
@@ -536,7 +660,42 @@ class PortfolioService {
             group.imageUrl = group.imageUrls[0] || '';
         }
 
-        return [...groups.values()];
+        return [...groups.values()].map(group => this.applyGenericProtocolDetails(group));
+    }
+
+    applyGenericProtocolDetails(group) {
+        const rewardComponents = (group.components || []).filter(component => {
+            const positionType = String(component.positionType || '').toLowerCase();
+            return ['reward', 'rewards', 'claimable', 'fee', 'fees'].includes(positionType)
+                || String(component.id || '').toLowerCase().endsWith('-reward');
+        });
+        if (!rewardComponents.length) return group;
+
+        const claimableFeesUsd = rewardComponents.reduce((sum, component) => sum + num(component.valueUsd), 0);
+        const claimableFees = rewardComponents
+            .filter(component => num(component.valueUsd) > 0 || num(component.quantity) > 0)
+            .map(component => ({
+                symbol: component.symbol,
+                name: component.name,
+                quantity: num(component.quantity),
+                priceUsd: num(component.priceUsd),
+                valueUsd: num(component.valueUsd),
+                imageUrl: component.imageUrl,
+                tokenAddress: component.tokenAddress,
+            }));
+        const nonRewardComponents = (group.components || []).filter(component => !rewardComponents.includes(component));
+
+        return {
+            ...group,
+            components: nonRewardComponents.length ? nonRewardComponents : group.components,
+            details: {
+                ...(group.details || {}),
+                type: group.details?.type || 'protocol',
+                claimableFeesUsd,
+                claimableFees,
+                claimableSource: 'zerion',
+            },
+        };
     }
 
     applyDuplicateRules(walletTokens, protocolRows) {
@@ -577,6 +736,371 @@ class PortfolioService {
                 row.includeInTotal = false;
                 row.duplicateReason = 'Receipt token represented by protocol position';
             }
+        }
+    }
+
+    amyAssetKey(row) {
+        const haystack = `${row?.id || ''} ${row?.name || ''} ${row?.symbol || ''} ${row?.tokenAddress || ''}`.toLowerCase();
+        if (haystack.includes('plvhedge') || haystack.includes('plutus hedge')) return 'plvhedge';
+        if (haystack.includes('plsbera')) return 'plsbera';
+        if (haystack.includes('plskdk')) return 'plskdk';
+        if (haystack.includes('snrusd')) return 'snrusd';
+        if (haystack.includes('jnrusd')) return 'jnrusd';
+        return '';
+    }
+
+    removeAmyProtocolWalletRows(walletTokens) {
+        return walletTokens.filter(row => {
+            const key = this.amyAssetKey(row);
+            return !['plsbera', 'plskdk', 'snrusd', 'jnrusd'].includes(key);
+        });
+    }
+
+    removeConfusingAmyProtocolRows(protocolRows) {
+        return protocolRows.filter(row => {
+            const haystack = `${row?.name || ''} ${row?.symbol || ''} ${row?.appName || ''} ${row?.tokenAddress || ''}`.toLowerCase();
+            return !(haystack.includes('plutus hedge') || haystack.includes('plvhedge'));
+        });
+    }
+
+    mergeAmyWalletRows(walletTokens, amyWalletRows) {
+        const existingKeys = new Set(walletTokens.map(row => this.amyAssetKey(row)).filter(Boolean));
+        const additions = amyWalletRows.filter(row => !existingKeys.has(this.amyAssetKey(row)));
+        return [...walletTokens, ...additions];
+    }
+
+    normalizeAmyOverlaySections(rows, plutusClaimables = new Map()) {
+        const grouped = new Map();
+        const singles = [];
+
+        for (const row of rows || []) {
+            const key = this.amyAssetKey(row);
+            if (key === 'plvhedge') {
+                singles.push({
+                    ...row,
+                    type: 'wallet',
+                    name: 'plvHEDGE',
+                    symbol: 'plvHEDGE',
+                    portfolioSection: 'wallet',
+                    source: 'amy_edge_case',
+                });
+                continue;
+            }
+            if (!['plsbera', 'plskdk'].includes(key)) {
+                singles.push({
+                    ...row,
+                    type: 'protocol',
+                    portfolioSection: 'protocol',
+                    source: 'amy_edge_case',
+                });
+                continue;
+            }
+
+            const label = key === 'plsbera' ? 'plsBERA' : 'plsKDK';
+            const claimableDetails = plutusClaimables.get(key);
+            const current = grouped.get(key) || {
+                ...row,
+                id: key,
+                type: 'protocol',
+                name: label,
+                symbol: label,
+                quantity: 0,
+                valueUsd: 0,
+                priceUsd: 0,
+                imageUrl: this.localTokenImage(label),
+                tokenAddress: row.tokenAddress,
+                portfolioSection: 'protocol',
+                source: 'amy_edge_case',
+                details: claimableDetails || row.details,
+            };
+            current.quantity += num(row.quantity);
+            current.valueUsd += num(row.valueUsd);
+            current.priceUsd = current.quantity > 0 ? current.valueUsd / current.quantity : num(row.priceUsd);
+            grouped.set(key, current);
+        }
+
+        return [...singles, ...grouped.values()];
+    }
+
+    async enrichProtocolDetails(wallet, protocolRows, fallbackPrices) {
+        const [bullaDetails, kodiakDetails] = await Promise.all([
+            this.fetchBullaAmyHoneyDetails(wallet, fallbackPrices).catch(() => null),
+            this.fetchKodiakAmyUsdt0Details(wallet, fallbackPrices).catch(() => null),
+        ]);
+        let addedBullaAmyHoney = false;
+        let addedKodiakAmyUsdt0 = false;
+        const enrichedRows = [];
+
+        for (const row of protocolRows) {
+            const haystack = `${row.name || ''} ${row.symbol || ''} ${row.appName || ''}`.toLowerCase();
+            const isBullaAmyHoney = haystack.includes('amy') && haystack.includes('honey') && (haystack.includes('bulla') || haystack.includes('pool'));
+            if (isBullaAmyHoney && bullaDetails) {
+                if (addedBullaAmyHoney) continue;
+                addedBullaAmyHoney = true;
+                enrichedRows.push({
+                    ...row,
+                    name: 'Bulla AMY/HONEY Pool',
+                    symbol: 'AMY/HONEY',
+                    valueUsd: bullaDetails.valueUsd || row.valueUsd,
+                    components: bullaDetails.components,
+                    imageUrls: bullaDetails.imageUrls,
+                    imageUrl: bullaDetails.imageUrl,
+                    details: bullaDetails.details,
+                });
+                continue;
+            }
+
+            const normalized = haystack.replace(/usd₮0/g, 'usdt0').replace(/usdto/g, 'usdt0');
+            const isKodiakAmyUsdt0 = normalized.includes('amy') && normalized.includes('usdt0') && (normalized.includes('kodiak') || normalized.includes('pool'));
+            if (isKodiakAmyUsdt0 && kodiakDetails) {
+                if (addedKodiakAmyUsdt0) continue;
+                addedKodiakAmyUsdt0 = true;
+                enrichedRows.push({
+                    ...row,
+                    name: 'Kodiak AMY/USDT0 Pool',
+                    symbol: 'AMY/USDT0',
+                    valueUsd: kodiakDetails.valueUsd || row.valueUsd,
+                    components: kodiakDetails.components,
+                    imageUrls: kodiakDetails.imageUrls,
+                    imageUrl: kodiakDetails.imageUrl,
+                    details: kodiakDetails.details,
+                });
+                continue;
+            }
+
+            enrichedRows.push(row);
+        }
+
+        return enrichedRows;
+    }
+
+    async fetchBullaAmyHoneyDetails(wallet, fallbackPrices) {
+        return this.withProvider(async provider => {
+            const nfpm = new ethers.Contract(BULLA_AMY_HONEY.nfpm, LP_NFPM_ABI, provider);
+            const pool = new ethers.Contract(BULLA_AMY_HONEY.pool, LP_POOL_ABI, provider);
+            const farmingCenter = new ethers.Contract(BULLA_AMY_HONEY.farmingCenter, FARMING_CENTER_ABI, provider);
+            const currentTick = await this.getPoolTick(pool);
+            const amyPrice = fallbackPrices.get(AMY.address.toLowerCase()) || 0;
+
+            const tokenIds = new Set();
+            const nftBalance = await nfpm.balanceOf(wallet);
+            for (let i = 0; i < nftBalance.toNumber(); i++) {
+                const tokenId = await nfpm.tokenOfOwnerByIndex(wallet, i).catch(() => null);
+                if (tokenId) tokenIds.add(tokenId.toString());
+            }
+
+            const currentBlock = await provider.getBlockNumber();
+            const fromBlock = Math.max(0, currentBlock - 9900);
+            const events = await farmingCenter.queryFilter(farmingCenter.filters.Deposit(null, wallet), fromBlock, currentBlock).catch(() => []);
+            for (const event of events) {
+                const tokenId = event.args?.tokenId;
+                if (!tokenId) continue;
+                const deposit = await farmingCenter.deposits(tokenId).catch(() => null);
+                if (deposit?.owner?.toLowerCase() === wallet.toLowerCase()) tokenIds.add(tokenId.toString());
+            }
+
+            let amyAmount = 0;
+            let honeyAmount = 0;
+            let amyFees = 0;
+            let honeyFees = 0;
+            let valueUsd = 0;
+            let inRangePositions = 0;
+            let outOfRangePositions = 0;
+            const positionIds = [];
+
+            for (const tokenId of tokenIds) {
+                const position = await nfpm.positions(tokenId).catch(() => null);
+                if (!position || !position.token0 || !position.token1 || position.liquidity.isZero()) continue;
+                const token0 = position.token0.toLowerCase();
+                const token1 = position.token1.toLowerCase();
+                const isAmyHoney = (token0 === AMY.address.toLowerCase() && token1 === HONEY.address.toLowerCase())
+                    || (token0 === HONEY.address.toLowerCase() && token1 === AMY.address.toLowerCase());
+                if (!isAmyHoney) continue;
+
+                positionIds.push(tokenId);
+                const inRange = currentTick >= Number(position.tickLower) && currentTick < Number(position.tickUpper);
+                if (inRange) inRangePositions += 1;
+                else outOfRangePositions += 1;
+
+                const amounts = getLiquidityAmounts(Number(position.liquidity.toString()), Number(position.tickLower), Number(position.tickUpper), currentTick);
+                const amount0 = amounts.amount0 / 1e18;
+                const amount1 = amounts.amount1 / 1e18;
+                const fees = await this.getBullaPositionFees(nfpm, position, tokenId, wallet).catch(() => ({
+                    fee0: position.tokensOwed0 || ethers.BigNumber.from(0),
+                    fee1: position.tokensOwed1 || ethers.BigNumber.from(0),
+                }));
+                const owed0 = Number(ethers.utils.formatUnits(fees.fee0 || 0, 18));
+                const owed1 = Number(ethers.utils.formatUnits(fees.fee1 || 0, 18));
+
+                if (token0 === AMY.address.toLowerCase()) {
+                    amyAmount += amount0;
+                    honeyAmount += amount1;
+                    amyFees += owed0;
+                    honeyFees += owed1;
+                } else {
+                    honeyAmount += amount0;
+                    amyAmount += amount1;
+                    honeyFees += owed0;
+                    amyFees += owed1;
+                }
+            }
+
+            valueUsd = (amyAmount * amyPrice) + honeyAmount;
+            if (!(valueUsd > 0)) return null;
+
+            const amyValue = amyAmount * amyPrice;
+            const honeyValue = honeyAmount;
+            const claimableFeesUsd = (amyFees * amyPrice) + honeyFees;
+            return {
+                valueUsd,
+                imageUrl: '/image/amy_honey.png',
+                imageUrls: ['/pro.jpg', '/honey.png'],
+                components: [
+                    { symbol: 'AMY', name: 'AMY', quantity: amyAmount, priceUsd: amyPrice, valueUsd: amyValue, imageUrl: '/pro.jpg' },
+                    { symbol: 'HONEY', name: 'HONEY', quantity: honeyAmount, priceUsd: 1, valueUsd: honeyValue, imageUrl: '/honey.png' },
+                ],
+                details: {
+                    type: 'lp',
+                    claimableFeesUsd,
+                    claimableFees: [
+                        { symbol: 'AMY', quantity: amyFees, priceUsd: amyPrice, valueUsd: amyFees * amyPrice },
+                        { symbol: 'HONEY', quantity: honeyFees, priceUsd: 1, valueUsd: honeyFees },
+                    ],
+                    rangeStatus: inRangePositions > 0 ? 'In Range' : 'Out of Range',
+                    positionsFound: inRangePositions + outOfRangePositions,
+                    inRangePositions,
+                    outOfRangePositions,
+                    manageUrl: positionIds[0] ? `https://www.bulla.exchange/positions/${positionIds[0]}` : 'https://www.bulla.exchange/pools',
+                    positionIds,
+                },
+            };
+        });
+    }
+
+    async fetchKodiakAmyUsdt0Details(wallet, fallbackPrices) {
+        return this.withProvider(async provider => {
+            const nfpm = new ethers.Contract(KODIAK_AMY_USDT0.nfpm, KODIAK_NFPM_ABI, provider);
+            const pool = new ethers.Contract(KODIAK_AMY_USDT0.pool, LP_POOL_ABI, provider);
+            const currentTick = await this.getPoolTick(pool);
+            const amyPrice = fallbackPrices.get(AMY.address.toLowerCase()) || 0;
+
+            const tokenIds = new Set();
+            const nftBalance = await nfpm.balanceOf(wallet);
+            for (let i = 0; i < nftBalance.toNumber(); i++) {
+                const tokenId = await nfpm.tokenOfOwnerByIndex(wallet, i).catch(() => null);
+                if (tokenId) tokenIds.add(tokenId.toString());
+            }
+
+            let amyAmount = 0;
+            let usdt0Amount = 0;
+            let amyFees = 0;
+            let usdt0Fees = 0;
+            let inRangePositions = 0;
+            let outOfRangePositions = 0;
+            const positionIds = [];
+
+            for (const tokenId of tokenIds) {
+                const position = await nfpm.positions(tokenId).catch(() => null);
+                if (!position || !position.token0 || !position.token1) continue;
+                const token0 = position.token0.toLowerCase();
+                const token1 = position.token1.toLowerCase();
+                const isAmyUsdt0 = (token0 === AMY.address.toLowerCase() && token1 === USDT0.address.toLowerCase())
+                    || (token0 === USDT0.address.toLowerCase() && token1 === AMY.address.toLowerCase());
+                if (!isAmyUsdt0) continue;
+
+                const fees = await this.getBullaPositionFees(nfpm, position, tokenId, wallet).catch(() => ({
+                    fee0: position.tokensOwed0 || ethers.BigNumber.from(0),
+                    fee1: position.tokensOwed1 || ethers.BigNumber.from(0),
+                }));
+                const hasLiquidity = !position.liquidity.isZero();
+                const hasFees = !(fees.fee0 || ethers.BigNumber.from(0)).isZero() || !(fees.fee1 || ethers.BigNumber.from(0)).isZero();
+                if (!hasLiquidity && !hasFees) continue;
+
+                positionIds.push(tokenId);
+                if (hasLiquidity) {
+                    const inRange = currentTick >= Number(position.tickLower) && currentTick < Number(position.tickUpper);
+                    if (inRange) inRangePositions += 1;
+                    else outOfRangePositions += 1;
+                }
+
+                if (hasLiquidity) {
+                    const amounts = getLiquidityAmounts(Number(position.liquidity.toString()), Number(position.tickLower), Number(position.tickUpper), currentTick);
+                    const amount0 = amounts.amount0 / (token0 === USDT0.address.toLowerCase() ? 1e6 : 1e18);
+                    const amount1 = amounts.amount1 / (token1 === USDT0.address.toLowerCase() ? 1e6 : 1e18);
+                    if (token0 === AMY.address.toLowerCase()) {
+                        amyAmount += amount0;
+                        usdt0Amount += amount1;
+                    } else {
+                        usdt0Amount += amount0;
+                        amyAmount += amount1;
+                    }
+                }
+
+                const owed0 = Number(ethers.utils.formatUnits(fees.fee0 || 0, token0 === USDT0.address.toLowerCase() ? 6 : 18));
+                const owed1 = Number(ethers.utils.formatUnits(fees.fee1 || 0, token1 === USDT0.address.toLowerCase() ? 6 : 18));
+                if (token0 === AMY.address.toLowerCase()) {
+                    amyFees += owed0;
+                    usdt0Fees += owed1;
+                } else {
+                    usdt0Fees += owed0;
+                    amyFees += owed1;
+                }
+            }
+
+            const valueUsd = (amyAmount * amyPrice) + usdt0Amount;
+            if (!(valueUsd > 0) && positionIds.length === 0) return null;
+
+            const amyValue = amyAmount * amyPrice;
+            const usdt0Value = usdt0Amount;
+            const claimableFeesUsd = (amyFees * amyPrice) + usdt0Fees;
+            return {
+                valueUsd,
+                imageUrl: '/image/amy_usdto.png',
+                imageUrls: ['/pro.jpg', '/usdt0.png'],
+                components: [
+                    { symbol: 'AMY', name: 'AMY', quantity: amyAmount, priceUsd: amyPrice, valueUsd: amyValue, imageUrl: '/pro.jpg' },
+                    { symbol: 'USDT0', name: 'USDT0', quantity: usdt0Amount, priceUsd: 1, valueUsd: usdt0Value, imageUrl: '/usdt0.png' },
+                ],
+                details: {
+                    type: 'lp',
+                    claimableFeesUsd,
+                    claimableFees: [
+                        { symbol: 'AMY', quantity: amyFees, priceUsd: amyPrice, valueUsd: amyFees * amyPrice },
+                        { symbol: 'USDT0', quantity: usdt0Fees, priceUsd: 1, valueUsd: usdt0Fees },
+                    ],
+                    rangeStatus: inRangePositions > 0 ? 'In Range' : 'Out of Range',
+                    positionsFound: inRangePositions + outOfRangePositions,
+                    inRangePositions,
+                    outOfRangePositions,
+                    manageUrl: 'https://app.kodiak.finance/#/explore/v3/pools/0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17?chain=berachain_mainnet',
+                    positionIds,
+                },
+            };
+        });
+    }
+
+    async getBullaPositionFees(nfpm, position, tokenId, wallet) {
+        const maxUint128 = ethers.BigNumber.from(2).pow(128).sub(1);
+        const collectParams = {
+            tokenId,
+            recipient: wallet,
+            amount0Max: maxUint128,
+            amount1Max: maxUint128,
+        };
+        const collected = await nfpm.callStatic.collect(collectParams, { from: wallet });
+        return {
+            fee0: collected.amount0 || collected[0] || position.tokensOwed0 || ethers.BigNumber.from(0),
+            fee1: collected.amount1 || collected[1] || position.tokensOwed1 || ethers.BigNumber.from(0),
+        };
+    }
+
+    async getPoolTick(pool) {
+        try {
+            const state = await pool.globalState();
+            return Number(state.tick);
+        } catch {
+            const slot0 = await pool.slot0();
+            return Number(slot0.tick);
         }
     }
 
@@ -641,6 +1165,56 @@ class PortfolioService {
             if (row) rows.push(row);
         }
         return rows;
+    }
+
+    async fetchPlutusClaimables(wallet) {
+        const url = `https://plutus.fi/api/user/${wallet}/80094`;
+        const res = await axios.get(url, { timeout: 20000, headers: { accept: 'application/json' } });
+        const assets = Array.isArray(res.data?.assets) ? res.data.assets : [];
+        const assetMap = new Map(assets.map(asset => [String(asset.id || '').toLowerCase(), asset]));
+        const targetMap = new Map([
+            ['plsbera', '0xe8beb147a93bb757db15e468fabd119ca087efae'],
+            ['plskdk', '0x9e6b748d25ed2600aa0ce7cbb42267adcf21fd9b'],
+        ]);
+        const details = new Map();
+
+        for (const [key, stakingAddress] of targetMap.entries()) {
+            const stakingAsset = assetMap.get(stakingAddress);
+            const claimables = Array.isArray(stakingAsset?.claimables) ? stakingAsset.claimables : [];
+            const parsed = claimables
+                .map(item => this.parsePlutusClaimable(item, assetMap))
+                .filter(Boolean);
+            const claimableFeesUsd = parsed.reduce((sum, item) => sum + num(item.valueUsd), 0);
+            details.set(key, {
+                type: 'protocol',
+                claimableFeesUsd,
+                claimableFees: parsed,
+                claimableSource: 'plutus',
+                rewardsLabel: 'Claimable rewards',
+            });
+        }
+
+        return details;
+    }
+
+    parsePlutusClaimable(item, assetMap) {
+        const address = String(item?.id?.asset || '').toLowerCase();
+        if (!address) return null;
+        const asset = assetMap.get(address) || {};
+        const known = KNOWN_TOKEN_METADATA[`berachain:${address}`] || {};
+        const decimals = Number(asset.decimals ?? 18);
+        const quantity = Number(ethers.utils.formatUnits(String(item.amount || '0'), decimals));
+        const priceUsd = num(asset.priceUSD);
+        const symbol = cleanText(known.symbol || asset.displayName || 'Asset');
+        return {
+            symbol,
+            name: cleanText(known.name || asset.displayName || symbol),
+            quantity,
+            priceUsd,
+            valueUsd: quantity * priceUsd,
+            imageUrl: this.localTokenImage(symbol),
+            tokenAddress: address,
+        };
     }
 
     async fetchTokenOverlay(wallet, token) {
@@ -817,6 +1391,7 @@ class PortfolioService {
         if (key.includes('PLSBERA')) return '/plsbera.png';
         if (key.includes('PLSKDK')) return '/plskdk.png';
         if (key.includes('PLVHEDGE')) return '/plvhedge.png';
+        if (key === 'HONEY') return '/honey.png';
         if (key.includes('SNRUSD')) return '/snr.png';
         if (key.includes('JNRUSD')) return '/jnr.png';
         return '';
