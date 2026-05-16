@@ -6,7 +6,7 @@ const BERACHAIN_ID = 80094;
 const CACHE_MS = 15 * 60 * 1000;
 const WALLET_DAILY_CAP = 50;
 const GLOBAL_HOURLY_CAP = 75;
-const PORTFOLIO_NORMALIZER_VERSION = 14;
+const PORTFOLIO_NORMALIZER_VERSION = 15;
 const DUST_DISPLAY_USD = 1;
 
 const RPC_URLS = (process.env.BERACHAIN_RPC_URLS || [
@@ -211,12 +211,15 @@ function cleanText(value) {
 
 function canonicalProtocolName(name) {
     return cleanText(name)
-        .replace(/\s*\(#\d+\)/g, '')
-        .replace(/\s*#\d+/g, '')
         .replace(/USD₮0/g, 'USDT0')
         .replace(/USDâ‚®0/g, 'USDT0')
         .replace(/\s+/g, ' ')
         .trim();
+}
+
+function extractPositionIdFromText(value) {
+    const match = cleanText(value).match(/#(\d+)/);
+    return match ? match[1] : '';
 }
 
 function getLiquidityAmounts(liquidity, tickLower, tickUpper, currentTick) {
@@ -828,7 +831,6 @@ class PortfolioService {
             this.fetchKodiakAmyUsdt0Details(wallet, fallbackPrices).catch(() => null),
         ]);
         let addedBullaAmyHoney = false;
-        let addedKodiakAmyUsdt0 = false;
         const enrichedRows = [];
 
         for (const row of protocolRows) {
@@ -851,19 +853,20 @@ class PortfolioService {
             }
 
             const normalized = haystack.replace(/usd₮0/g, 'usdt0').replace(/usdto/g, 'usdt0');
-            const isKodiakAmyUsdt0 = normalized.includes('amy') && normalized.includes('usdt0') && (normalized.includes('kodiak') || normalized.includes('pool'));
+            const isKodiakAmyUsdt0 = normalized.includes('amy') && (normalized.includes('usdt0') || normalized.includes('usd')) && (normalized.includes('kodiak') || normalized.includes('pool'));
             if (isKodiakAmyUsdt0 && kodiakDetails) {
-                if (addedKodiakAmyUsdt0) continue;
-                addedKodiakAmyUsdt0 = true;
+                const positionId = this.rowPositionId(row);
+                const rowDetails = positionId && kodiakDetails.positionsById ? kodiakDetails.positionsById[positionId] : null;
+                const details = rowDetails || kodiakDetails;
                 enrichedRows.push({
                     ...row,
-                    name: 'Kodiak AMY/USDT0 Pool',
+                    name: positionId ? `Kodiak AMY/USDT0 Pool (#${positionId})` : 'Kodiak AMY/USDT0 Pool',
                     symbol: 'AMY/USDT0',
-                    valueUsd: kodiakDetails.valueUsd || row.valueUsd,
-                    components: kodiakDetails.components,
-                    imageUrls: kodiakDetails.imageUrls,
-                    imageUrl: kodiakDetails.imageUrl,
-                    details: kodiakDetails.details,
+                    valueUsd: details.valueUsd || row.valueUsd,
+                    components: details.components,
+                    imageUrls: details.imageUrls,
+                    imageUrl: details.imageUrl,
+                    details: details.details,
                 });
                 continue;
             }
@@ -872,6 +875,18 @@ class PortfolioService {
         }
 
         return enrichedRows;
+    }
+
+    rowPositionId(row) {
+        const direct = extractPositionIdFromText(row?.name);
+        if (direct) return direct;
+        for (const component of row?.components || []) {
+            const fromName = extractPositionIdFromText(component?.name);
+            if (fromName) return fromName;
+            const fromId = extractPositionIdFromText(component?.id);
+            if (fromId) return fromId;
+        }
+        return '';
     }
 
     async fetchBullaAmyHoneyDetails(wallet, fallbackPrices) {
@@ -998,6 +1013,7 @@ class PortfolioService {
             let inRangePositions = 0;
             let outOfRangePositions = 0;
             const positionIds = [];
+            const positionsById = {};
 
             for (const tokenId of tokenIds) {
                 const position = await nfpm.positions(tokenId).catch(() => null);
@@ -1017,9 +1033,12 @@ class PortfolioService {
                 if (!hasLiquidity && !hasFees) continue;
 
                 positionIds.push(tokenId);
+                let positionAmyAmount = 0;
+                let positionUsdt0Amount = 0;
+                let positionInRange = false;
                 if (hasLiquidity) {
-                    const inRange = currentTick >= Number(position.tickLower) && currentTick < Number(position.tickUpper);
-                    if (inRange) inRangePositions += 1;
+                    positionInRange = currentTick >= Number(position.tickLower) && currentTick < Number(position.tickUpper);
+                    if (positionInRange) inRangePositions += 1;
                     else outOfRangePositions += 1;
                 }
 
@@ -1030,21 +1049,58 @@ class PortfolioService {
                     if (token0 === AMY.address.toLowerCase()) {
                         amyAmount += amount0;
                         usdt0Amount += amount1;
+                        positionAmyAmount += amount0;
+                        positionUsdt0Amount += amount1;
                     } else {
                         usdt0Amount += amount0;
                         amyAmount += amount1;
+                        positionUsdt0Amount += amount0;
+                        positionAmyAmount += amount1;
                     }
                 }
 
                 const owed0 = Number(ethers.utils.formatUnits(fees.fee0 || 0, token0 === USDT0.address.toLowerCase() ? 6 : 18));
                 const owed1 = Number(ethers.utils.formatUnits(fees.fee1 || 0, token1 === USDT0.address.toLowerCase() ? 6 : 18));
+                let positionAmyFees = 0;
+                let positionUsdt0Fees = 0;
                 if (token0 === AMY.address.toLowerCase()) {
                     amyFees += owed0;
                     usdt0Fees += owed1;
+                    positionAmyFees += owed0;
+                    positionUsdt0Fees += owed1;
                 } else {
                     usdt0Fees += owed0;
                     amyFees += owed1;
+                    positionUsdt0Fees += owed0;
+                    positionAmyFees += owed1;
                 }
+                const positionAmyValue = positionAmyAmount * amyPrice;
+                const positionUsdt0Value = positionUsdt0Amount;
+                const positionValueUsd = positionAmyValue + positionUsdt0Value;
+                const positionClaimableFeesUsd = (positionAmyFees * amyPrice) + positionUsdt0Fees;
+                positionsById[tokenId] = {
+                    valueUsd: positionValueUsd,
+                    imageUrl: '/image/amy_usdto.png',
+                    imageUrls: ['/pro.jpg', '/usdt0.png'],
+                    components: [
+                        { symbol: 'AMY', name: 'AMY', quantity: positionAmyAmount, priceUsd: amyPrice, valueUsd: positionAmyValue, imageUrl: '/pro.jpg' },
+                        { symbol: 'USDT0', name: 'USDT0', quantity: positionUsdt0Amount, priceUsd: 1, valueUsd: positionUsdt0Value, imageUrl: '/usdt0.png' },
+                    ],
+                    details: {
+                        type: 'lp',
+                        claimableFeesUsd: positionClaimableFeesUsd,
+                        claimableFees: [
+                            { symbol: 'AMY', quantity: positionAmyFees, priceUsd: amyPrice, valueUsd: positionAmyFees * amyPrice },
+                            { symbol: 'USDT0', quantity: positionUsdt0Fees, priceUsd: 1, valueUsd: positionUsdt0Fees },
+                        ],
+                        rangeStatus: hasLiquidity ? (positionInRange ? 'In Range' : 'Out of Range') : 'Out of Range',
+                        positionsFound: 1,
+                        inRangePositions: positionInRange ? 1 : 0,
+                        outOfRangePositions: positionInRange ? 0 : 1,
+                        manageUrl: 'https://app.kodiak.finance/#/explore/v3/pools/0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17?chain=berachain_mainnet',
+                        positionIds: [tokenId],
+                    },
+                };
             }
 
             const valueUsd = (amyAmount * amyPrice) + usdt0Amount;
@@ -1075,6 +1131,7 @@ class PortfolioService {
                     manageUrl: 'https://app.kodiak.finance/#/explore/v3/pools/0xed1bb27281a8bbf296270ed5bb08acf7ecab5c17?chain=berachain_mainnet',
                     positionIds,
                 },
+                positionsById,
             };
         });
     }
